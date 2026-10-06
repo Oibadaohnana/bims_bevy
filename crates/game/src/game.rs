@@ -933,6 +933,16 @@ pub struct Game {
     /// the world every step, so left out of a save.
     #[cfg_attr(feature = "serde", serde(skip))]
     told: bool,
+    /// Where the world says each of the room's targets stands, seen or
+    /// not — index for index with `set_hostiles`, `None` for one down —
+    /// and the same for the machines' own list (`set_machine_hostiles`).
+    /// What a Husk that has struck one down hunts by (`Droid::blooded`,
+    /// `Game::hunt_on`); nobody aims at it. Said again by the world every
+    /// step, so left out of a save.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    whereabouts: Vec<Option<Vec2>>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    machine_whereabouts: Vec<Option<Vec2>>,
     /// How far the window's clock is between the last step and the next,
     /// nought to one: the bodies are drawn that far from where they stood
     /// before the last step (`Character::was`, `Droid::was`) to where they
@@ -1115,6 +1125,8 @@ impl Game {
             players: 1,
             viewer: 0,
             told: false,
+            whereabouts: Vec::new(),
+            machine_whereabouts: Vec::new(),
             blend: None,
             step_dt: 0.0,
         };
@@ -2603,7 +2615,22 @@ impl Game {
                 self.tick_structure(i, dt, war);
                 continue;
             }
-            if !war {
+            // A claw whose prey went off the list since the step before
+            // — struck down — has drawn blood, and hunts on after the
+            // rest (`Droid::blooded`), war or no war: with the one it
+            // downed gone its side may see nobody else.
+            if stats.melee
+                && let Some(prey) = self.droids[i].locked
+                && self
+                    .combat
+                    .machine_targets()
+                    .get(prey)
+                    .is_none_or(Option::is_none)
+            {
+                self.droids[i].blooded = true;
+            }
+            let hunting = stats.melee && self.droids[i].blooded && self.has_prey_left();
+            if !war && !hunting {
                 // Nothing to fight: it stands where it was posted.
                 self.droids[i].trigger.hold();
                 self.droids[i].locked = None;
@@ -3075,6 +3102,19 @@ impl Game {
             }
             return;
         }
+        // **A Husk that has struck one down goes for the next**
+        // (`Droid::blooded`): with nobody in sight it makes for the
+        // nearest of the rest where they really are.
+        if stats.melee
+            && nobody_in_sight
+            && self.droids[i].blooded
+            && let Some(route) = self.hunt_on(i)
+        {
+            if !route.is_empty() {
+                self.droids[i].follow_path(route);
+            }
+            return;
+        }
         // A Bomber, a Lancer and a Conductor keep their distance (task
         // 157): with a body of the crew's side seen too near, the walk off
         // it comes before any stand.
@@ -3202,6 +3242,53 @@ impl Game {
         if !route.is_empty() {
             self.droids[i].follow_path(route);
         }
+    }
+
+    /// Where the machines' targets really stand, seen or not: the list
+    /// beside [`Combat::machine_targets`] — the machines' own where the
+    /// world gave them one, else the room's.
+    fn hunted(&self) -> &[Option<Vec2>] {
+        if self.machine_whereabouts.is_empty() {
+            &self.whereabouts
+        } else {
+            &self.machine_whereabouts
+        }
+    }
+
+    /// Whether anybody is left for a blooded Husk to hunt.
+    fn has_prey_left(&self) -> bool {
+        self.hunted().iter().any(Option::is_some)
+    }
+
+    /// A blooded Husk's walk (`Droid::blooded`): to the nearest of its
+    /// side's targets it can get to, where the world says it stands —
+    /// the free cell nearest it, as [`Tactics::charge`] goes for a seen
+    /// one. The way there, empty when it is already going; `None` with
+    /// nobody it can get to.
+    fn hunt_on(&self, i: usize) -> Option<Vec<Vec2>> {
+        let from = self.droids[i].pos;
+        let nav = self.maps.for_body(false);
+        let mut prey: Vec<Vec2> = self.hunted().iter().flatten().copied().collect();
+        prey.sort_by(|a, b| {
+            (*a - from)
+                .len()
+                .partial_cmp(&(*b - from).len())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        for at in prey {
+            let to = nav.nearest_free(at);
+            if !nav.can_reach(from, to) {
+                continue;
+            }
+            if (to - self.droids[i].destination()).len() <= TILE {
+                return Some(Vec::new());
+            }
+            let route = nav.path(from, to);
+            if !route.is_empty() {
+                return Some(route);
+            }
+        }
+        None
     }
 
     /// A machine with nobody it can get to goes for the doors: the same
@@ -7991,6 +8078,7 @@ impl Game {
     /// is looking, so a crew that boards is noticed at the door, and
     /// hunted from there.
     pub fn set_hostiles(&mut self, at: Vec<Option<(Vec2, Weapon)>>) {
+        self.whereabouts = at.iter().map(|t| t.map(|(p, _)| p)).collect();
         if !self.hostile_bodies {
             self.last_seen.clear();
             self.combat.set_targets(at);
@@ -8070,6 +8158,7 @@ impl Game {
     /// of sight they are still stale and nobody fires at them. Those
     /// sheltering in the houses are found only by looking.
     pub fn set_machine_hostiles(&mut self, at: Vec<Option<(Vec2, Weapon)>>, cross: usize) {
+        self.machine_whereabouts = at.iter().map(|t| t.map(|(p, _)| p)).collect();
         let eyes: Vec<Vec2> = self
             .droids
             .iter()
@@ -8115,6 +8204,7 @@ impl Game {
     /// room but a town under attack does.
     pub fn clear_machine_hostiles(&mut self) {
         self.machine_seen.clear();
+        self.machine_whereabouts.clear();
         self.combat.set_machine_targets(Vec::new(), 0);
     }
 
@@ -11718,6 +11808,69 @@ mod tests {
             assert!(blows > 0, "the claws landed a blow");
             assert_eq!(game.droids()[0].locked, Some(0), "and it is locked on");
         }
+    }
+
+    /// **A Husk that has struck one down goes for the next** (October
+    /// 2026; the player's report: "husks after killing somebody dont go
+    /// for the next"). Its prey goes off the list — downed — and the one
+    /// left is somewhere none of its side can see: the room is out of
+    /// war, and it stood over the body for good. Blooded, it walks to
+    /// where the other really is; one that never drew blood still waits.
+    #[test]
+    fn a_husk_that_downs_its_prey_hunts_the_next() {
+        use crate::droid::{Droid, DroidKind};
+        let at = tile_middle(15.0, 12.0);
+        let prey = at + vec2(TILE * 0.6, 0.0);
+        let pistol = WeaponKind::LaserPistol.basic();
+        // The next one: a spot it can walk to and cannot see, well away.
+        let game = hostile_ship(&[]);
+        let nav = game.maps.for_body(false);
+        let next = (0..40)
+            .flat_map(|x| (0..40).map(move |y| tile_middle(x as f32, y as f32)))
+            .find(|&p| {
+                (p - at).len() > 8.0 * TILE
+                    && nav.nearest_free(p) == p
+                    && nav.can_reach(at, p)
+                    && game.room.sight.sees_from(at, p).is_none()
+            })
+            .expect("a spot out of sight on the playtest ship");
+        let husk_after = |blooded: bool| {
+            let mut game = hostile_ship(&[]);
+            game.add_droid(Droid::new(DroidKind::Husk, Tier::One, 0, 1, at, 0.0, 6));
+            if blooded {
+                // Locked on the one beside it, the other unseen.
+                for _ in 0..(60 * 5) {
+                    game.set_hostiles(vec![Some((prey, pistol)), Some((next, pistol))]);
+                    game.simulate(DT);
+                    if game.droids()[0].locked == Some(0) {
+                        break;
+                    }
+                }
+                assert_eq!(game.droids()[0].locked, Some(0), "locked on its prey");
+                assert_eq!(
+                    game.believed_for_probe()[1],
+                    None,
+                    "and the next one is nobody it has seen"
+                );
+            }
+            // Its prey down: off the list.
+            for _ in 0..(60 * 6) {
+                game.set_hostiles(vec![None, Some((next, pistol))]);
+                game.simulate(DT);
+            }
+            assert_eq!(game.droids()[0].blooded, blooded);
+            (game.droids()[0].pos - next).len()
+        };
+        let waited = husk_after(false);
+        assert!(
+            waited > 7.0 * TILE,
+            "one that drew no blood waits where it stood ({waited})"
+        );
+        let hunted = husk_after(true);
+        assert!(
+            hunted < 2.0 * TILE,
+            "a blooded Husk went for the next one ({hunted} off it)"
+        );
     }
 
     /// The Unmaker's rule, where it is applied: a hit carrying a strip

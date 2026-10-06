@@ -37,7 +37,7 @@
 //!
 //! Built from the [`DrawList`] primitives and nothing of the Bim's: dark
 //! gunmetal and steel with the sensors in the hostile bolt's red. A
-//! Husk is low and wide and scuttles on four legs; a Trooper stands with
+//! Husk is low and wide and crawls on six long legs; a Trooper stands with
 //! its gun for a forearm; a Warden is the heaviest, shoulder-plated,
 //! with the Unmaker as a lance along one side. States: idle, walking,
 //! firing, striking, arms gone, legs gone, destroyed.
@@ -60,7 +60,7 @@
 use crate::balance;
 use crate::combat::{HIT_RADIUS, Tier, Weapon, WeaponKind, WeaponStats};
 use crate::draw::{Brush, Color, DrawList};
-use crate::math::{TAU, Vec2, angle_lerp, clamp, vec2};
+use crate::math::{PI, TAU, Vec2, angle_lerp, clamp, vec2};
 use crate::room::TILE;
 
 /// The Machine Heart's machines (feature 108): what the world tells them,
@@ -142,6 +142,14 @@ const TURN_RATE: f32 = 4.0;
 /// What a Bim marches at, in room units a second, and what each kind's
 /// pace is a share of.
 const MARCH: f32 = balance::MARCH_SPEED;
+/// How much faster than the walk's stride clock a Husk's six legs step
+/// (a scuttle, not a stroll), and its claws haul when it crawls; and how
+/// far a foot swings either way and how far out it is planted. Picture
+/// only.
+const HUSK_GAIT: f32 = 2.6;
+const HUSK_HAUL: f32 = 1.6;
+const HUSK_STEP: f32 = 6.0;
+const HUSK_SPLAY: f32 = 27.0;
 /// How close to a waypoint counts as rounded, and how close to the last
 /// one counts as arrived.
 const WAYPOINT_RADIUS: f32 = 11.0;
@@ -835,6 +843,14 @@ pub struct Droid {
     /// (`World::droid_waves`).
     #[cfg_attr(feature = "serde", serde(default))]
     pub seeking: bool,
+    /// A claw that has **struck its prey down** (October 2026): the
+    /// target it was locked on in a melee went off the list — downed —
+    /// and from then on it knows where the rest of them are and goes for
+    /// the nearest, seen or not (`Game::hunt_on`), rather than standing
+    /// over the body with nobody else in its side's sight (the player's
+    /// report: "husks after killing somebody dont go for the next").
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub blooded: bool,
     /// Seconds it is still **under fire**: re-armed to
     /// [`crate::game::UNDER_FIRE`] by every hit or plate hit it takes
     /// (`Game::strike_droid`, `Game::strike_plate`). While it lasts its
@@ -944,6 +960,7 @@ impl Droid {
             hunting: false,
             volley: 0,
             seeking: false,
+            blooded: false,
             under_fire: 0.0,
             trigger: crate::combat::Trigger::default(),
             melee_timer: 0.0,
@@ -1650,84 +1667,153 @@ impl Droid {
         }
     }
 
-    /// **The Husk**: low and wide, crab-like. A flat hull with four short
-    /// legs that scuttle and two forward claws that snap shut on a
-    /// strike. Legs gone and it lies flat on its hull, hauling itself
-    /// along with the claws in turn.
+    /// **The Husk**: low and wide, a crawler. A flat hull on six long
+    /// jointed legs splayed well out past it, and two forward claws that
+    /// snap shut on a strike. It **crawls** (October 2026, the player's
+    /// word — four stubs under the shell read as a glide): the legs step
+    /// in two tripods, each foot reaching forward lifted (its knee hiked
+    /// out) and planting to pull back, the hull swaying and twisting
+    /// with the gait and the claws pawing ahead in turn. Legs gone and it
+    /// lies flat on its hull, the legs folded and dragged, hauling itself
+    /// along with the claws in turn, the hull lurching on every pull.
     fn draw_husk(&self, b: &mut Brush) {
-        let step = self.step();
         let legs_gone = self.body.gone(DroidPart::Legs);
-        let flat = legs_gone;
-        // The crawl: each claw reaches out and pulls in turn while it
-        // drags itself, nothing while it lies still.
-        let haul = if self.crawling() {
-            self.stride.sin() * clamp(self.speed / (MARCH * balance::HUSK_CRAWL), 0.0, 1.0)
-        } else {
-            0.0
-        };
         let arms_gone = self.body.gone(DroidPart::Arms);
-        // Four short legs, two a side, splayed out and under the hull.
-        // A scuttle is the fore pair and the aft pair out of phase.
+        // How much it is going, nought to one, and where in the gait.
+        let going = if legs_gone {
+            clamp(self.speed / (MARCH * balance::HUSK_CRAWL), 0.0, 1.0)
+        } else {
+            clamp(self.speed / MARCH, 0.0, 1.0)
+        };
+        let gait = self.stride * if legs_gone { HUSK_HAUL } else { HUSK_GAIT };
+        // The hull's own motion: a sway across and a twist with the
+        // tripods, or a lurch forward on each claw's pull.
+        let (shift, yaw) = if legs_gone {
+            (
+                vec2(gait.sin().abs() * 3.0 * going, 0.0),
+                gait.sin() * 0.13 * going,
+            )
+        } else {
+            (
+                vec2(0.0, gait.sin() * 1.8 * going),
+                gait.cos() * 0.08 * going,
+            )
+        };
+        let at = |p: Vec2| p.rotate(yaw) + shift;
+        // A limb from one point to another, as a bar along it.
+        let limb = |b: &mut Brush, from: Vec2, to: Vec2, thick: f32, c: Color| {
+            let d = to - from;
+            b.rect(
+                (from + to) * 0.5,
+                vec2(d.len() + thick * 0.6, thick),
+                d.y.atan2(d.x),
+                thick * 0.45,
+                c,
+            );
+        };
         if !legs_gone {
-            for (i, (ahead, side)) in [(7.0f32, 1.0f32), (-6.0, 1.0), (7.0, -1.0), (-6.0, -1.0)]
+            // Six legs, three a side; (ahead at the hip, ahead at the
+            // foot). Tripod A is the left fore and aft and the right
+            // middle, B the rest, half a step apart.
+            for (i, (hip_ahead, foot_ahead)) in [(7.0f32, 15.0f32), (0.0, 1.0), (-7.0, -13.0)]
                 .into_iter()
                 .enumerate()
             {
-                let phase = if (i / 2) % 2 == 0 { step } else { -step };
-                let swing = phase * 3.5;
-                let knee = vec2(ahead + swing, 10.0 * side);
-                let foot = vec2(ahead + swing * 1.8, 16.5 * side);
-                b.rect(knee, vec2(8.0, 4.4), 0.5 * side, 2.0, STEEL);
-                b.rect(foot, vec2(7.0, 3.6), 1.0 * side, 1.8, JOINT);
+                for side in [-1.0f32, 1.0] {
+                    let tripod_a = (i == 1) == (side > 0.0);
+                    let phase = gait + if tripod_a { 0.0 } else { PI };
+                    // The foot swings ahead and back; going forward it
+                    // is off the deck.
+                    let reach = phase.sin() * HUSK_STEP * going;
+                    let lift = phase.cos().max(0.0) * going;
+                    let hip = at(vec2(hip_ahead, 9.0 * side));
+                    // The knee out past the shell's rim, a third of the
+                    // way to the foot along, hiked out with a lifted foot;
+                    // the foot well out beyond it.
+                    let knee = at(vec2(
+                        hip_ahead + (foot_ahead + reach - hip_ahead) * 0.3,
+                        (17.0 + 3.0 * lift) * side,
+                    ));
+                    let foot = at(vec2(foot_ahead + reach, (HUSK_SPLAY - 3.0 * lift) * side));
+                    limb(b, hip, knee, 4.6, PLATE);
+                    limb(b, knee, foot, 3.0, STEEL);
+                    b.ellipse(knee, vec2(4.0, 4.0), 0.0, JOINT);
+                    // The tip, smaller while it is lifted.
+                    let tip = 3.4 - 1.2 * lift;
+                    b.ellipse(foot, vec2(tip, tip), 0.0, STEEL);
+                }
             }
         } else {
-            // Dragged under it: the legs are there, folded and useless.
-            for side in [-1.0f32, 1.0] {
-                b.rect(vec2(0.0, 9.0 * side), vec2(13.0, 3.4), 0.0, 1.6, JOINT);
+            // Dragged beside it: the legs folded back along the hull,
+            // limp, trailing with the haul.
+            for (i, ahead) in [6.0f32, 0.0, -6.0].into_iter().enumerate() {
+                for side in [-1.0f32, 1.0] {
+                    let trail = (gait + i as f32).sin() * 1.5 * going;
+                    let hip = at(vec2(ahead, 9.0 * side));
+                    let knee = at(vec2(ahead - 5.0, 19.0 * side));
+                    let foot = at(vec2(ahead - 15.0 + trail, 18.0 * side));
+                    limb(b, hip, knee, 3.6, HULL_DARK);
+                    limb(b, knee, foot, 2.6, PLATE);
+                    b.ellipse(knee, vec2(3.4, 3.4), 0.0, JOINT);
+                }
             }
         }
-        // The hull: a flat shell, wider than it is long.
-        let lift = if flat { 0.92 } else { 1.0 };
-        b.ellipse(Vec2::ZERO, vec2(26.0, 30.0) * lift, 0.0, HULL_DARK);
-        b.ellipse(vec2(1.0, 0.0), vec2(21.0, 24.5) * lift, 0.0, HULL);
+        // The hull: a flat shell, wider than it is long, flatter down.
+        let lift = if legs_gone { 0.92 } else { 1.0 };
+        b.ellipse(at(Vec2::ZERO), vec2(26.0, 30.0) * lift, yaw, HULL_DARK);
+        b.ellipse(at(vec2(1.0, 0.0)), vec2(21.0, 24.5) * lift, yaw, HULL);
         // A ridge down the back, and the plating either side of it.
-        b.rect(vec2(-1.0, 0.0), vec2(17.0, 6.5), 0.0, 2.5, PLATE);
+        b.rect(at(vec2(-1.0, 0.0)), vec2(17.0, 6.5), yaw, 2.5, PLATE);
         for side in [-1.0f32, 1.0] {
-            b.rect(vec2(0.0, 8.0 * side), vec2(14.0, 5.0), 0.0, 2.0, HULL_DARK);
+            b.rect(
+                at(vec2(0.0, 8.0 * side)),
+                vec2(14.0, 5.0),
+                yaw,
+                2.0,
+                HULL_DARK,
+            );
         }
         // Two sensor lights up front, low on the shell.
         for side in [-1.0f32, 1.0] {
-            b.ellipse(vec2(9.5, 4.5 * side), vec2(4.2, 3.2), 0.0, self.eye());
+            b.ellipse(at(vec2(9.5, 4.5 * side)), vec2(4.2, 3.2), yaw, self.eye());
         }
         // The claws, one either side of the front. They open in the idle
-        // and snap shut through a strike; with the arms gone they hang
-        // and drag.
+        // and snap shut through a strike; walking they paw ahead in turn,
+        // crawling they reach and haul; with the arms gone they hang and
+        // drag.
         let shut = if self.snap > 0.0 {
             1.0 - self.snap / SNAP_TIME
         } else {
             0.0
         };
+        let striking = self.snap > 0.0;
         for side in [-1.0f32, 1.0] {
             let droop = if arms_gone { 0.55 } else { 0.0 };
-            let root = vec2(10.0, 9.0 * side);
-            let out = vec2(
-                18.0 - droop * 5.0 + haul * side * 4.0,
-                (12.0 + droop * 4.0) * side,
-            );
-            b.rect(
-                (root + out) * 0.5,
-                vec2(11.0, 4.6),
-                (0.35 + droop) * side,
-                2.0,
-                STEEL,
-            );
+            // Each claw's turn: one reaches while the other pulls.
+            let turn = (gait + if side > 0.0 { 0.0 } else { PI }).sin();
+            let paw = if arms_gone || striking {
+                0.0
+            } else if legs_gone {
+                turn * 7.0 * going
+            } else {
+                turn * 3.0 * going
+            };
+            let root = at(vec2(10.0, 9.0 * side));
+            let out = at(vec2(
+                18.0 - droop * 5.0 + paw,
+                (12.0 + droop * 4.0 - paw.max(0.0) * 0.3) * side,
+            ));
+            let arm = out - root;
+            let along = arm.y.atan2(arm.x);
+            limb(b, root, out, 4.6, STEEL);
             // The two fingers: open apart, closed together.
             let gape = (1.0 - shut) * 0.45 + droop * 0.5;
             for finger in [-1.0f32, 1.0] {
+                let rot = along + (finger * gape + droop) * side;
                 b.rect(
-                    out + vec2(4.0, 2.2 * finger * side),
+                    out + vec2(4.0, 2.2 * finger * side).rotate(along),
                     vec2(9.0, 2.8),
-                    (finger * gape + droop) * side,
+                    rot,
                     1.4,
                     if arms_gone { JOINT } else { STEEL },
                 );

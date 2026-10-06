@@ -3282,8 +3282,11 @@ else changed.
 - **The drawing is `Droid::draw`, and nothing of the Bim's.** Built from
   the `DrawList` primitives: dark gunmetal and steel — none of the
   uniform colours — with the sensors in `combat::HOSTILE_BOLT`'s red. A
-  **Husk** is low and wide and crab-like: a flat hull, four short legs
-  that scuttle out of phase, two forward claws that snap shut through a
+  **Husk** is low and wide and crab-like: a flat hull, six long jointed
+  legs splayed past it that crawl in two tripods (the hull swaying and
+  twisting with them, the claws pawing ahead; `HUSK_GAIT`, `HUSK_STEP`,
+  `HUSK_SPLAY` — it was four stubs under the shell that read as a
+  glide), two forward claws that snap shut through a
   strike and hang and drag with the arms gone, and flat on its hull with
   the legs gone. A **Trooper** stands: a boxy chassis wider than deep, a
   small square sensor head with one red slit, the gun *built into the
@@ -5512,3 +5515,19 @@ the relics moved.
 
 `a_machine_leads_a_body_on_the_move` pins the intercept. `SAVE_VERSION`
 118. Meant to alter play: every survivor pin with a bolt in it moves.
+
+## A Husk that downs its prey hunts the next (October 2026)
+
+Since the fourteen-tile sight cap a machine's side often sees nobody once
+its prey is down, so the room drops out of war and a Husk stood over the
+body for good (the player's report). **`Droid::blooded`** (serde
+default) is set in `tick_droids` the step a claw's locked target goes off
+the list; from then on, with nobody in its side's sight, `plan_droid_stand`
+walks it to the nearest crew member it can reach where the world says
+they **really** are (`Game::hunt_on`, off `whereabouts` /
+`machine_whereabouts` — the unbelieved positions `set_hostiles` and
+`set_machine_hostiles` are handed, `serde(skip)`), and `tick_droids` runs
+it even with no war while there is anybody left (`has_prey_left`). An
+objective (an Area defend's ring) still comes first. Nothing else knows
+more than it did. `a_husk_that_downs_its_prey_hunts_the_next` pins it;
+`SAVE_VERSION` 119. Meant to alter play.

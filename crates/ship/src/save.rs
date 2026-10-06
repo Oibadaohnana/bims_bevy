@@ -310,7 +310,8 @@ use crate::game::Game;
 /// (`bims::combat::{Skill, Bolt}::{near_damage, far_damage, near, far}`).
 /// 118: how a Bim went over the room's last step (`bims::bim::Bim::moving`),
 /// what a machine's bolt is led by.
-pub const SAVE_VERSION: u32 = 118;
+/// 119: a Husk that has struck one down hunts on (`bims::droid::Droid::blooded`).
+pub const SAVE_VERSION: u32 = 119;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]
