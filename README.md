@@ -385,9 +385,10 @@ Pick the fortress on the world map and its card says what it will be **on
 arrival**: how many links (conduits), the core's health, and a row a link
 — the machines its wave brings on the arrival day and its Guardians.
 
-- **The core** stands in the fortress's hub, with two **fabricators**
-  beside it; **conduits** stand in the rooms round it, one a room — three,
-  and one more a player. **No waves** stand in the fortress or come by
+- **The fortress is one great hall**, no rooms in it: **the core** stands
+  in its middle with two **fabricators** beside it, and the **conduits**
+  stand on a ring round it, twenty tiles out — three, and one more a
+  player — among pools of lamplight and low sandbags. **No waves** stand in the fortress or come by
   the clock: every conduit shot down sends **a wave** in by its
   airlocks, in turn at each — the day's wave, every machine at tier
   three — with **Guardians** among it: one for the first conduit, two

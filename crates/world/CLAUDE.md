@@ -4846,18 +4846,26 @@ and the rules; `fortress.rs` (a child of `world`, like `mission.rs` and
   station of the system's own for that rule, and never the jammer —
   `jammer_station` and the quote's "lowest orbital" skip it), then calls
   it. Never saved: what is saved is its `Infestation`.
-- **Its layout is `Plan::Fortress`** (`station::fortress`): the hub
-  floor at `data::ARENA_SIDE`, the big plant's tile put on a partition so
-  the comforts' rule leaves it out (the plant is opaque, and the core
-  stands in the middle), and two **standing lights** inside the hub on the
-  diagonal the fabricators are not on — the hub's own four lamps hang in
-  its corners a little over seven tiles from its middle, and the middle
-  tile is out of reach of all four (on a hub the plant stands there, so
-  nobody had noticed). `station::fortress_rooms` hands `heart::places` the
-  hub and the conduits' rooms in the order they are filled: the four outer
-  rooms (one a corner), the three lobbies the waves come in by, the four
-  inner rooms. `Station::build` builds a heart id as a fortress whatever
-  the seed rolls.
+- **Its layout is `Plan::Fortress`, one hall** (`station::fortress_placer`,
+  October 2026, the player's: "make the heart station a huge room with
+  the heart in the middle no seperate rooms"; it was the hub with its
+  rooms, the conduits a room each, until then): the whole of
+  `data::ARENA_SIDE` inside its skin is deck — no partition, no door and
+  none of a station's fixtures (it is built without `furnish_placer`) —
+  an airlock in the middle of each side (`fortress_airlocks`, the port
+  the west one, the hub's four), the array in the north skin, wall
+  lights round the skin by every lit block's rule, **standing lights**
+  in a grid every `FORTRESS_LIGHT_STEP` (12) tiles (a lamp reaches nine,
+  so the floor between is dark) and two beside the core, and low
+  sandbags — three in a run across the way in at eight bearings, on a
+  ring twelve tiles out and another twenty-four out turned half a step.
+  `heart::places`: the core on the free tile nearest the middle, the
+  fabricators three tiles off it on a diagonal, the conduits spread
+  evenly over `heart::CONDUIT_RING`'s twelve places a little under twenty
+  tiles out (written out, no sine). `Station::build` builds a heart id as
+  a fortress whatever the seed rolls.
+  `the_fortress_is_one_hall_with_the_core_in_its_middle` and
+  `the_crew_walk_from_the_ship_across_the_hall_to_the_core`.
 - **Always tier three**: `World::droid_tier` answers `Three` at a fortress
   before the probes' dial.
 - **The fight is on the `Infestation`**: `Infestation::heart:

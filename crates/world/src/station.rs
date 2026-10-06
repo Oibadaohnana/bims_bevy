@@ -984,48 +984,146 @@ fn hub(side: u32, bunk_columns: u32) -> Floor {
     }
 }
 
-/// The Machine Heart's fortress (feature 108): the hub, less the big plant
-/// in its middle — which is opaque, and where the core stands. Its tile is
-/// put on a partition, where the comforts' rule leaves a comfort whose
-/// tile is taken out.
-fn fortress(side: u32) -> Floor {
-    let mut floor = hub(side, 1);
-    if let Some(&wall) = floor.walls.first() {
-        floor.hall = wall;
-    }
-    // And two standing lights inside the hub, on the diagonal the
-    // fabricators are not on: the hub's own lamps hang in its corners, a
-    // little over seven tiles from its middle, and the middle tile — where
-    // the plant stood on a hub, and the core stands here — is out of reach
-    // of all four. A core in the dark is a core nobody can see to shoot.
+/// The Machine Heart's fortress (feature 108): **one hall** (October 2026,
+/// the player's: "make the heart station a huge room with the heart in the
+/// middle no seperate rooms") — the whole build area inside its skin is
+/// deck, no partition and no fixture of a station's, the core in the
+/// middle (`crate::heart::places`). An airlock in the middle of each side,
+/// the port the west one, as the hub had them; the array in the north
+/// skin; wall lights round the skin as any lit block has them, and
+/// standing lights in a grid every [`FORTRESS_LIGHT_STEP`] tiles across
+/// the floor, so the hall is pools of light with the dark between them;
+/// and low sandbags in two rings round the core to fight from. Built
+/// here and not through [`furnish_placer`], which lays a station's rooms.
+fn fortress_placer(side: u32) -> Placer {
+    let mut placer = Placer::new(side);
+    let last = side - 2;
     let mid = side / 2;
-    floor.standing_lights = vec![(mid + 2, mid - 2), (mid - 2, mid + 2)];
-    floor
+    for y in 1..=last {
+        for x in 1..=last {
+            placer.put(PartKind::Structure, (x, y), Rotation::R0);
+            let skin = x == 1 || y == 1 || x == last || y == last;
+            let kind = if skin {
+                PartKind::OutsideWall
+            } else {
+                PartKind::Floor
+            };
+            placer.put(kind, (x, y), Rotation::R0);
+        }
+    }
+    // The airlocks as `furnish` lays them: two tiles of skin decked, the
+    // port first.
+    for ((x, y), rotation) in fortress_airlocks(side) {
+        let tiles = if rotation == Rotation::R0 {
+            [(x, y), (x, y + 1)]
+        } else {
+            [(x, y), (x + 1, y)]
+        };
+        for tile in tiles {
+            placer.take(tile);
+            placer.put(PartKind::Floor, tile, Rotation::R0);
+        }
+        placer.put(PartKind::Airlock, (x, y), rotation);
+    }
+    let array = (mid + 3, 1);
+    placer.take(array);
+    placer.put(PartKind::SensorArray, array, Rotation::R0);
+
+    // Cover: a run of three sandbags across the way in at each of eight
+    // bearings, on a ring twelve tiles out and another twenty-four out
+    // turned half a step — walked and seen over, ducked behind.
+    let at = |dx: i32, dy: i32| ((mid as i32 + dx) as u32, (mid as i32 + dy) as u32);
+    for (ring, turned) in [(12i32, false), (24, true)] {
+        let d = ring * 2 / 3;
+        let spots: [(i32, i32, bool); 8] = if turned {
+            [
+                (ring, d, true),
+                (d, ring, false),
+                (-d, ring, false),
+                (-ring, d, true),
+                (-ring, -d, true),
+                (-d, -ring, false),
+                (d, -ring, false),
+                (ring, -d, true),
+            ]
+        } else {
+            [
+                (ring, 0, true),
+                (d, d, true),
+                (0, ring, false),
+                (-d, d, false),
+                (-ring, 0, true),
+                (-d, -d, true),
+                (0, -ring, false),
+                (d, -d, false),
+            ]
+        };
+        for (dx, dy, upright) in spots {
+            for k in -1..=1 {
+                let (sx, sy) = if upright { (dx, dy + k) } else { (dx + k, dy) };
+                placer.put(PartKind::Sandbags, at(sx, sy), Rotation::R0);
+            }
+        }
+    }
+
+    // Light: the wall lights round the skin, every lit block's rule.
+    let hall = Block::new(1, 1, last, last).inner();
+    let mut lamps: Vec<(u32, u32)> = vec![(hall.x0, hall.y0), (hall.x1, hall.y1)];
+    let mut far = false;
+    let mut x = hall.x0 + LAMP_SPACING / 2;
+    while x + 2 < hall.x1 {
+        lamps.push((x, if far { hall.y1 } else { hall.y0 }));
+        far = !far;
+        x += LAMP_SPACING;
+    }
+    let mut far = true;
+    let mut y = hall.y0 + LAMP_SPACING / 2;
+    while y + 2 < hall.y1 {
+        lamps.push((if far { hall.x1 } else { hall.x0 }, y));
+        far = !far;
+        y += LAMP_SPACING;
+    }
+    for at in lamps {
+        if let Some(hung) = placer.hung(at) {
+            placer.put(PartKind::WallLight, at, hung);
+        }
+    }
+    // And the standing lights: two beside the core, on the diagonal the
+    // fabricators are not on, and a grid across the floor — none on the
+    // core's own tile.
+    placer.put(PartKind::StandingLight, at(2, -2), Rotation::R0);
+    placer.put(PartKind::StandingLight, at(-2, 2), Rotation::R0);
+    let step = FORTRESS_LIGHT_STEP as i32;
+    let reach = (mid as i32 - 4) / step;
+    for gy in -reach..=reach {
+        for gx in -reach..=reach {
+            if (gx, gy) != (0, 0) {
+                placer.put(
+                    PartKind::StandingLight,
+                    at(gx * step, gy * step),
+                    Rotation::R0,
+                );
+            }
+        }
+    }
+    placer
 }
 
-/// The Machine Heart's fortress's blocks (feature 108), in hull tiles as
-/// `(x0, y0, x1, y1)` with their walls on: the hub, where the core and its
-/// fabricators stand, and the places a conduit is put in the order they
-/// are filled — the four outer rooms first, one in each corner of the
-/// plan, then the three lobbies the waves come in by, then the four inner
-/// rooms. Read off the hub's own floor ([`Plan::Fortress`] is the hub), so
-/// a room moved there moves here with it.
-pub fn fortress_rooms(side: u32) -> ((u32, u32, u32, u32), Vec<(u32, u32, u32, u32)>) {
-    let floor = fortress(side);
-    let edges = |b: Block| (b.x0, b.y0, b.x1, b.y1);
-    // The hull is the hub, the four lobbies (the port's first), the four
-    // arms and the rooms, in that order.
-    let lobby = |i: usize| floor.hull.get(i).copied().map(edges);
-    let mut rooms = vec![edges(floor.quarters)];
-    rooms.extend(floor.lab.map(edges));
-    rooms.extend(floor.stores.get(1).copied().map(edges));
-    rooms.push(edges(floor.research));
-    rooms.extend([lobby(2), lobby(3), lobby(4)].into_iter().flatten());
-    rooms.push(edges(floor.mess));
-    rooms.push(edges(floor.heads));
-    rooms.extend(floor.rec.map(edges));
-    rooms.extend(floor.stores.first().copied().map(edges));
-    (edges(floor.hull[0]), rooms)
+/// How far apart the fortress's standing lights stand, in tiles: a lamp's
+/// reach is nine, so the floor between two is dark.
+const FORTRESS_LIGHT_STEP: u32 = 12;
+
+/// The fortress's airlocks, the port first: one in the middle of each side
+/// of its skin, west, east, north and south — the hub's.
+fn fortress_airlocks(side: u32) -> [((u32, u32), Rotation); 4] {
+    let mid = side / 2;
+    let last = side - 2;
+    [
+        ((1, mid - 1), Rotation::R0),
+        ((last, mid - 1), Rotation::R0),
+        ((mid - 1, 1), Rotation::R90),
+        ((mid - 1, last), Rotation::R90),
+    ]
 }
 
 /// The pod: a bar twenty tall across the width of the build area, the
@@ -1640,7 +1738,7 @@ pub(crate) fn build_placer(
             };
         }
         Plan::Hub => hub(side, bunk_columns),
-        Plan::Fortress => fortress(side),
+        Plan::Fortress => return fortress_placer(side),
         Plan::Pod => pod(side),
         Plan::Cross => cross(side),
         Plan::Spine => spine(side),

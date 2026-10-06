@@ -8,8 +8,8 @@
 //! way a derived jammer is ([`crate::jammer`]) — its map seed and the point
 //! it stands on — so two clients put the same fortress in the same place
 //! without a word. Its id is [`heart_id`], in a range of its own. It is
-//! laid out on [`crate::station::Plan::Fortress`] — the hub at the arena's
-//! size — and it is **never saved**: `World::settle_heart` strips it and
+//! laid out on [`crate::station::Plan::Fortress`] — one hall at the
+//! arena's size, the core in its middle — and it is **never saved**: `World::settle_heart` strips it and
 //! lays it again wherever a system is settled, as `settle_jammer` does the
 //! jammer. What is saved is what happened to it, on its
 //! [`crate::droid::Infestation`] like any held station's, with the fight's
@@ -252,9 +252,8 @@ pub struct HeartPreview {
 }
 
 /// Where the Machine Heart's machines stand in its fortress, in the
-/// design's tiles: the core, the fabricators round it, and a conduit a
-/// room — the rooms and the lobbies in [`crate::station::fortress_rooms`]'
-/// order, so no two conduits share a room until every room has one.
+/// design's tiles: the core in the middle of the hall, the fabricators
+/// round it, and the conduits on a ring round them.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Places {
     pub core: (u32, u32),
@@ -263,13 +262,13 @@ pub struct Places {
 }
 
 /// The tiles for `conduits` conduits and `fabricators` fabricators in the
-/// fortress `design`. A spot is the free deck tile nearest the middle of
-/// its room (nothing standing on it), so a conduit never stands in a
-/// bunk or on a table. More conduits than rooms go round again, each a
-/// further tile from the middle than the last one in that room.
+/// fortress `design` (one hall since October 2026): the core on the free
+/// deck tile nearest the middle, the fabricators three tiles off it on a
+/// diagonal, and the conduits spread evenly over [`CONDUIT_RING`]'s twelve
+/// places — a spot is the free deck tile nearest it, nothing standing on
+/// it, so a conduit never stands on a lamp or a sandbag.
 pub fn places(design: &ShipDesign, conduits: u32, fabricators: u32) -> Places {
     let side = design.build_area;
-    let (hub, rooms) = crate::station::fortress_rooms(side);
     let grid = design.grid();
     let floor: Vec<(u32, u32)> = design
         .parts
@@ -282,12 +281,11 @@ pub fn places(design: &ShipDesign, conduits: u32, fabricators: u32) -> Places {
             && grid.get(Layer::Object, (tile.0 as i32, tile.1 as i32)) == 0
             && !taken.contains(&tile)
     };
-    // The nearest free tile to `(cx, cy)` inside `x0..=x1, y0..=y1`, ties
-    // to the lower row and then the lower column so every build agrees.
-    let nearest = |(x0, y0, x1, y1): (u32, u32, u32, u32),
-                   (cx, cy): (u32, u32),
-                   taken: &[(u32, u32)]|
-     -> Option<(u32, u32)> {
+    // The nearest free tile to `(cx, cy)` inside the hall's deck, ties to
+    // the lower row and then the lower column so every build agrees.
+    let hall = (2, 2, side.saturating_sub(3), side.saturating_sub(3));
+    let nearest = |(cx, cy): (u32, u32), taken: &[(u32, u32)]| -> Option<(u32, u32)> {
+        let (x0, y0, x1, y1) = hall;
         let mut best: Option<(u32, (u32, u32))> = None;
         for y in y0..=y1 {
             for x in x0..=x1 {
@@ -302,32 +300,30 @@ pub fn places(design: &ShipDesign, conduits: u32, fabricators: u32) -> Places {
         }
         best.map(|(_, t)| t)
     };
-    let mid = ((hub.0 + hub.2) / 2, (hub.1 + hub.3) / 2);
-    // The core on the free deck nearest the middle of the hub, which is the
-    // middle itself: a fortress has no big plant there
-    // (`crate::station::Plan::Fortress`).
-    let inner = (hub.0 + 1, hub.1 + 1, hub.2 - 1, hub.3 - 1);
-    let core = nearest(inner, mid, &[]).unwrap_or(mid);
+    let mid = (side / 2, side / 2);
+    let off = |(dx, dy): (i32, i32)| {
+        (
+            (mid.0 as i32 + dx).max(0) as u32,
+            (mid.1 as i32 + dy).max(0) as u32,
+        )
+    };
+    // The core in the middle of the hall.
+    let core = nearest(mid, &[]).unwrap_or(mid);
     let mut taken = vec![core];
     let corners = [(-3i32, -3i32), (3, 3), (3, -3), (-3, 3)];
     let fabricators: Vec<(u32, u32)> = (0..fabricators as usize)
         .filter_map(|i| {
-            let (dx, dy) = corners[i % corners.len()];
-            let want = (
-                (mid.0 as i32 + dx).max(0) as u32,
-                (mid.1 as i32 + dy).max(0) as u32,
-            );
-            let at = nearest(inner, want, &taken)?;
+            let at = nearest(off(corners[i % corners.len()]), &taken)?;
             taken.push(at);
             Some(at)
         })
         .collect();
+    // The conduits on a ring round it, spread evenly over its places.
+    let n = conduits.max(1) as usize;
     let conduits: Vec<(u32, u32)> = (0..conduits as usize)
         .filter_map(|i| {
-            let room = *rooms.get(i % rooms.len().max(1))?;
-            let inside = (room.0 + 1, room.1 + 1, room.2 - 1, room.3 - 1);
-            let centre = ((room.0 + room.2) / 2, (room.1 + room.3) / 2);
-            let at = nearest(inside, centre, &taken)?;
+            let spot = CONDUIT_RING[(i * CONDUIT_RING.len() / n) % CONDUIT_RING.len()];
+            let at = nearest(off(spot), &taken)?;
             taken.push(at);
             Some(at)
         })
@@ -338,6 +334,24 @@ pub fn places(design: &ShipDesign, conduits: u32, fabricators: u32) -> Places {
         conduits,
     }
 }
+
+/// Where a conduit may stand, in tiles from the core: a ring a little under
+/// twenty tiles out, a place every thirty degrees from fifteen — off the
+/// airlocks' four ways in — written out so no build works out a sine.
+const CONDUIT_RING: [(i32, i32); 12] = [
+    (19, 5),
+    (14, 14),
+    (5, 19),
+    (-5, 19),
+    (-14, 14),
+    (-19, 5),
+    (-19, -5),
+    (-14, -14),
+    (-5, -19),
+    (5, -19),
+    (14, -14),
+    (19, -5),
+];
 
 #[cfg(test)]
 mod tests {
@@ -357,6 +371,41 @@ mod tests {
             assert!(!is_heart(star));
             assert!(!is_heart(crate::jammer::jammer_id(star)));
             assert!(!is_heart(crate::surface::surface_id(star)));
+        }
+    }
+
+    /// The fortress is one hall (October 2026): no partition and no door
+    /// in it, the core in its middle, the fabricators beside it and every
+    /// conduit on the ring round it, none two places apart standing within
+    /// eight tiles of another.
+    #[test]
+    fn the_fortress_is_one_hall_with_the_core_in_its_middle() {
+        use crate::station::{Plan, layout};
+        let design = layout(HEART_KIND, Plan::Fortress, 7);
+        assert!(
+            design
+                .parts
+                .iter()
+                .all(|p| !matches!(p.kind, PartKind::Wall | PartKind::Door)),
+            "no partition in the hall"
+        );
+        let mid = design.build_area / 2;
+        let d2 = |(x, y): (u32, u32), (cx, cy): (u32, u32)| {
+            x.abs_diff(cx).pow(2) + y.abs_diff(cy).pow(2)
+        };
+        for conduits in 4..=7 {
+            let places = places(&design, conduits, data::HEART_FABRICATORS);
+            assert!(d2(places.core, (mid, mid)) <= 2, "{:?}", places.core);
+            assert_eq!(places.fabricators.len(), 2);
+            assert!(places.fabricators.iter().all(|&f| d2(f, places.core) <= 25));
+            assert_eq!(places.conduits.len(), conduits as usize);
+            for (i, &a) in places.conduits.iter().enumerate() {
+                let out = d2(a, places.core);
+                assert!((15 * 15..=23 * 23).contains(&out), "{a:?} off the ring");
+                for &b in &places.conduits[i + 1..] {
+                    assert!(d2(a, b) > 8 * 8, "{a:?} beside {b:?}");
+                }
+            }
         }
     }
 

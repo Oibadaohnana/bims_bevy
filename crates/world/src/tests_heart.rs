@@ -175,7 +175,7 @@ fn every_galaxy_has_one_fortress_at_the_origin_at_tier_three() {
         for d in room(&mut world).droids() {
             assert_eq!(d.tier, bims::combat::Tier::Three, "{:?}", d.kind);
         }
-        // And no two conduits stand in one room while rooms are left.
+        // And no two conduits side by side on the ring round the core.
         let conduits: Vec<_> = of_kind(&mut world, DroidKind::Conduit);
         let spots: Vec<_> = conduits
             .iter()
@@ -193,6 +193,42 @@ fn every_galaxy_has_one_fortress_at_the_origin_at_tier_three() {
 }
 
 // --- the fight ------------------------------------------------------------------
+
+/// **The fortress is one hall, walked from the port to the core** (October
+/// 2026): a crew member sent from the ship to beside the core gets there,
+/// no door or partition on the way.
+#[test]
+fn the_crew_walk_from_the_ship_across_the_hall_to_the_core() {
+    let mut world = at_the_heart(1, 1);
+    laid(&mut world);
+    let i = core(&mut world);
+    let tile = shipdesign::TILE as f32;
+    let at = room(&mut world).droid(i).unwrap().pos + bims::math::vec2(-3.0 * tile, 0.0);
+    let to = world.residents_point_on_deck_for_probe(at).unwrap();
+    let from = world.aboard.room.body_pos(0);
+    assert!(
+        (from - to).len() > 20.0 * tile,
+        "the walk is the hall's length"
+    );
+    world.step(&[Command::Crew {
+        slot: 0,
+        order: bims::order::CrewOrder::SendTo {
+            who: 0,
+            x: to.x,
+            y: to.y,
+        },
+    }]);
+    for _ in 0..60 * 40 {
+        world.step(&[]);
+        if (world.aboard.room.body_pos(0) - to).len() < tile {
+            return;
+        }
+    }
+    panic!(
+        "never got across: {:?} short of {to:?}",
+        world.aboard.room.body_pos(0)
+    );
+}
 
 /// **The core takes nothing while any conduit stands**, and destroying the
 /// last conduit starts phase two.
