@@ -329,11 +329,11 @@ fn arms_gone_halve_the_sweeper_s_damage_and_not_its_reach() {
         "a beam rolls no odds to lose"
     );
     assert_eq!(hurt.range, whole.range);
-    // Thirty at tier one, scaled by the tier like any weapon.
-    assert_eq!(WeaponKind::Sweeper.basic().stats().damage, 30.0);
+    // Forty-five at tier one, scaled by the tier like any weapon.
+    assert_eq!(WeaponKind::Sweeper.basic().stats().damage, 45.0);
     let three = WeaponKind::Sweeper.at(Tier::Three).stats();
     assert!(
-        (three.damage - 30.0 * balance::TIER_TWO_DAMAGE * balance::TIER_THREE_DAMAGE).abs() < 1e-3
+        (three.damage - 45.0 * balance::TIER_TWO_DAMAGE * balance::TIER_THREE_DAMAGE).abs() < 1e-3
     );
 }
 
@@ -393,7 +393,7 @@ fn a_sweep_crosses_every_body_in_its_arc_once_and_passes_through_them() {
     who.sort_unstable();
     assert_eq!(who, vec![0, 1, 2, 3], "each in the arc once, and no other");
     for hit in &hits {
-        assert_eq!(hit.damage, 30.0, "thirty a body at tier one");
+        assert_eq!(hit.damage, 45.0, "forty-five a body at tier one");
         assert!(!hit.cut && !hit.blast);
     }
 }

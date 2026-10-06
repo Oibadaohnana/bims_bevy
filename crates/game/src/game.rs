@@ -2957,7 +2957,8 @@ impl Game {
     }
 
     /// A Sweeper's beam out of `from` along `aim`, swept from `side` of it
-    /// round to the other, `reach` long, `damage` to each body it crosses
+    /// round to the other, `reach` times `balance::SWEEPER_REACH` long,
+    /// `damage` to each body it crosses
     /// and `pace` times a Guardian's speed: recorded as a `Shot` for the
     /// world to lay in the crew's room, and laid here as well when the
     /// machines' list has bodies of this room's own on it. A Guardian's
@@ -2974,6 +2975,8 @@ impl Game {
         pace: f32,
     ) {
         use crate::combat::{SWEEP_HALF_COS, SWEEP_HALF_SIN};
+        // Half again past what it winds up on (`balance::SWEEPER_REACH`).
+        let reach = reach * crate::balance::SWEEPER_REACH;
         let start = from + aim.rotate_by(SWEEP_HALF_COS, -side * SWEEP_HALF_SIN) * reach;
         let end = from + aim.rotate_by(SWEEP_HALF_COS, side * SWEEP_HALF_SIN) * reach;
         self.combat

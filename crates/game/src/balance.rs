@@ -575,14 +575,15 @@ pub const GUARDIAN_BODY: [f32; 4] = [16.0, 110.0, 25.0, 30.0];
 /// past `sweet` (`WeaponStats::dps_at`), which is what keeps a Guardian
 /// walking in to the beam's sweet range rather than standing off at its
 /// full reach. `speed` is a bolt's pace, for a beam that is nothing; it is
-/// what a Sweeper would fly at were it fired as a bolt.
+/// what a Sweeper would fly at were it fired as a bolt. The damage was
+/// thirty until October 2026, when the player asked for more.
 pub const SWEEPER: WeaponStats = WeaponStats {
     range: MAX_RANGE,
     sweet: 5.0,
     accuracy: 1.0,
     accuracy_far: 0.4,
-    damage: 30.0,
-    damage_far: 30.0,
+    damage: 45.0,
+    damage_far: 45.0,
     speed: 40.0,
     fire_rate: 1.0 / (SWEEPER_WINDUP + SWEEPER_SWEEP + SWEEPER_COOLDOWN),
     burst: 1,
@@ -603,6 +604,12 @@ pub const SWEEPER_COOLDOWN: f32 = 3.5;
 /// to half of it the other. Degrees, for the reader: the arithmetic is the
 /// literal cosines and sines in `crate::droid`, never this number.
 pub const SWEEPER_ARC_DEGREES: f32 = 20.0;
+/// How far the beam reaches once let go, as a multiple of the Sweeper's
+/// `range` (October 2026, the player's word: half again). Only the beam
+/// laid is longer — [`MAX_RANGE`] still holds what a Guardian winds up
+/// on, so nothing aims from off the view; the beam carries on past it.
+/// A Machine Heart core's beams are the Guardian's and reach as far.
+pub const SWEEPER_REACH: f32 = 1.5;
 
 /// How fast a Guardian turns, in degrees a second. Like the arc, a number
 /// for the reader: the turn is made of fixed sub-steps whose cosine and
@@ -632,12 +639,14 @@ pub const GUARDIAN_PACE: f32 = 0.7;
 /// machines untouched. What it does at the centre is the Guardian's
 /// Sweeper damage (its tier and arms counted) times
 /// [`GUARDIAN_GRENADE_DAMAGE`], half that at the edge and halved again in
-/// cover, as a soldier's grenade.
+/// cover, as a soldier's grenade. One and a half times thirty until the
+/// Sweeper went to forty-five (October 2026), the grenade kept where it
+/// was.
 pub const GUARDIAN_GRENADE_TRIGGER: f32 = 2.0;
 pub const GUARDIAN_GRENADE_COOLDOWN: f32 = 10.0;
 pub const GUARDIAN_GRENADE_FUSE: f32 = 1.5;
 pub const GUARDIAN_GRENADE_RADIUS: f32 = 2.5;
-pub const GUARDIAN_GRENADE_DAMAGE: f32 = 1.5;
+pub const GUARDIAN_GRENADE_DAMAGE: f32 = 1.0;
 
 /// What a droid with its arms shot away fires and strikes at: a gun's
 /// odds and a claw's damage, halved. The Unmaker counts as a gun; the

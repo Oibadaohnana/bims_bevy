@@ -3740,6 +3740,12 @@ legs at nothing stop the walk and nothing else.
   and the target fixed, the heading held — `Beam::holds_heading`,
   `turn_toward` a no-op — for `SWEEPER_WINDUP`), lets the beam go, and
   cools (`Beam::Cooling`, `SWEEPER_COOLDOWN`).
+- **The beam reaches half again** (October 2026): `Game::lay_beam` lays
+  it `balance::SWEEPER_REACH` (1.5) times the Sweeper's `range` long —
+  18.75 tiles — while what it winds up on is still held to `MAX_RANGE`,
+  so nothing aims from off the view. A Heart core's beams with it. The
+  damage went 30 → 45 at tier one then too, `GUARDIAN_GRENADE_DAMAGE`
+  1.5 → 1.0 to keep the grenade where it was.
 - `tests_guardian.rs` is the rule: the shield's dot product and its edge,
   bolts from inside and outside the arc, a blow, a grenade, the turn rate,
   the heading held through a wind-up, a taunt, and the legs and arms.
