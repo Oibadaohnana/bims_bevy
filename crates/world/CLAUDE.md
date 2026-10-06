@@ -7916,10 +7916,10 @@ and the pistol, item and soldier tests are the rule.
   `Defense::more_to_come` is `left > 0` — **the waves never run out
   while it runs** (`waves_left` is unused for an area). **They are on a
   clock and stack**: the next is due `defense::area_gap(wave)` after one
-  lands, whether or not it is down — `AREA_WAVE_STEPS` (thirty-one
+  lands, whether or not it is down — `AREA_WAVE_STEPS` (forty-five
   seconds) after the first (`AREA_STEADY_WAVES`), then a second
   (`AREA_WAVE_SOONER_STEPS`) sooner a wave, never under
-  `AREA_WAVE_MIN_STEPS` (five): 31, 30, 29 …, seven waves in the three
+  `AREA_WAVE_MIN_STEPS` (five): 45, 44, 43 …, five waves in the three
   minutes. The first lands `AREA_PREP_STEPS` (five seconds) after the
   crew arrive, a station's defence keeping `DEFENSE_DELAY_STEPS` (the
   probes' delay dial wins over both). A clock and not "after the last is down", in the

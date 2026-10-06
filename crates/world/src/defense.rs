@@ -157,7 +157,7 @@ pub fn area_gap(wave: u32) -> u64 {
 }
 
 /// How many waves land in an Area defend's hold: the first as it starts,
-/// then one every [`area_gap`] while time is left — seven in the three
+/// then one every [`area_gap`] while time is left — five in the three
 /// minutes. What its experience is shared over (`World::price_the_wave`).
 pub fn area_waves() -> u32 {
     let mut waves = 1;
@@ -297,13 +297,14 @@ mod tests {
         assert!(a.taken);
     }
 
-    /// Thirty-one seconds after the first wave, then a second sooner a
-    /// wave, never under five.
+    /// Forty-five seconds after the first wave, then a second sooner a
+    /// wave, never under five; five waves in the three minutes.
     #[test]
-    fn the_waves_come_thirty_one_seconds_apart_then_a_second_sooner_a_wave() {
+    fn the_waves_come_forty_five_seconds_apart_then_a_second_sooner_a_wave() {
         let seconds: Vec<u64> = (1..=5).map(|w| area_gap(w) / 60).collect();
-        assert_eq!(seconds, [31, 30, 29, 28, 27]);
-        assert_eq!(area_gap(27) / 60, 5);
+        assert_eq!(seconds, [45, 44, 43, 42, 41]);
+        assert_eq!(area_waves(), 5);
+        assert_eq!(area_gap(41) / 60, 5);
         assert_eq!(area_gap(400) / 60, 5);
     }
 
