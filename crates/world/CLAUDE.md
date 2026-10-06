@@ -4224,10 +4224,9 @@ had one): a classless crew bot like any other, taking no player slot,
 keeping what it carries and any wounds it has.
 `WorldEvent::TownsfolkJoined { count }` (91) once.
 
-**Lost** is either every one of the town's own people dead
-(`World::town_is_dead`, the mercenaries not counted) or the system's day
-coming while the crew are away with waves left — or, since feature 103,
-the crew leaving it with waves left — and in every case the town falls
+**Lost** is the system's day coming while the crew are away with waves
+left — or, since feature 103, the crew leaving it with waves left — and
+in every case the town falls
 through `World::infest` like any other station, which marks the
 `Defense` lost on the way past. While the crew are *at* the town the
 crisis's flip waits anyway: `spread_crisis` does nothing while the rooms
@@ -5326,9 +5325,11 @@ off its `SystemMemory`). Derived, never saved.
   `droid_wave_size` → `wave_size_with`). Feature 105 made the players the
   crew term, so the defenders are counted as players.
 - **No bookkeeping.** `close_residents` counts no defender's death (its
-  grave stays, `hired: false`); `town_is_dead` counts the site's own
-  (`Residents::is_own`: not a mercenary, a defender or a grave), and a
-  site with none of its own is never dead.
+  grave stays, `hired: false`). **The site's own people all dead is no
+  loss** (October 2026, the player's word): it was (`town_is_dead`), and
+  it infested the site mid-fight — the room built afresh, the wave being
+  fought gone and an attack's fresh first wave landed in its place. The
+  defence goes on; `town_is_dead` went.
 - **Won**: the bounty through the ordinary path — **and held until every
   wreck is counted**: `visit` counts a machine down only while the
   defence runs, and a win declared the step the last one fell left it

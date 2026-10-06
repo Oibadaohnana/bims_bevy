@@ -7109,17 +7109,10 @@ impl World {
                 d.settle(waves);
             }
         }
-        // **Every one of the town's people dead is the town lost**, wave
-        // or no wave: there is nobody left to defend.
-        if self.town_is_dead(id) {
-            if let Some(d) = self.defense_mut(id) {
-                d.lost = true;
-            }
-            // The town falls as any station does: the machines have it,
-            // and `infest` reopens its room with them in it.
-            self.infest(id);
-            return;
-        }
+        // **The site's own people all dead is no loss** (October 2026,
+        // the player's word): it once infested the site there and then,
+        // the room built afresh, the wave being fought gone and a fresh
+        // attack's first wave landed mid-fight. The defence goes on.
         // **A wave the crew left behind is put back where it stood.** A
         // town's room is built afresh at every landing, so the machines
         // on the ground have to be laid again — as many of them as were
@@ -7308,27 +7301,6 @@ impl World {
             room.stand_at(who, bims::math::vec2(at.x as f32, at.y as f32));
             placed += 1;
         }
-    }
-
-    /// Whether every one of the site's **own** people is dead — the
-    /// defenders are nobody's at all (task 111), so they are not
-    /// counted. A site with none of its own
-    /// — a derelict, defended by its defenders alone — is never dead, and
-    /// a site whose room is not open answers false, since nothing is
-    /// known about it.
-    fn town_is_dead(&self, station: u32) -> bool {
-        let Some(residents) = self.residents.as_ref().filter(|r| r.station == station) else {
-            return false;
-        };
-        let bims = residents.aboard.room.crew_count() as usize;
-        let mut own = (0..bims)
-            .filter(|&who| residents.is_own(who))
-            .filter(|&who| !residents.aboard.room.is_manufacturer(who))
-            .peekable();
-        if own.peek().is_none() {
-            return false;
-        }
-        own.all(|who| !residents.aboard.room.is_alive(who))
     }
 
     /// The old wave's wrecks off the deck, and what the room remembered

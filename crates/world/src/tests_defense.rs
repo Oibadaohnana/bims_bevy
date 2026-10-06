@@ -413,10 +413,11 @@ fn the_survivors_who_join_are_classless_bots() {
     );
 }
 
-/// Every one of the town's people dead is the town lost, and it falls
-/// like any other station.
+/// **Every one of the town's people dead is no loss** (October 2026, the
+/// player's word): it once infested the town mid-fight. The defence goes
+/// on.
 #[test]
-fn a_town_whose_people_are_all_dead_falls() {
+fn a_town_whose_people_are_all_dead_does_not_fall() {
     let Some((mut world, id)) = a_threatened_town(1.0, 2, None) else {
         return;
     };
@@ -435,11 +436,10 @@ fn a_town_whose_people_are_all_dead_falls() {
         }
     }
     assert!(
-        until(&mut world, 20, |w| w.is_droid_held(id)),
-        "a town with nobody left never fell"
+        !until(&mut world, 20, |w| w.is_droid_held(id)),
+        "a town with nobody left fell"
     );
-    assert!(world.defense(id).is_some_and(|d| d.lost));
-    assert!(!world.town_held(id));
+    assert!(world.defense(id).is_some_and(|d| !d.lost));
 }
 
 /// The system's day coming while the crew are away with waves left takes
@@ -1276,4 +1276,51 @@ fn a_defence_s_bonus_wave_comes_last_half_as_big_again() {
     destroy_the_wave(&mut world);
     assert!(until(&mut world, 200, |w| w.defense(id).unwrap().won));
     assert_eq!(world.bonus_wave_here(), crate::run::BonusWave::Done);
+}
+
+/// **A station whose own people all die mid-wave fights on** (October
+/// 2026): it was the site lost, `infest` building the room afresh — the
+/// wave being fought gone, and an attack's fresh first wave landed in its
+/// place with nothing said. The machines standing stay where they are and
+/// nothing lands while they do.
+#[test]
+fn a_station_whose_people_die_mid_wave_keeps_its_wave_and_its_defence() {
+    let (mut world, id) = a_station_defence(3, 2);
+    world.step(&[]);
+    while world.droids_standing() == 0 {
+        world.step(&[]);
+    }
+    let machines = |w: &World| {
+        let room = &w
+            .residents
+            .as_ref()
+            .expect("the station's room")
+            .aboard
+            .room;
+        (0..room.droid_count() as usize)
+            .filter_map(|i| room.droid(i))
+            .map(|d| (d.wave, d.destroyed))
+            .collect::<Vec<_>>()
+    };
+    let landed = machines(&world);
+    let residents = world.residents.as_mut().expect("the station's room");
+    for who in 0..residents.aboard.room.crew_count() as usize {
+        if residents.is_own(who) {
+            residents.aboard.room.kill_now(who);
+        }
+    }
+    for _ in 0..30 {
+        let events = world.step(&[]);
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, WorldEvent::DroidReinforcements { .. })),
+            "a wave landed while the first stood"
+        );
+    }
+    assert!(!world.is_droid_held(id), "the station fell");
+    assert_eq!(world.site_kind(id), crate::run::SiteKind::Defend);
+    assert!(world.defense(id).is_some_and(|d| !d.lost && d.wave == 1));
+    assert_eq!(machines(&world).len(), landed.len(), "the wave was swapped");
+    assert!(world.droids_standing() > 0);
 }

@@ -689,8 +689,7 @@ pub struct Residents {
     /// who stand with the site's own while the machines come for it —
     /// after its own people, in the station's coverall, never the
     /// crew's. Nobody's loss when one falls and never
-    /// the crew's: `close_residents` counts none of them, and neither do
-    /// the site's own people (`World::town_is_dead`). Derived when the
+    /// the crew's: `close_residents` counts none of them. Derived when the
     /// room opens (`World::defenders_of`), and kept in step with
     /// `grave`.
     #[cfg_attr(feature = "serde", serde(default))]

@@ -59,8 +59,10 @@ pub struct Defense {
     /// Whether the last machine of the last wave has been destroyed —
     /// said once, and what puts the town on [`crate::World::held_towns`].
     pub won: bool,
-    /// Whether the town fell instead: every one of its people dead, or
-    /// its system's day come while the crew were away with waves left.
+    /// Whether the town fell instead: the crew leaving it with waves
+    /// left, its system's day come while they were away, or an Area
+    /// defend's FOB taken. Its own people all dead is no loss (October
+    /// 2026).
     pub lost: bool,
     /// **Area defend** (October 2026): a town's defence is holding its FOB
     /// — `None` at a station or a derelict, and in a save from before.
