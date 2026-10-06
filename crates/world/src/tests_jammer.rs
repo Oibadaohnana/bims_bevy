@@ -430,8 +430,8 @@ fn the_machines_come_at_the_day_s_tier_however_near_their_origin() {
     let day = |world: &mut World, day: u32| {
         world.clock_minutes = f64::from(day - 1) * 24.0 * 60.0;
     };
-    let tier2 = crate::droid::WaveScaling::DEFAULT.tier2_days;
-    let tier3 = crate::droid::WaveScaling::DEFAULT.tier3_days;
+    let tier2 = crate::droid::WaveScaling::DEFAULT.tier_two_day();
+    let tier3 = crate::droid::WaveScaling::DEFAULT.tier_three_day();
     for hops in [0, 1, 2, 3, 6, 12] {
         let origin = (0..galaxy.stars.len() as u32)
             .find(|&o| galaxy.hops_from(o)[here as usize] == hops)
@@ -439,9 +439,11 @@ fn the_machines_come_at_the_day_s_tier_however_near_their_origin() {
         world.set_droid_origin_for_probe(origin);
         day(&mut world, 1);
         assert_eq!(world.droid_tier(), Tier::One, "{hops} hops off");
-        day(&mut world, tier2 / 2);
+        day(&mut world, tier2 - 1);
+        assert_eq!(world.droid_tier(), Tier::One, "{hops} hops off");
+        day(&mut world, tier2);
         assert_eq!(world.droid_tier(), Tier::Two, "{hops} hops off");
-        day(&mut world, tier3 / 2);
+        day(&mut world, tier3);
         assert_eq!(world.droid_tier(), Tier::Three, "{hops} hops off");
     }
 

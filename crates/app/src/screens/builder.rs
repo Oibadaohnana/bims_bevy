@@ -1329,10 +1329,9 @@ const DIFFICULTY_DAYS_MOST: u32 = 365;
 /// How far one press of − or + moves the enemies per bot.
 const PER_BOT_STEP: f32 = 0.5;
 
-/// The setup's difficulty (task 147): every dial of the wave formula —
-/// enemies per player, the day's scaling and its days, enemies per
-/// bot, the waves' days and the three tier timings — a stepper each,
-/// the host's to move. They show the tuning file's (`file`) until one is
+/// The setup's difficulty (task 147; the areas since October 2026): every
+/// dial of the wave formula — enemies per player and per bot, then the
+/// four areas' table — the host's to move. They show the tuning file's (`file`) until one is
 /// moved; Default puts them back to it. Under them, what the first wave
 /// comes to for the `players` here.
 fn difficulty_rows(
@@ -1382,71 +1381,32 @@ fn difficulty_rows(
             .color(theme::MUTED),
     );
     let mut d: Difficulty = settings.difficulty.unwrap_or(file);
-    let day_scaling_note = wave_day_scaling_note(d.scaling_days);
-    let wave_days_note = wave_days_note(d.wave_days);
-    let tier_notes = [
-        tier_timing_note(1, d.tier1_days),
-        tier_timing_note(2, d.tier2_days),
-        tier_timing_note(3, d.tier3_days),
-    ];
     egui::Grid::new("difficulty")
         .num_columns(3)
         .spacing(egui::vec2(10.0, 4.0))
         .show(ui, |ui| {
-            for (name, note, value, most) in [
-                (
-                    WAVE_PER_PLAYER,
-                    WAVE_PER_PLAYER_NOTE,
-                    &mut d.enemies_per_player,
-                    DIFFICULTY_MOST,
-                ),
-                (
-                    WAVE_DAY_SCALING,
-                    day_scaling_note.as_str(),
-                    &mut d.day_scaling,
-                    DIFFICULTY_MOST,
-                ),
-                (
-                    WAVE_SCALING_DAYS,
-                    WAVE_SCALING_DAYS_NOTE,
-                    &mut d.scaling_days,
-                    DIFFICULTY_DAYS_MOST,
-                ),
-            ] {
-                count_row(ui, name, note, value, most, editable);
-            }
+            count_row(
+                ui,
+                WAVE_PER_PLAYER,
+                WAVE_PER_PLAYER_NOTE,
+                &mut d.enemies_per_player,
+                DIFFICULTY_MOST,
+                editable,
+            );
             bot_row(ui, &mut d.enemies_per_bot, editable);
-            for (name, note, value) in [
-                (WAVE_DAYS, wave_days_note.as_str(), &mut d.wave_days),
-                (TIER1_TIMING, tier_notes[0].as_str(), &mut d.tier1_days),
-                (TIER2_TIMING, tier_notes[1].as_str(), &mut d.tier2_days),
-                (TIER3_TIMING, tier_notes[2].as_str(), &mut d.tier3_days),
-            ] {
-                count_row(ui, name, note, value, DIFFICULTY_DAYS_MOST, editable);
-            }
-            // The tier-two machines on top of a wave (task 157).
-            let bomber_note = tier_two_extra_note("Bomber", d.bomber_every);
-            let lancer_note = tier_two_extra_note("Lancer", d.lancer_every);
-            for (name, note, value) in [
-                (BOMBER_EVERY, bomber_note.as_str(), &mut d.bomber_every),
-                (LANCER_EVERY, lancer_note.as_str(), &mut d.lancer_every),
-                // An elite fight's in the tier-two and tier-three zones.
-                (
-                    TIER2_GUARDIANS,
-                    ELITE_GUARDIANS_NOTE,
-                    &mut d.tier2_guardians,
-                ),
-                (
-                    TIER3_GUARDIANS,
-                    ELITE_GUARDIANS_NOTE,
-                    &mut d.tier3_guardians,
-                ),
-                (TIER2_ELITES, ELITE_BOMBERS_NOTE, &mut d.tier2_elites),
-                (TIER3_ELITES, ELITE_BOMBERS_NOTE, &mut d.tier3_elites),
-            ] {
-                count_row(ui, name, note, value, DIFFICULTY_MOST, editable);
-            }
         });
+    ui.add_space(4.0);
+    area_table(ui, &mut d, editable);
+    ui.label(
+        egui::RichText::new(area_rows_line(
+            d.tier_one_day(),
+            d.tier_two_day(),
+            d.tier_three_day(),
+            d.heart_day(),
+        ))
+        .small()
+        .color(theme::MUTED),
+    );
     if editable && d != settings.difficulty.unwrap_or(file) {
         settings.difficulty = Some(d);
     }
@@ -1461,6 +1421,89 @@ fn difficulty_rows(
     if note.is_some() {
         Remark::show(note, ui, now, "");
     }
+}
+
+/// The four areas' dials (October 2026, `world::droid::Area`): a row a
+/// dial, a column an area, a drag box a cell; area 0 has no machines and
+/// no elite, so its cells for those are a dash.
+fn area_table(ui: &mut egui::Ui, d: &mut Difficulty, editable: bool) {
+    #[derive(Clone, Copy)]
+    enum Dial {
+        Days,
+        Growth,
+        Waves,
+        Bombers,
+        Lancers,
+        Guardians,
+        Elites,
+        Defenders,
+    }
+    let rows = [
+        (Dial::Days, AREA_DAYS, AREA_DAYS_NOTE),
+        (Dial::Growth, AREA_GROWTH, AREA_GROWTH_NOTE),
+        (Dial::Waves, AREA_WAVES, AREA_WAVES_NOTE),
+        (Dial::Bombers, AREA_BOMBERS, AREA_EXTRAS_NOTE),
+        (Dial::Lancers, AREA_LANCERS, AREA_EXTRAS_NOTE),
+        (Dial::Guardians, AREA_GUARDIANS, AREA_GUARDIANS_NOTE),
+        (Dial::Elites, AREA_ELITES, AREA_ELITES_NOTE),
+        (Dial::Defenders, AREA_DEFENDERS, AREA_DEFENDERS_NOTE),
+    ];
+    egui::Grid::new("difficulty_areas")
+        .num_columns(6)
+        .spacing(egui::vec2(10.0, 4.0))
+        .show(ui, |ui| {
+            ui.label("");
+            for name in AREA_NAMES {
+                ui.label(egui::RichText::new(name).strong());
+            }
+            ui.label("");
+            ui.end_row();
+            for (dial, name, note) in rows {
+                ui.label(name);
+                let areas = [
+                    &mut d.area_0,
+                    &mut d.tier_1_area,
+                    &mut d.tier_2_area,
+                    &mut d.tier_3_area,
+                ];
+                for (index, area) in areas.into_iter().enumerate() {
+                    let count = |ui: &mut egui::Ui, value: &mut u32, most: u32| {
+                        ui.add_enabled(
+                            editable,
+                            egui::DragValue::new(value).range(0..=most).speed(0.1),
+                        );
+                    };
+                    let machines_or_elite = matches!(
+                        dial,
+                        Dial::Bombers | Dial::Lancers | Dial::Guardians | Dial::Elites
+                    );
+                    if index == 0 && machines_or_elite {
+                        ui.label(egui::RichText::new(AREA_NONE).color(theme::MUTED));
+                        continue;
+                    }
+                    match dial {
+                        Dial::Days => count(ui, &mut area.days, DIFFICULTY_DAYS_MOST),
+                        Dial::Growth => {
+                            ui.add_enabled(
+                                editable,
+                                egui::DragValue::new(&mut area.growth_per_day)
+                                    .range(0.0..=DIFFICULTY_MOST as f32)
+                                    .speed(0.05)
+                                    .max_decimals(2),
+                            );
+                        }
+                        Dial::Waves => count(ui, &mut area.waves, DIFFICULTY_MOST),
+                        Dial::Bombers => count(ui, &mut area.bombers, DIFFICULTY_MOST),
+                        Dial::Lancers => count(ui, &mut area.lancers, DIFFICULTY_MOST),
+                        Dial::Guardians => count(ui, &mut area.guardians, DIFFICULTY_MOST),
+                        Dial::Elites => count(ui, &mut area.elites, DIFFICULTY_MOST),
+                        Dial::Defenders => count(ui, &mut area.defenders, DIFFICULTY_MOST),
+                    }
+                }
+                ui.label(egui::RichText::new(note).small().color(theme::MUTED));
+                ui.end_row();
+            }
+        });
 }
 
 /// One whole-number dial of the difficulty: its name, a − and a + beside

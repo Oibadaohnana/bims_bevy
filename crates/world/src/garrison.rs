@@ -1,7 +1,7 @@
 //! The world's side of the Manufacturers (feature 109, the rules are
-//! [`crate::manufacturer`]): which of this system's sites are theirs, their
-//! people laid on the deck, and the handful of places their fight is not
-//! the machines'.
+//! [`crate::manufacturer`]): which of this system's sites are theirs, and
+//! every wave laid on a deck — a share of it the machines and the rest
+//! their people, at every site alike (October 2026, [`World::lay_wave`]).
 //!
 //! A child of `crate::world`, so it reaches the world's private fields the
 //! way `mission.rs` and `fortress.rs` do.
@@ -11,10 +11,8 @@
 //! stance is hostile, nobody lives there, nothing is traded, the
 //! waves and their clock, the clear, the pending bounty, the relic reward,
 //! and the site put back as it was met when it is left
-//! uncleared, are all the machines' own machinery unchanged. What differs
-//! is who stands on the deck — [`World::lay_manufacturers`] — and the
-//! numbers: one wave while they still have the machines, the machines' own
-//! count after, and [`data::MANUFACTURER_REINFORCE_STEPS`] between them.
+//! uncleared, are all the machines' own machinery unchanged, and so is who
+//! stands on its deck: the day's mix, as anywhere.
 //!
 //! And what it is **not**: infested. The crisis never takes a site of
 //! theirs ([`World::infest`] refuses it), it is never a system's jammer
@@ -100,13 +98,9 @@ impl World {
     }
 
     /// How many waves the site at `id` has all told, fixed at the crew's
-    /// first dock: **one** at a site of the Manufacturers' while they still
-    /// have the machines — a fixed garrison, nothing coming after it — and
-    /// the machines' own count ([`World::droid_wave_count`]) otherwise.
+    /// first dock: the day's area's ([`World::droid_wave_count`]), an
+    /// elite's at least [`data::ELITE_WAVES`].
     pub(super) fn wave_count_here(&self, id: u32) -> u32 {
-        if self.is_manufacturer_held(id) && manufacturer::has_droids(self.days_gone()) {
-            return 1;
-        }
         // An elite comes in at least two (`crate::elite`), bar a count the
         // probes forced.
         if self.is_elite_here(id) {
@@ -142,133 +136,133 @@ impl World {
         )
     }
 
-    /// The wave that is aboard a site of the Manufacturers', laid on the
-    /// residents' deck if it is not there yet — the first dock's garrison,
-    /// or a reinforcement at the airlock its ship tied up at. Nothing on a
-    /// site already cleared, and nothing twice: the room keeps which wave
-    /// it holds ([`Residents::manufacturers_laid`]).
-    ///
-    /// **The garrison** (wave one) is the machines' own wave size, stood
-    /// about the station's rooms as their first wave is, each body rolled a
-    /// Trooper at the day's share while they still have the machines and
-    /// one of their people otherwise. **A reinforcement** is their people
-    /// alone. Their people go on the deck before the Troopers, since a
-    /// body index past the Bims is a machine's.
-    pub(super) fn lay_manufacturers(&mut self) {
-        let Some(id) = self.residents.as_ref().map(|r| r.station) else {
-            return;
-        };
-        let Some(it) = self.infestation(id).cloned() else {
-            return;
-        };
-        let laid = self.residents.as_ref().map_or(0, |r| r.manufacturers_laid);
-        if it.wave == 0 || it.cleared || laid >= it.wave {
-            return;
+    /// How many of a wave of `n` are machines (October 2026, the player's:
+    /// mixed waves at every site): the day's share
+    /// ([`droidplan::WaveScaling::machines_in`]) — none through area 0,
+    /// all of it from tier two's door — and at an elite's Guardian wave
+    /// at least its Guardians, since a Guardian is a machine. All of it
+    /// at the Heart and wherever a probe forced the machines, their
+    /// kinds or their tier.
+    pub fn machines_of(&self, n: u32, wave: u32) -> u32 {
+        if self.at_the_heart()
+            || self.machines_forced
+            || self.droid_kinds_forced.is_some()
+            || self.droid_tier.is_some()
+        {
+            return n;
         }
+        let machines = self.scaling().machines_in(n, self.run_day());
+        if self.elite_guardian_wave(wave) {
+            let guardians = self.area_now().1.guardians.saturating_mul(self.players());
+            return machines.max(guardians.min(n));
+        }
+        machines
+    }
+
+    /// A wave of `n` laid on the residents' deck at `id` (October 2026:
+    /// every site's, attack or defence alike): [`World::machines_of`] of
+    /// it the machines, their kinds the day's ([`World::wave_kinds_for`],
+    /// the area's Bombers and Lancers on top) each at its own tier, and
+    /// the rest the Manufacturers' people, each armed at the day's share
+    /// ([`World::manufacturer_gear_tiers`]). `first` stands it about the
+    /// station's rooms, else it arrives at the wave's airlock or gate
+    /// ([`World::arrival_spots`]); `seeking` sends its machines looking
+    /// for the crew, a reinforcement's. Their people are rolled off
+    /// `seed`, the machines off the station's own. The room keeps which
+    /// wave it holds ([`Residents::manufacturers_laid`]), so a room built
+    /// afresh lays it again and nothing lays it twice.
+    pub(super) fn lay_wave(
+        &mut self,
+        id: u32,
+        n: u32,
+        wave: u32,
+        first: bool,
+        seeking: bool,
+        seed: u64,
+    ) {
         let Some(station) = self.station(id).cloned() else {
             return;
         };
-        let day = self.days_gone();
-        let n = self.landing_wave_size();
-        let seed = self.garrison_seed(id, it.wave);
-        let first = it.wave == 1;
-        let troopers = if first && manufacturer::has_droids(day) {
-            manufacturer::garrison(n, day, seed)
-        } else {
-            vec![false; n as usize]
-        };
+        let machines = self.machines_of(n, wave);
+        let people = n - machines;
+        let kinds = self.wave_kinds_for(machines, wave);
+        let total = people as usize + kinds.len();
         let placed = if first {
             let Some(residents) = &self.residents else {
                 return;
             };
-            let spots: Vec<bims::math::Vec2> = droidplan::spots_about(&station.design, n as usize)
+            let spots: Vec<bims::math::Vec2> = droidplan::spots_about(&station.design, total)
                 .into_iter()
                 .map(|(x, y)| residents.aboard.to_room(dvec2(x, y)))
                 .collect();
             Some((spots, 0.0))
         } else {
-            self.arrival_spots(&station, n, it.wave)
+            self.arrival_spots(&station, total as u32, wave)
         };
         let Some((spots, facing)) = placed else {
             return;
         };
-        self.price_the_wave(id, n);
-        self.stand_manufacturers(&troopers, &spots, facing, seed, it.wave);
+        let (theirs, rest) = spots.split_at((people as usize).min(spots.len()));
+        let mut droids = self.build_wave(kinds, wave, rest, facing, station.map_seed);
+        for d in &mut droids {
+            d.seeking = seeking;
+        }
+        // What each of the wave pays in experience (October 2026).
+        self.price_the_wave(id, total as u32);
+        self.stand_people(people, theirs, seed);
+        if let Some(residents) = &mut self.residents {
+            residents
+                .aboard
+                .room
+                .adopt_droids(droids, bims::math::Vec2::ZERO);
+            residents.aboard.crew = residents.aboard.room.body_count();
+            residents.manufacturers_laid = wave;
+        }
     }
 
-    /// A wave of theirs **attacking a site the crew are defending**
-    /// (task 131): what lands in place of the machines' wave while they
-    /// still have the machines (before [`data::MANUFACTURER_DROIDS_LOST_DAY`]).
-    /// `n` bodies at the wave's arrival spots, each rolled a Trooper at the
-    /// day's share ([`manufacturer::trooper_percent`]: none on day nought,
-    /// a tenth from day five, up to three in five on day nine) and one of
-    /// their people otherwise, their people armed by the day
-    /// ([`manufacturer::gear`]). In a friendly room each of them is an
-    /// *intruder* (`bims::game::Game::is_intruder`) and fights the
-    /// machines' way. Off the site's own seed for the wave, with a salt of
-    /// its own, so a garrison and a defence on one day never roll alike.
-    pub(super) fn lay_defense_manufacturers(&mut self, id: u32, n: u32) {
+    /// A wave landing on a site the crew are defending: [`World::lay_wave`]
+    /// at the wave's airlock or gate, its people off the site's own seed
+    /// for the wave with a salt of its own (task 131), so a garrison and a
+    /// defence on one day never roll alike.
+    pub(super) fn lay_defense_wave(&mut self, id: u32, n: u32) {
         let Some(wave) = self.defense(id).map(|d| d.wave) else {
             return;
         };
         if wave == 0 || n == 0 {
             return;
         }
-        let Some(station) = self.station(id).cloned() else {
-            return;
-        };
-        let day = self.days_gone();
         let seed = self.garrison_seed(id, wave) ^ DEFENSE_SALT;
-        let troopers = manufacturer::garrison(n, day, seed);
-        let Some((spots, facing)) = self.arrival_spots(&station, n, wave) else {
+        self.lay_wave(id, n, wave, false, false, seed);
+    }
+
+    /// The wave a held site has aboard laid: [`World::lay_wave`], wave one
+    /// about the station's rooms and a reinforcement at its airlock,
+    /// looking for the crew.
+    pub(super) fn lay_held_wave(&mut self, id: u32, n: u32, wave: u32) {
+        let seed = self.garrison_seed(id, wave);
+        self.lay_wave(id, n, wave, wave == 1, wave > 1, seed);
+    }
+
+    /// `people` of the Manufacturers' people stood on the residents' deck
+    /// at `spots`, each armed at the day's share. A body index past the
+    /// Bims is a machine's, so they go in after the Bims and before any
+    /// machine: a wave laid with machines still standing (an Area defend's
+    /// waves stack, October 2026) moves every machine's body index on by
+    /// as many, and what the world keeps a body is moved on with it.
+    fn stand_people(&mut self, people: u32, spots: &[bims::math::Vec2], seed: u64) {
+        if people == 0 {
             return;
-        };
-        self.price_the_wave(id, n);
-        self.stand_manufacturers(&troopers, &spots, facing, seed, wave);
-    }
-
-    /// Whether the waves attacking a site the crew defend are the
-    /// Manufacturers' today (task 131): while they still have the
-    /// machines, before [`data::MANUFACTURER_DROIDS_LOST_DAY`]; the
-    /// machines' own from then on — or always the machines' once a probe
-    /// said so ([`World::set_defense_by_machines_for_probe`]).
-    pub fn defense_by_manufacturers(&self) -> bool {
-        !self.defense_by_machines_forced && manufacturer::has_droids(self.days_gone())
-    }
-
-    /// One wave of theirs stood on the residents' deck at `spots`: their
-    /// people first — a body index past the Bims is a machine's — then the
-    /// Troopers beside them, a body `i` of the wave a Trooper where
-    /// `troopers[i]`. The room keeps which wave it holds
-    /// ([`Residents::manufacturers_laid`]).
-    #[allow(clippy::too_many_arguments)]
-    fn stand_manufacturers(
-        &mut self,
-        troopers: &[bool],
-        spots: &[bims::math::Vec2],
-        facing: f32,
-        seed: u64,
-        wave: u32,
-    ) {
-        let n = troopers.len() as u32;
-        // Each body's tier by its place in the wave (task 147): the
-        // machines' own for a Trooper, the gear's for one of their people.
-        let machine = self.machine_tiers(n);
-        let geared = self.manufacturer_gear_tiers(n);
+        }
+        let geared = self.manufacturer_gear_tiers(people);
         let spot = |i: usize| spots.get(i).copied().unwrap_or(bims::math::Vec2::ZERO);
-        let stagger = |i: usize| bims::game::PLAN_EVERY * (i as f32) / (n.max(1) as f32);
+        let stagger = |i: usize| bims::game::PLAN_EVERY * (i as f32) / (people.max(1) as f32);
         // The crew's relics on every body laid (*Black Market*).
         let toughen = self.enemy_health_factor();
         let Some(residents) = &mut self.residents else {
             return;
         };
-        let room = &mut residents.aboard.room;
-        // Their people go in after the Bims and before the machines, so a
-        // wave laid with machines still standing (an Area defend's waves
-        // stack, October 2026) moves every machine's body index on by as
-        // many: what the world keeps a body is moved on with it.
+        let room = &residents.aboard.room;
         let bims_before = room.crew_count() as usize;
-        let people = troopers.iter().filter(|t| !**t).count();
         if bims_before < residents.down.len() {
             for _ in 0..people {
                 residents.down.insert(bims_before, false);
@@ -279,8 +273,7 @@ impl World {
             }
         }
         let room = &mut residents.aboard.room;
-        // Their people first.
-        for (i, _) in troopers.iter().enumerate().filter(|(_, t)| !**t) {
+        for i in 0..people as usize {
             let own = worldgen::rng::mix(seed ^ (i as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15));
             // The room's pieces are its own; a thousand a body clear of
             // any other body's.
@@ -293,34 +286,6 @@ impl World {
                 room.set_level_health(who, room.max_health(who) * (factor - 1.0));
             }
         }
-        // Then the machines beside them: Troopers, armed by their place
-        // among the Troopers as a wave's are.
-        let machines: Vec<bims::droid::Droid> = troopers
-            .iter()
-            .enumerate()
-            .filter(|(_, t)| **t)
-            .enumerate()
-            .map(|(k, (i, _))| {
-                let mut droid = bims::droid::Droid::new(
-                    bims::droid::DroidKind::Trooper,
-                    machine.get(i).copied().unwrap_or(Tier::One),
-                    k,
-                    wave,
-                    spot(i),
-                    facing,
-                    seed ^ (i as u64) << 8 ^ u64::from(wave),
-                );
-                if let Some(factor) = toughen {
-                    droid.body.toughen(factor);
-                }
-                droid.plan_wait = stagger(i);
-                droid.breach_wait = droid.plan_wait;
-                droid
-            })
-            .collect();
-        room.adopt_droids(machines, bims::math::Vec2::ZERO);
-        residents.aboard.crew = room.body_count();
-        residents.manufacturers_laid = wave;
     }
 
     /// The nearest site of the Manufacturers' by the lanes, as `(star,

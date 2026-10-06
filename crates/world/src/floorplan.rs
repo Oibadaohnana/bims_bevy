@@ -71,22 +71,35 @@ impl World {
         self.floor = self.run.floor.then(|| Arc::new(self.lay_floor(galaxy)));
     }
 
-    /// The row the floor puts its trader at tier two's door on, off the
-    /// scaling's `tier2_days` ([`floor::tier_two_shop_row`]).
+    /// The row the floor puts its trader at tier two's door on: the
+    /// scaling's tier-two area's first day ([`floor::tier_two_shop_row`]).
     fn tier_two_shop_row(&self) -> Option<u32> {
-        floor::tier_two_shop_row(self.scaling().tier2_days)
+        floor::tier_two_shop_row(self.scaling().tier_two_day(), self.floor_hops())
+    }
+
+    /// How many rows the floor climbs, the Heart's the last (October
+    /// 2026): the scaling's four areas' days, tier two's door, the trader
+    /// under the Heart and the Heart
+    /// ([`droidplan::WaveScaling::heart_day`]), four at the least.
+    pub fn floor_hops(&self) -> u32 {
+        self.scaling().heart_day().max(4)
     }
 
     /// The floor laid again where the scaling's tier two now begins on
-    /// another row than its door stands on: after the run's difficulty or
+    /// another row than its door stands on, or its Heart on another row
+    /// than the floor's last: after the run's difficulty or
     /// the tuning file's dials change (`set_difficulty`,
     /// `set_wave_scaling`). The app hands the file's dials over a frame
     /// after the floor is first laid (and after every load), so this is
     /// the floor being laid on the run's own timing before anybody climbs
     /// it; a timing moved mid-run moves the door with it.
     pub(super) fn floor_follows_the_tiers(&mut self) {
-        let want = self.tier_two_shop_row();
-        if self.floor.as_ref().is_some_and(|f| f.tier_two_shop != want) {
+        let want = (self.tier_two_shop_row(), self.floor_hops());
+        if self
+            .floor
+            .as_ref()
+            .is_some_and(|f| (f.tier_two_shop, f.heart_row()) != want)
+        {
             let galaxy = self.galaxy();
             self.settle_floor(&galaxy);
         }
@@ -136,10 +149,10 @@ impl World {
             h if h == unreached => far + 1,
             h => h,
         };
-        let hops = data::FLOOR_HOPS;
+        let hops = self.floor_hops();
         let mut used = vec![false; candidates.len()];
         floor::lay(
-            floor::shape(seed, self.tier_two_shop_row()),
+            floor::shape(seed, hops, self.tier_two_shop_row()),
             |row, index, shop| {
                 if row == 0 {
                     return (self.home_star, self.home);
@@ -254,25 +267,19 @@ impl World {
             .collect()
     }
 
-    /// The tier a row of the floor is marked: tier three at the Heart and
-    /// from the day of [`droidplan::WaveScaling::tier3_days`], tier two
-    /// from [`droidplan::WaveScaling::tier2_days`], tier one before — the
-    /// days from which every enemy has reached that tier, so a row marked
-    /// tier one may still meet a few machines a tier up.
+    /// The tier a row of the floor is marked: tier three at the Heart, and
+    /// otherwise the zone of the row's day — the tier-three area's on, the
+    /// tier-two area's (its door first), and tier one before, area 0
+    /// included, which the map does not tell apart
+    /// ([`droidplan::WaveScaling::zone_on`]). From the zone's first day
+    /// every enemy is that tier at the least, so a row marked tier one
+    /// may still meet a few a tier up.
     pub fn floor_tier(&self, row: u32) -> Tier {
-        let heart = self.floor().map_or(data::FLOOR_HOPS, Floor::heart_row);
+        let heart = self.floor().map_or(self.floor_hops(), Floor::heart_row);
         if row >= heart {
             return Tier::Three;
         }
-        let scaling = self.scaling();
-        let day = floor::row_day(row);
-        if day >= scaling.tier3_days {
-            Tier::Three
-        } else if day >= scaling.tier2_days {
-            Tier::Two
-        } else {
-            Tier::One
-        }
+        self.scaling().zone_on(floor::row_day(row))
     }
 
     /// What a trip to `star`'s place puts the world clock on by: to the

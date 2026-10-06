@@ -77,10 +77,11 @@ desktop):
   …) are documented at the top of `crates/app/src/dev.rs` and in
   `crates/ship/src/session.rs`; grep for `BIMS_`.
 - `scaling.ron` at the root is the whole of how the enemies scale
-  (task 147: enemies per player, the day scaling and its days, enemies
-  per bot (the crew's bots and a defence's defenders), the wave days and the three tier timings, all read off
-  the run day; `world::droid::WaveScaling`, `BIMS_SCALING=file` names
-  another) and `rewards.ron` what a fight pays and things cost (xp and
+  (task 147, areas since October 2026: enemies per player and per bot,
+  and four areas — area 0, tiers one to three — each so many days with
+  its growth, waves, extras, elite and defenders, all read off the run
+  day; the floor's length follows the areas; `world::droid::WaveScaling`,
+  `BIMS_SCALING=file` names another) and `rewards.ron` what a fight pays and things cost (xp and
   money an enemy down, a defence's share, the buyback, combine and
   shelf prices; `world::rewards::Rewards`, `BIMS_REWARDS`), both
   read again whenever saved while the game runs

@@ -3208,6 +3208,7 @@ fn a_hostile_station_is_under_the_ship_s_own_fog_and_its_machines_only_in_sight(
         "the spawn is home"
     );
     // Home no longer: the machines have it.
+    world.set_machines_only_for_probe();
     world.infest(station_id);
     assert_eq!(world.stance(station_id), Stance::Hostile);
     world.step(&[]);
@@ -4089,6 +4090,7 @@ fn the_arena_is_the_combat_dock_and_it_and_the_combat_ship_can_be_walked() {
                 },
             );
         }
+        world.set_machines_only_for_probe();
         world.infest(station);
         assert_eq!(world.people_of(&arena), 0, "none of its people");
         world.step(&[]);

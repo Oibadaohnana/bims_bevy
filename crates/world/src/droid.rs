@@ -34,11 +34,13 @@
 //!
 //! # How many
 //!
-//! **The machines scale on the run day and the players, and nothing else**
-//! (task 147, [`WaveScaling`]): a wave is the players' share — which
-//! grows by `day_scaling` every `scaling_days` — and at a defence the
-//! bots' (the crew's bots and a defence's defenders); a site has a wave more every `wave_days`; and each enemy's
-//! tier is dealt by the day's tier-two and tier-three shares. What the
+//! **The enemies scale on the run day and the players, and nothing else**
+//! (task 147, [`WaveScaling`]): the run is four areas of so many days
+//! each — area 0, then tiers one, two and three — a wave is the players'
+//! share, which grows by each area's `growth_per_day`, and the bots' (the
+//! crew's bots and a defence's defenders); a site has its area's waves;
+//! and who comes — the Manufacturers or the machines — and each enemy's
+//! tier are the day's shares along each area. What the
 //! crew own, what they have learnt, and how many bots and
 //! recruits walk with them are none of the machines' business. Only a
 //! jump moves the world clock — a day each, [`data::JUMP_MINUTES`] — so
@@ -134,31 +136,45 @@ impl Infestation {
     }
 }
 
-/// The dials of the wave formula (task 147), and the whole of how the
-/// machines scale: **how many** a wave is, **how many waves** a site has
-/// and **what tier** each enemy comes at. Nothing else moves any of it —
-/// no base, no ease, no floor at the crew's numbers, no distance. The app
-/// reads them from `scaling.ron` and hands them to
-/// `World::set_wave_scaling` whenever the file changes, and the game
-/// setup's Difficulty lays its own over them for a run
-/// (`World::set_difficulty`). The default is the constants in [`data`].
+/// The dials of the wave formula, and the whole of how the enemies scale
+/// (task 147; laid out by **areas** since October 2026, the player's: "I
+/// only want to define tier_n_area -> that sets how long (in days) the
+/// area is"). Nothing else moves any of it — no base, no ease, no floor
+/// at the crew's numbers, no distance. The app reads them from
+/// `scaling.ron` and hands them to `World::set_wave_scaling` whenever the
+/// file changes, and the game setup's Difficulty lays its own over them
+/// for a run (`World::set_difficulty`). The default is the constants in
+/// [`data`].
+///
+/// **The run is four areas, one after the other**, each so many days (a
+/// day is a row of the floor): [`WaveScaling::area_0`], an easing the map
+/// does not show (its rows are drawn tier one), then the tier-one, the
+/// tier-two and the tier-three areas. Tier two's door — the floor's
+/// guaranteed trader — is the tier-two area's first day and not one of
+/// its `days`; after the tier-three area come the trader under the Heart
+/// and the Heart, neither counted either ([`WaveScaling::heart_day`]).
 ///
 /// Every rule reads the **run day** — the day the top bar shows, one on
 /// the day the world opens (`World::run_day`):
 ///
-/// - a wave is `(per_player + day_scaling × steps) × players +
-///   ⌈per_bot × bots⌉` (the crew's bots and a
-///   defence's defenders), `steps` being whole `scaling_days` in
-///   the run day ([`WaveScaling::size`]);
-/// - a site has `1 + whole wave_days` waves ([`WaveScaling::waves`]);
-/// - the share of enemies at tier two is `day / tier2_days`, all of them
-///   from that day on, and the same for tier three; the share of the
-///   Manufacturers who carry any gear (tier one and up) is
-///   `day / tier1_days` ([`WaveScaling::machine_tiers`],
-///   [`WaveScaling::gear_tiers`]).
-///
-/// A step or wave length of nought days never grows; a tier timing of
-/// nought is that tier for everybody from the first day.
+/// - **a wave** is `enemies_per_player` and every day gone since the run
+///   began times the `growth_per_day` of the area it fell in — carried
+///   over from area to area, so the count never jumps — times the
+///   players, rounded down, and `⌈enemies_per_bot × bots⌉` on top
+///   ([`WaveScaling::size`]);
+/// - **a site's waves**, the extras on top of a wave, an elite's Guardians
+///   and Bombers and a defence's defenders are the day's area's own
+///   numbers ([`Area`]);
+/// - **who comes**, each a straight line in whole enemies
+///   ([`WaveScaling::machines_in`], [`WaveScaling::gear_tiers`],
+///   [`WaveScaling::machine_tiers`]): area 0 is the Manufacturers alone,
+///   the share of them with a gun and armour (tier one) rising from none
+///   on day one to all on the tier-one area's first day; the machines'
+///   share of a wave rises from none on that day to all on the tier-two
+///   area's first; the share at tier two from halfway through the
+///   tier-one area to all on the tier-two area's first day, and tier
+///   three's the same from halfway through the tier-two area to all on
+///   the tier-three area's first.
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(
     feature = "serde",
@@ -166,13 +182,9 @@ impl Infestation {
     serde(default)
 )]
 pub struct WaveScaling {
-    /// Machines added for each player Bim (bots do not count).
+    /// Enemies each player Bim brings on day one (bots do not count).
     pub enemies_per_player: u32,
-    /// How much `enemies_per_player` grows every `scaling_days` (the "y").
-    pub day_scaling: u32,
-    /// How many days one step of `day_scaling` is (the "x").
-    pub scaling_days: u32,
-    /// Machines added for each bot: every crew member alive who is not a
+    /// Enemies added for each bot: every crew member alive who is not a
     /// player (bots, hands and joiners — not a commander's reinforcements)
     /// and at a defence every defender the site fields — none at all at
     /// an Area defend; the product
@@ -180,104 +192,192 @@ pub struct WaveScaling {
     /// in a file or a save written before.)
     #[cfg_attr(feature = "serde", serde(alias = "enemies_per_defender"))]
     pub enemies_per_bot: f32,
-    /// Every this many days a site has one wave more (the "z").
-    pub wave_days: u32,
-    /// The day every Manufacturer carries tier-one gear (a gun and
-    /// armour); before it the share that do is `day / tier1_days`, and
-    /// the rest carry the laser pistol alone.
-    pub tier1_days: u32,
-    /// The day every enemy is tier two at the least — machines and the
-    /// Manufacturers' gear alike; before it the share is
-    /// `day / tier2_days`.
-    pub tier2_days: u32,
-    /// The same for tier three.
-    pub tier3_days: u32,
-    /// From the floor's tier-two rows on (task 157): a Bomber on top of a
-    /// wave for every this many of it, one at the least; nought is none.
-    pub bomber_every: u32,
-    /// And a Lancer the same.
-    pub lancer_every: u32,
-    /// An elite fight's Guardians in the tier-two zone: this many for each
-    /// player Bim, in its Guardian wave ([`WaveScaling::elite_guardians`]).
-    pub tier2_guardians: u32,
-    /// The same in the tier-three zone.
-    pub tier3_guardians: u32,
-    /// An elite fight's elites besides the Guardians in the tier-two zone:
-    /// this many Bombers on top of its Guardian wave
-    /// ([`WaveScaling::elite_bombers`]).
-    pub tier2_elites: u32,
-    /// The same in the tier-three zone.
-    pub tier3_elites: u32,
+    /// The easing before the tier-one area: the Manufacturers alone, no
+    /// elite, drawn tier one on the map.
+    pub area_0: Area,
+    pub tier_1_area: Area,
+    /// Its `days` not counting tier two's door, its first day.
+    pub tier_2_area: Area,
+    /// Its `days` not counting the trader under the Heart or the Heart.
+    pub tier_3_area: Area,
+}
+
+/// One area's numbers ([`WaveScaling`]).
+#[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(default)
+)]
+pub struct Area {
+    /// How many days (rows of the floor) the area is.
+    pub days: u32,
+    /// How much each player's share of a wave grows every day of the
+    /// area, carried into the next.
+    pub growth_per_day: f32,
+    /// How many waves a site has all told (one at the least).
+    pub waves: u32,
+    /// Bombers on top of every wave — machines, so never in area 0.
+    pub bombers: u32,
+    /// And Lancers.
+    pub lancers: u32,
+    /// An elite fight's Guardians for each player Bim, in its Guardian
+    /// wave. Area 0 has no elite.
+    pub guardians: u32,
+    /// An elite fight's Bombers on top of its Guardian wave, besides the
+    /// Guardians.
+    pub elites: u32,
+    /// The armed defenders who stand with a site the crew defend.
+    pub defenders: u32,
+}
+
+impl Area {
+    /// An area of `days` with nothing in it.
+    pub const NONE: Area = Area {
+        days: 0,
+        growth_per_day: 0.0,
+        waves: 1,
+        bombers: 0,
+        lancers: 0,
+        guardians: 0,
+        elites: 0,
+        defenders: 0,
+    };
+
+    /// The growth in hundredths of an enemy a day, so two machines agree
+    /// to the enemy.
+    fn growth_hundredths(&self) -> u64 {
+        (f64::from(self.growth_per_day.max(0.0)) * 100.0).round() as u64
+    }
+}
+
+impl Default for Area {
+    fn default() -> Area {
+        Area::NONE
+    }
 }
 
 impl WaveScaling {
     /// The constants of [`data`]: the game as it plays untuned.
     pub const DEFAULT: WaveScaling = WaveScaling {
         enemies_per_player: data::ENEMIES_PER_PLAYER,
-        day_scaling: data::DAY_SCALING,
-        scaling_days: data::SCALING_DAYS,
         enemies_per_bot: data::ENEMIES_PER_BOT,
-        wave_days: data::WAVE_DAYS,
-        tier1_days: data::TIER1_DAYS,
-        tier2_days: data::TIER2_DAYS,
-        tier3_days: data::TIER3_DAYS,
-        bomber_every: data::BOMBER_EVERY,
-        lancer_every: data::LANCER_EVERY,
-        tier2_guardians: data::TIER2_GUARDIANS,
-        tier3_guardians: data::TIER3_GUARDIANS,
-        tier2_elites: data::TIER2_ELITES,
-        tier3_elites: data::TIER3_ELITES,
+        area_0: data::AREA_0,
+        tier_1_area: data::TIER_1_AREA,
+        tier_2_area: data::TIER_2_AREA,
+        tier_3_area: data::TIER_3_AREA,
     };
 
-    /// How many Guardians an elite fight's Guardian wave holds in the
-    /// floor's `zone` for `players` player Bims: `tier2_guardians` or
-    /// `tier3_guardians` each; `None` in the tier-one zone, which keeps
-    /// [`data::ELITE_GUARDIANS`] by the site's tier.
-    pub fn elite_guardians(&self, zone: Tier, players: u32) -> Option<u32> {
-        let each = match zone {
-            Tier::One => return None,
-            Tier::Two => self.tier2_guardians,
-            Tier::Three => self.tier3_guardians,
-        };
-        Some(each.saturating_mul(players))
+    /// The default's numbers with tier two's door on run day `two` and
+    /// tier three from day `three` (the tests'): no area 0, a tier-one
+    /// area up to the door and a tier-two area up to tier three — so
+    /// `two` one at the least and `three` past it.
+    pub fn with_tier_days(two: u32, three: u32) -> WaveScaling {
+        let mut s = WaveScaling::DEFAULT;
+        s.area_0.days = 0;
+        s.tier_1_area.days = two.saturating_sub(1);
+        s.tier_2_area.days = three.saturating_sub(two.max(1) + 1);
+        s
     }
 
-    /// How many Bombers come on top of an elite fight's Guardian wave in
-    /// the floor's `zone`: `tier2_elites` or `tier3_elites`, none in the
-    /// tier-one zone.
-    pub fn elite_bombers(&self, zone: Tier) -> u32 {
-        match zone {
-            Tier::One => 0,
-            Tier::Two => self.tier2_elites,
-            Tier::Three => self.tier3_elites,
+    /// The four areas, in the order they come.
+    pub fn areas(&self) -> [&Area; 4] {
+        [
+            &self.area_0,
+            &self.tier_1_area,
+            &self.tier_2_area,
+            &self.tier_3_area,
+        ]
+    }
+
+    /// The first day of the tier-one area.
+    pub fn tier_one_day(&self) -> u32 {
+        self.area_0.days.saturating_add(1)
+    }
+
+    /// The first day of the tier-two area: tier two's door, the floor's
+    /// guaranteed trader.
+    pub fn tier_two_day(&self) -> u32 {
+        self.tier_one_day().saturating_add(self.tier_1_area.days)
+    }
+
+    /// The first day of the tier-three area: past the door and the
+    /// tier-two area's `days`.
+    pub fn tier_three_day(&self) -> u32 {
+        self.tier_two_day()
+            .saturating_add(1)
+            .saturating_add(self.tier_2_area.days)
+    }
+
+    /// The Heart's day — the floor's last row: past the tier-three area's
+    /// `days` and the trader under the Heart.
+    pub fn heart_day(&self) -> u32 {
+        self.tier_three_day()
+            .saturating_add(self.tier_3_area.days)
+            .saturating_add(1)
+    }
+
+    /// Which area run day `day` is in, nought to three: the door is the
+    /// tier-two area's and the trader under the Heart, the Heart and
+    /// any day past it the tier-three area's.
+    pub fn area_index(&self, day: u32) -> usize {
+        if day < self.tier_one_day() {
+            0
+        } else if day < self.tier_two_day() {
+            1
+        } else if day < self.tier_three_day() {
+            2
+        } else {
+            3
         }
     }
 
-    /// How many Bombers and Lancers come on top of a wave of `n` from the
-    /// floor's tier-two rows on (task 157): `n / bomber_every` and
-    /// `n / lancer_every`, one of each at the least, and none of a kind
-    /// whose dial is nought.
-    pub fn tier_two_extras(&self, n: u32) -> (u32, u32) {
-        let of = |every: u32| match n.checked_div(every) {
-            Some(k) if n > 0 => k.max(1),
-            _ => 0,
-        };
-        (of(self.bomber_every), of(self.lancer_every))
+    /// The area run day `day` is in.
+    pub fn area_on(&self, day: u32) -> &Area {
+        self.areas()[self.area_index(day)]
     }
 
-    /// Whole `scaling_days` in run day `day`; nought with no step.
-    pub fn steps(&self, day: u32) -> u32 {
-        day.checked_div(self.scaling_days).unwrap_or(0)
+    /// The zone's tier on run day `day`: tier three from the tier-three
+    /// area's first day, two from the tier-two area's (its door), one
+    /// before — area 0 included. What the floor marks its rows.
+    pub fn zone_on(&self, day: u32) -> Tier {
+        if day >= self.tier_three_day() {
+            Tier::Three
+        } else if day >= self.tier_two_day() {
+            Tier::Two
+        } else {
+            Tier::One
+        }
     }
 
-    /// Machines a player brings on run day `day`:
-    /// `enemies_per_player + day_scaling × steps`.
+    /// Enemies a player brings on run day `day`, in hundredths:
+    /// `enemies_per_player`, and each area's `growth_per_day` for every
+    /// day of it gone by `day` — area 0's from day one, so on day one
+    /// none.
+    fn per_player_hundredths(&self, day: u32) -> u64 {
+        let starts = [
+            1,
+            self.tier_one_day(),
+            self.tier_two_day(),
+            self.tier_three_day(),
+        ];
+        let mut sum = u64::from(self.enemies_per_player) * 100;
+        for (k, area) in self.areas().iter().enumerate() {
+            let start = starts[k];
+            // The last area runs on past the Heart.
+            let end = starts.get(k + 1).copied().unwrap_or(u32::MAX);
+            let gone = day.min(end).saturating_sub(start);
+            sum = sum.saturating_add(area.growth_hundredths().saturating_mul(u64::from(gone)));
+        }
+        sum
+    }
+
+    /// Enemies a player brings on run day `day`, rounded down.
     pub fn per_player_on(&self, day: u32) -> u32 {
-        self.enemies_per_player
-            .saturating_add(self.day_scaling.saturating_mul(self.steps(day)))
+        (self.per_player_hundredths(day) / 100).min(u64::from(u32::MAX)) as u32
     }
 
-    /// Machines `bots` bring, `enemies_per_bot` each, the
+    /// Enemies `bots` bring, `enemies_per_bot` each, the
     /// product rounded up — worked in hundredths, so two machines agree
     /// to the machine.
     pub fn for_bots(&self, bots: u32) -> u32 {
@@ -286,26 +386,74 @@ impl WaveScaling {
         whole.min(u64::from(u32::MAX)) as u32
     }
 
-    /// How many machines a wave is for `players` and `bots` on run
-    /// day `day`. The world makes it one at the least.
+    /// How many enemies a wave is for `players` and `bots` on run day
+    /// `day`: the players' share rounded down on the whole, the bots'
+    /// on top. The world makes it one at the least.
     pub fn size(&self, players: u32, bots: u32, day: u32) -> u32 {
-        self.per_player_on(day)
-            .saturating_mul(players)
-            .saturating_add(self.for_bots(bots))
+        let players = (self
+            .per_player_hundredths(day)
+            .saturating_mul(u64::from(players))
+            / 100)
+            .min(u64::from(u32::MAX)) as u32;
+        players.saturating_add(self.for_bots(bots))
     }
 
     /// How many waves a site has all told on run day `day`, the first
-    /// counted: one, and one more every `wave_days`.
+    /// counted: the area's, one at the least.
     pub fn waves(&self, day: u32) -> u32 {
-        1u32.saturating_add(day.checked_div(self.wave_days).unwrap_or(0))
+        self.area_on(day).waves.max(1)
     }
 
-    /// How many machines a wave of `n` have tier two at the least and
-    /// tier three, on run day `day`: each share of `n` in whole machines,
-    /// the tier-three ones counted among the tier-two ones.
+    /// The Bombers and the Lancers on top of a wave on run day `day`: the
+    /// area's — none in area 0, which has no machines.
+    pub fn extras(&self, day: u32) -> (u32, u32) {
+        match self.area_index(day) {
+            0 => (0, 0),
+            _ => {
+                let area = self.area_on(day);
+                (area.bombers, area.lancers)
+            }
+        }
+    }
+
+    /// How many Guardians an elite fight's Guardian wave holds on run day
+    /// `day` for `players` player Bims: the area's for each.
+    pub fn elite_guardians(&self, day: u32, players: u32) -> u32 {
+        self.area_on(day).guardians.saturating_mul(players)
+    }
+
+    /// How many Bombers come on top of an elite fight's Guardian wave on
+    /// run day `day`: the area's `elites`.
+    pub fn elite_bombers(&self, day: u32) -> u32 {
+        self.area_on(day).elites
+    }
+
+    /// The armed defenders a defended site fields on run day `day`.
+    pub fn defenders(&self, day: u32) -> u32 {
+        self.area_on(day).defenders
+    }
+
+    /// How many of a wave of `n` are machines on run day `day`: none
+    /// through area 0, then a straight line from none on the tier-one
+    /// area's first day to all on the tier-two area's; the rest are the
+    /// Manufacturers' people.
+    pub fn machines_in(&self, n: u32, day: u32) -> u32 {
+        ramp(n, day, 2 * self.tier_one_day(), 2 * self.tier_two_day())
+    }
+
+    /// How many of `n` enemies are tier two at the least and tier three on
+    /// run day `day`: tier two's share from halfway through the tier-one
+    /// area to all on the tier-two area's first day, tier three's from
+    /// halfway through the tier-two area to all on its first day, the
+    /// tier-three ones counted among the tier-two ones.
     fn tier_counts(&self, n: u32, day: u32) -> (u32, u32) {
-        let three = share_of(n, day, self.tier3_days);
-        let two = share_of(n, day, self.tier2_days).max(three);
+        let (one, two, three) = (
+            self.tier_one_day(),
+            self.tier_two_day(),
+            self.tier_three_day(),
+        );
+        let three = ramp(n, day, two + three, 2 * three);
+        let two = ramp(n, day, one + two, 2 * two).max(three);
         (two, three)
     }
 
@@ -330,11 +478,12 @@ impl WaveScaling {
 
     /// The tier of the gear each of `n` Manufacturers carries on run day
     /// `day`, in their order: as [`WaveScaling::machine_tiers`] for tiers
-    /// two and three, then tier one for the next of the `tier1_days`
-    /// share, and `None` — the laser pistol and no armour — for the rest.
+    /// two and three, then tier one for the next of the share geared —
+    /// none on day one, all on the tier-one area's first day — and `None`
+    /// (the laser pistol and no armour) for the rest.
     pub fn gear_tiers(&self, n: u32, day: u32) -> Vec<Option<Tier>> {
         let (two, three) = self.tier_counts(n, day);
-        let one = share_of(n, day, self.tier1_days).max(two);
+        let one = ramp(n, day, 2, 2 * self.tier_one_day()).max(two);
         (0..n)
             .map(|i| {
                 if i < three {
@@ -349,19 +498,6 @@ impl WaveScaling {
             })
             .collect()
     }
-
-    /// The tier at least half the machines come at on run day `day`: what
-    /// a site's tier is said as (the map, the chart, the checksum).
-    pub fn usual_tier(&self, day: u32) -> Tier {
-        let half = |days: u32| u64::from(day) * 2 >= u64::from(days);
-        if half(self.tier3_days) {
-            Tier::Three
-        } else if half(self.tier2_days) {
-            Tier::Two
-        } else {
-            Tier::One
-        }
-    }
 }
 
 impl Default for WaveScaling {
@@ -370,14 +506,20 @@ impl Default for WaveScaling {
     }
 }
 
-/// `day / days` of `n` in whole machines — rounded down, so a tier reaches
-/// one machine once its share is a whole one — never more than `n`; all
-/// of `n` for `days` nought.
-fn share_of(n: u32, day: u32, days: u32) -> u32 {
-    if days == 0 || day >= days {
+/// A straight line's share of `n` in whole enemies, rounded down, on run
+/// day `day`: none up to `from2`, all from `to2` — both in **half days**,
+/// twice the day, so a ramp may start halfway through an area — and
+/// never more than `n`. All of `n` where the line has no length.
+fn ramp(n: u32, day: u32, from2: u32, to2: u32) -> u32 {
+    let at = u64::from(day) * 2;
+    let (from, to) = (u64::from(from2), u64::from(to2));
+    if at >= to {
         return n;
     }
-    (u64::from(n) * u64::from(day) / u64::from(days)) as u32
+    if at <= from {
+        return 0;
+    }
+    (u64::from(n) * (at - from) / (to - from)) as u32
 }
 
 /// The run's difficulty, as the game setup picked it: every dial of the
@@ -454,37 +596,82 @@ pub fn turns_on(first: u32, hops: u16) -> u32 {
 mod tests {
     use super::*;
 
+    /// The player's layout (October 2026): area 0 five days, tier one
+    /// fourteen, tier two nine, tier three three; three a player growing
+    /// half an enemy a day in every area.
     fn dials() -> WaveScaling {
+        let area = |days, waves, defenders| Area {
+            days,
+            growth_per_day: 0.5,
+            waves,
+            bombers: 1,
+            lancers: 1,
+            guardians: 1,
+            elites: 1,
+            defenders,
+        };
         WaveScaling {
-            enemies_per_player: 2,
-            day_scaling: 1,
-            scaling_days: 5,
+            enemies_per_player: 3,
             enemies_per_bot: 1.0,
-            wave_days: 10,
-            tier1_days: 5,
-            tier2_days: 20,
-            tier3_days: 40,
-            bomber_every: 6,
-            lancer_every: 8,
-            tier2_guardians: 1,
-            tier3_guardians: 1,
-            tier2_elites: 1,
-            tier3_elites: 1,
+            area_0: area(5, 1, 2),
+            tier_1_area: area(14, 1, 3),
+            tier_2_area: area(9, 2, 4),
+            tier_3_area: area(3, 3, 5),
         }
     }
 
-    /// The player's own example (task 147): day two, a defence with
-    /// three bots, one player at two a player, a step of five days
-    /// not yet come — five machines.
+    /// Rows 1-5 area 0, 6-19 tier one, 20 the door, 21-29 tier two, 30-32
+    /// tier three, 33 the trader under the Heart, 34 the Heart.
     #[test]
-    fn a_wave_is_per_player_with_the_day_s_growth_and_per_bot() {
+    fn the_areas_lie_one_after_the_other() {
         let d = dials();
-        assert_eq!(d.size(1, 3, 2), 3 + 2);
-        // The step comes on day five, and raises every player's share.
-        assert_eq!(d.size(1, 0, 4), 2);
-        assert_eq!(d.size(1, 0, 5), 3);
-        assert_eq!(d.size(3, 0, 5), 9);
-        assert_eq!(d.size(2, 0, 12), 2 * (2 + 2));
+        assert_eq!(d.tier_one_day(), 6);
+        assert_eq!(d.tier_two_day(), 20);
+        assert_eq!(d.tier_three_day(), 30);
+        assert_eq!(d.heart_day(), 34);
+        for (day, area, zone) in [
+            (1, 0, Tier::One),
+            (5, 0, Tier::One),
+            (6, 1, Tier::One),
+            (19, 1, Tier::One),
+            (20, 2, Tier::Two),
+            (29, 2, Tier::Two),
+            (30, 3, Tier::Three),
+            (34, 3, Tier::Three),
+            (90, 3, Tier::Three),
+        ] {
+            assert_eq!(d.area_index(day), area, "day {day}");
+            assert_eq!(d.zone_on(day), zone, "day {day}");
+        }
+        assert_eq!(d.waves(1), 1);
+        assert_eq!(d.waves(20), 2);
+        assert_eq!(d.waves(31), 3);
+        assert_eq!(d.defenders(19), 3);
+        assert_eq!(d.extras(3), (0, 0), "no machines in area 0");
+        assert_eq!(d.extras(6), (1, 1));
+        assert_eq!(d.elite_guardians(25, 2), 2);
+        // An area of nought waves is one.
+        let mut none = d;
+        none.area_0.waves = 0;
+        assert_eq!(none.waves(1), 1);
+    }
+
+    /// The count carries over from area to area: day one is the base, and
+    /// every day after adds its own area's growth.
+    #[test]
+    fn a_wave_grows_by_each_area_s_day_and_carries_over() {
+        let mut d = dials();
+        assert_eq!(d.size(1, 0, 1), 3);
+        assert_eq!(d.size(1, 0, 2), 3, "3.5 is three");
+        assert_eq!(d.size(2, 0, 2), 7, "7.0 for two players");
+        assert_eq!(d.size(1, 0, 6), 5, "area 0's five days");
+        d.tier_1_area.growth_per_day = 1.0;
+        // Tier one's first day carries area 0's end; its own growth after.
+        assert_eq!(d.size(1, 0, 6), 5);
+        assert_eq!(d.size(1, 0, 8), 7);
+        assert_eq!(d.size(1, 0, 20), 5 + 14, "the door: tier one's 14 days");
+        assert_eq!(d.size(1, 0, 22), 20, "and tier two's half a day each");
+        assert_eq!(d.size(1, 3, 1), 3 + 3);
         // A decimal per bot is rounded up on the whole.
         let half = WaveScaling {
             enemies_per_bot: 1.5,
@@ -498,81 +685,73 @@ mod tests {
             ..d
         };
         assert_eq!(third.for_bots(3), 2, "1.02 is two");
-        // No step length is no growth, not a division by nought.
-        let flat = WaveScaling {
-            scaling_days: 0,
-            ..d
-        };
-        assert_eq!(flat.size(1, 0, 90), 2);
     }
 
+    /// Area 0 is the Manufacturers alone; the machines' share rises
+    /// through tier one to all of the wave at tier two's door.
     #[test]
-    fn a_site_has_a_wave_more_every_wave_days() {
+    fn the_machines_come_in_through_the_tier_one_area() {
         let d = dials();
-        assert_eq!(d.waves(1), 1);
-        assert_eq!(d.waves(9), 1);
-        assert_eq!(d.waves(10), 2);
-        assert_eq!(d.waves(25), 3);
-        let one = WaveScaling { wave_days: 0, ..d };
-        assert_eq!(one.waves(200), 1);
+        for day in 1..=6 {
+            assert_eq!(d.machines_in(10, day), 0, "day {day}");
+        }
+        assert_eq!(d.machines_in(14, 13), 7, "half way");
+        assert_eq!(d.machines_in(10, 19), 9);
+        assert_eq!(d.machines_in(10, 20), 10);
+        assert_eq!(d.machines_in(10, 40), 10);
     }
 
-    /// Twenty days to tier two: half the machines on day ten, all of them
-    /// on day twenty; tier three the same over forty, counted first.
+    /// Tier two from halfway through the tier-one area (day 13) to all at
+    /// the door (day 20); tier three from halfway through the tier-two
+    /// area (day 25) to all on day 30.
     #[test]
-    fn the_tier_shares_grow_with_the_day() {
+    fn the_tier_shares_grow_along_the_areas() {
         let d = dials();
         let count = |n, day, tier| {
             d.machine_tiers(n, day)
                 .iter()
-                .filter(|&&t| t == tier)
+                .filter(|&&t| t >= tier)
                 .count() as u32
         };
-        assert_eq!(count(10, 1, Tier::One), 10, "half a machine is none yet");
-        assert_eq!(count(10, 10, Tier::Two) + count(10, 10, Tier::Three), 5);
-        assert_eq!(count(10, 20, Tier::Two) + count(10, 20, Tier::Three), 10);
-        assert_eq!(count(10, 20, Tier::Three), 5);
-        assert_eq!(count(10, 40, Tier::Three), 10);
-        assert_eq!(count(10, 90, Tier::Three), 10);
-        // One machine at a time: a wave of five on day four has one.
-        assert_eq!(count(5, 4, Tier::Two), 1);
-        assert_eq!(
-            d.machine_tiers(3, 30),
-            [Tier::Three, Tier::Three, Tier::Two]
-        );
-        // A timing of nought is the tier from the first day.
-        let at_once = WaveScaling { tier3_days: 0, ..d };
-        assert!(
-            at_once
-                .machine_tiers(4, 1)
-                .iter()
-                .all(|&t| t == Tier::Three)
-        );
-        assert_eq!(d.usual_tier(9), Tier::One);
-        assert_eq!(d.usual_tier(10), Tier::Two);
-        assert_eq!(d.usual_tier(20), Tier::Three);
+        assert_eq!(count(10, 13, Tier::Two), 0);
+        assert_eq!(count(14, 16, Tier::Two), 6, "6 of 14 half days");
+        assert_eq!(count(10, 19, Tier::Two), 8);
+        assert_eq!(count(10, 20, Tier::Two), 10, "no tier one at the door");
+        assert_eq!(count(10, 25, Tier::Three), 0);
+        assert_eq!(count(10, 27, Tier::Three), 4);
+        assert_eq!(count(10, 30, Tier::Three), 10);
+        assert_eq!(d.machine_tiers(3, 28), [Tier::Three, Tier::Two, Tier::Two]);
+        // A tier-one area of nought days is tier two from day one of it.
+        let mut quick = d;
+        quick.tier_1_area.days = 0;
+        assert!(quick.machine_tiers(4, 6).iter().all(|&t| t == Tier::Two));
     }
 
-    /// The Manufacturers' gear: the pistol alone for the share not yet
-    /// geared, tier one up to `tier1_days`, then two and three as the
-    /// machines'.
+    /// The Manufacturers' gear: the pistol for all on day one, a gun and
+    /// armour for a growing share through area 0, all of them from the
+    /// tier-one area on, then two and three as the machines'.
     #[test]
-    fn the_manufacturers_gear_up_by_the_day() {
+    fn the_manufacturers_gear_up_through_area_0() {
         let d = dials();
         assert!(d.gear_tiers(4, 1).iter().all(|t| t.is_none()), "the pistol");
-        let tiers = d.gear_tiers(4, 2);
-        assert_eq!(tiers.iter().filter(|t| t.is_some()).count(), 1, "{tiers:?}");
-        assert!(d.gear_tiers(4, 5).iter().all(|t| t.is_some()));
+        let geared = |day| d.gear_tiers(10, day).iter().filter(|t| t.is_some()).count();
+        assert_eq!(geared(3), 4);
+        assert_eq!(geared(5), 8);
+        assert_eq!(geared(6), 10);
         assert_eq!(
-            d.gear_tiers(4, 10),
+            d.gear_tiers(4, 28),
             [
                 Some(Tier::Three),
+                Some(Tier::Three),
                 Some(Tier::Two),
-                Some(Tier::One),
-                Some(Tier::One)
+                Some(Tier::Two)
             ]
         );
         assert!(d.gear_tiers(4, 40).iter().all(|&t| t == Some(Tier::Three)));
+        // No area 0: geared from day one.
+        let mut none = d;
+        none.area_0.days = 0;
+        assert!(none.gear_tiers(4, 1).iter().all(|t| t.is_some()));
     }
 
     #[test]

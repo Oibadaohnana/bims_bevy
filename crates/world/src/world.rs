@@ -821,17 +821,20 @@ pub struct World {
     /// room, which the checksum leaves out like everything of that room.
     #[cfg_attr(feature = "serde", serde(default))]
     droid_kinds_forced: Option<Vec<bims::droid::DroidKind>>,
-    /// The probes' word that a defence's waves are **the machines'**
-    /// whatever the day (task 131): before day ten they are the
-    /// Manufacturers' in the game, and the tests of the machines'
-    /// fight at a defence run at day nought. Saved and not hashed, as
-    /// `droid_kinds_forced` is.
-    #[cfg_attr(feature = "serde", serde(default))]
-    defense_by_machines_forced: bool,
+    /// The probes' word that every wave is **the machines'** whatever the
+    /// day (task 131; every site's since October 2026): the scaling's
+    /// area 0 is the Manufacturers alone and its tier-one area a mix, and
+    /// the tests of the machines' fight run at day one. Saved and not
+    /// hashed, as `droid_kinds_forced` is.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, alias = "defense_by_machines_forced")
+    )]
+    machines_forced: bool,
     /// The tests' word that a town's defence is the old one — every wave
     /// down and won — and not an **Area defend** (October 2026): the
     /// town defence tests written before it. Saved and not hashed, as
-    /// `defense_by_machines_forced` is.
+    /// `machines_forced` is.
     #[cfg_attr(feature = "serde", serde(default))]
     area_defense_off: bool,
     /// Where the machines began (feature 92): the one star the crisis
@@ -1262,7 +1265,7 @@ impl World {
             rewards: crate::rewards::Rewards::DEFAULT,
             droid_waves_forced: None,
             droid_kinds_forced: None,
-            defense_by_machines_forced: false,
+            machines_forced: false,
             area_defense_off: false,
             droid_origin,
             droid_hops,
@@ -5440,6 +5443,8 @@ impl World {
     /// docked guard, which is the whole point: the probe opens with the
     /// crew tied up at a held station.
     pub fn infest_here_for_probe(&mut self) {
+        // The machines' fight whatever the day (October 2026).
+        self.machines_forced = true;
         self.settle_jammer();
         let mut ids: Vec<u32> = self.stations.iter().map(|s| s.id).collect();
         ids.extend(self.surfaces.iter().map(|s| s.id));
@@ -5693,10 +5698,9 @@ impl World {
             .is_some_and(|r| heart::is_heart(r.station))
     }
 
-    /// The tier most of the machines come at today (task 147): the tier at
-    /// least half of them are at by the run day
-    /// ([`droidplan::WaveScaling::usual_tier`]) — what the map, the
-    /// checksum and a lone machine staged say. Each machine of a wave has
+    /// The tier of the zone the run is in today (task 147; the area's
+    /// since October 2026, [`droidplan::WaveScaling::zone_on`]) — what
+    /// the map, the checksum and a lone machine staged say. Each machine of a wave has
     /// its own ([`World::machine_tiers`]). Tier three at the Machine
     /// Heart's fortress whatever else is said (feature 108), and
     /// `BIMS_DROID_TIER` over everything else in the probes.
@@ -5748,15 +5752,15 @@ impl World {
         self.scaling().gear_tiers(n, self.run_day())
     }
 
-    /// What tier most of the machines at any site come at, at the world
-    /// clock `clock_minutes` (task 147): the usual tier of that day, the
-    /// same at every site — the wave on arrival and the map's quote read
-    /// the same answer. The probes' dial, where set, is every site's.
+    /// The zone's tier at any site at the world clock `clock_minutes`
+    /// (task 147; the area's since October 2026): the same at every site
+    /// — the wave on arrival and the map's quote read the same answer.
+    /// The probes' dial, where set, is every site's.
     pub fn tier_on(&self, clock_minutes: f64) -> Tier {
         if let Some(tier) = self.droid_tier {
             return tier;
         }
-        self.scaling().usual_tier(run_day_at(clock_minutes))
+        self.scaling().zone_on(run_day_at(clock_minutes))
     }
 
     /// The tiers a star's sites come at, at the world clock
@@ -5927,11 +5931,12 @@ impl World {
         self.droid_kinds_forced = Some(kinds);
     }
 
-    /// Every defence's waves the machines' from now on, whatever the day
-    /// (task 131): for the tests of the machines' fight at a defence,
-    /// which run at day nought, where the game sends the Manufacturers.
-    pub fn set_defense_by_machines_for_probe(&mut self) {
-        self.defense_by_machines_forced = true;
+    /// Every wave the machines' from now on, whatever the day (task 131;
+    /// every site's since October 2026): for the tests of the machines'
+    /// fight, which run at day one, where the game sends the
+    /// Manufacturers alone.
+    pub fn set_machines_only_for_probe(&mut self) {
+        self.machines_forced = true;
     }
 
     /// The tests' dial: a town's defence the old one from now on — every
@@ -6066,7 +6071,7 @@ impl World {
         let alive = (0..room.droid_count() as usize)
             .filter_map(|i| room.droid(i))
             .any(|d| !d.destroyed && d.wave == wave);
-        if !alive && !(self.is_manufacturer_held(station) && self.manufacturers_standing() > 0) {
+        if !alive && self.manufacturers_standing() == 0 {
             return None;
         }
         let site = self.station(station)?;
@@ -6180,11 +6185,11 @@ impl World {
     }
 
     /// The tier of the floor's zone the run is in (task 157): tier three at
-    /// the Machine Heart's fortress and from the day of
-    /// [`droidplan::WaveScaling::tier3_days`], tier two from
-    /// [`droidplan::WaveScaling::tier2_days`], tier one before — the rows
+    /// the Machine Heart's fortress and from the tier-three area's first
+    /// day, tier two from the tier-two area's (its door), tier one before
+    /// — area 0 included ([`droidplan::WaveScaling::zone_on`]) — the rows
     /// the floor map marks so ([`World::floor_tier`]) — and the probes'
-    /// tier where it is set. What brings the tier-two machines.
+    /// tier where it is set.
     pub fn zone_tier(&self) -> Tier {
         if self.at_the_heart() {
             return Tier::Three;
@@ -6192,54 +6197,71 @@ impl World {
         if let Some(tier) = self.droid_tier {
             return tier;
         }
-        let scaling = self.scaling();
-        let day = self.run_day();
-        if day >= scaling.tier3_days {
-            Tier::Three
-        } else if day >= scaling.tier2_days {
-            Tier::Two
-        } else {
-            Tier::One
-        }
+        self.scaling().zone_on(self.run_day())
     }
 
-    /// The kinds of a wave of `n`, its `wave`-th: the probes' forced kinds,
-    /// else [`bims::droid::wave_kinds`] with, from the floor's tier-two zone
-    /// on ([`World::zone_tier`]), the Bombers and the Lancers on top of it
-    /// (task 157, [`droidplan::WaveScaling::tier_two_extras`]) — and at the
-    /// system's elite its Guardians put in — in the tier-one zone one a
-    /// tier of the site's (`droid_tier`, what the map says), from the
-    /// tier-two zone on the scaling's `tier2_guardians` / `tier3_guardians`
-    /// for each player ([`droidplan::WaveScaling::elite_guardians`]) —
-    /// and, from the tier-two zone on, its Conductor
-    /// ([`crate::elite::with_conductor`]) and `tier2_elites` /
-    /// `tier3_elites` Bombers on top ([`crate::elite::with_bombers`]).
-    /// **An Area defend has none of the elite's** (October 2026, the
-    /// player's: "in area defend no guardians or bombers only the waves"),
-    /// though it is an elite fight for its relics and its pay.
+    /// The kinds of a wave's `n` machines, its `wave`-th: the probes'
+    /// forced kinds, else [`bims::droid::wave_kinds`] with the day's
+    /// area's Bombers and Lancers on top of it
+    /// ([`droidplan::WaveScaling::extras`], none in area 0) — and at the
+    /// system's elite its Guardians put in, the area's `guardians` for
+    /// each player ([`droidplan::WaveScaling::elite_guardians`]), and,
+    /// from the tier-two zone on, its Conductor
+    /// ([`crate::elite::with_conductor`]) and the area's `elites` Bombers
+    /// on top ([`crate::elite::with_bombers`]). **An Area defend has none
+    /// of the elite's** (October 2026, the player's: "in area defend no
+    /// guardians or bombers only the waves"), though it is an elite fight
+    /// for its relics and its pay.
     pub(crate) fn wave_kinds_for(&self, n: u32, wave: u32) -> Vec<bims::droid::DroidKind> {
         use bims::droid::DroidKind;
         let zone = self.zone_tier();
+        let (index, area) = self.area_now();
         let kinds = self.droid_kinds_forced.clone().unwrap_or_else(|| {
             let mut kinds = bims::droid::wave_kinds(n);
-            if zone >= Tier::Two {
-                let (bombers, lancers) = self.scaling().tier_two_extras(n);
-                kinds.extend(std::iter::repeat_n(DroidKind::Bomber, bombers as usize));
-                kinds.extend(std::iter::repeat_n(DroidKind::Lancer, lancers as usize));
-            }
+            // No machines in area 0, so nothing on top of them either.
+            let (bombers, lancers) = match index {
+                0 => (0, 0),
+                _ => (area.bombers, area.lancers),
+            };
+            kinds.extend(std::iter::repeat_n(DroidKind::Bomber, bombers as usize));
+            kinds.extend(std::iter::repeat_n(DroidKind::Lancer, lancers as usize));
             kinds
         });
-        let here = self.residents.as_ref().map(|r| r.station);
-        if !here.is_some_and(|id| self.is_elite_here(id)) {
+        if !self.elite_guardian_wave(wave) {
             return kinds;
         }
-        let scaling = self.scaling();
-        let guardians = scaling
-            .elite_guardians(zone, self.players())
-            .unwrap_or_else(|| crate::elite::guardians_at(self.droid_tier()));
+        let guardians = area.guardians.saturating_mul(self.players());
         let kinds = crate::elite::with_guardian(kinds, wave, guardians);
         let kinds = crate::elite::with_conductor(kinds, wave, zone);
-        crate::elite::with_bombers(kinds, wave, scaling.elite_bombers(zone))
+        crate::elite::with_bombers(kinds, wave, area.elites)
+    }
+
+    /// The area the fight is in, nought to three, and its numbers
+    /// (October 2026, [`droidplan::WaveScaling::area_index`]): the run
+    /// day's — the tier-three area's at the Heart, and the area of the
+    /// probes' tier where it is set (`BIMS_DROID_TIER`), so `tier2_test`
+    /// meets what a tier-two area brings.
+    pub fn area_now(&self) -> (usize, droidplan::Area) {
+        let scaling = self.scaling();
+        let index = if self.at_the_heart() {
+            3
+        } else if let Some(tier) = self.droid_tier {
+            tier.code() as usize
+        } else {
+            scaling.area_index(self.run_day())
+        };
+        (index, *scaling.areas()[index])
+    }
+
+    /// Whether the wave is an elite's Guardian wave at the site the room
+    /// is open on: the system's elite ([`World::is_elite_here`]), wave
+    /// [`data::ELITE_GUARDIAN_WAVE`].
+    fn elite_guardian_wave(&self, wave: u32) -> bool {
+        wave == data::ELITE_GUARDIAN_WAVE
+            && self
+                .residents
+                .as_ref()
+                .is_some_and(|r| self.is_elite_here(r.station))
     }
 
     /// The machines a wave is, built: `kinds` ([`World::wave_kinds_for`]),
@@ -6293,31 +6315,6 @@ impl World {
                 droid
             })
             .collect()
-    }
-
-    /// The first wave, stood about the station's rooms: free deck tiles
-    /// spread across the design.
-    fn first_wave(&self, station: &Station, n: u32, wave: u32) -> Vec<bims::droid::Droid> {
-        let Some(residents) = &self.residents else {
-            return Vec::new();
-        };
-        let kinds = self.wave_kinds_for(n, wave);
-        let spots: Vec<bims::math::Vec2> = droidplan::spots_about(&station.design, kinds.len())
-            .into_iter()
-            .map(|(x, y)| residents.aboard.to_room(dvec2(x, y)))
-            .collect();
-        self.build_wave(kinds, wave, &spots, 0.0, station.map_seed)
-    }
-
-    /// A reinforcement wave, at the airlock its ship tied up at — or, on
-    /// a surface, just inside the gate its lander set down beyond — the
-    /// town's gates in turn (`surface::gate_for_wave`).
-    fn arriving_wave(&self, station: &Station, n: u32, wave: u32) -> Vec<bims::droid::Droid> {
-        let kinds = self.wave_kinds_for(n, wave);
-        let Some((spots, facing)) = self.arrival_spots(station, kinds.len() as u32, wave) else {
-            return Vec::new();
-        };
-        self.build_wave(kinds, wave, &spots, facing, station.map_seed)
     }
 
     /// Where a wave of `n` that **arrives** is stood, in the residents'
@@ -6374,9 +6371,9 @@ impl World {
     }
 
     /// Put the wave that is aboard into the residents' room, if the room
-    /// is open on a held station and has no machines in it yet. Called
+    /// is open on a held station and has not got it yet. Called
     /// wherever the residents' room is built afresh — opened, joined,
-    /// unjoined — since a fresh room has no machines and the ones
+    /// unjoined — since a fresh room has no wave and the bodies
     /// standing are carried across by hand.
     fn settle_droids(&mut self) {
         let Some(residents) = &self.residents else {
@@ -6384,11 +6381,6 @@ impl World {
         };
         let id = residents.station;
         if !self.is_droid_held(id) {
-            return;
-        }
-        // A site of the Manufacturers' lays its own (feature 109).
-        if self.is_manufacturer_held(id) {
-            self.lay_manufacturers();
             return;
         }
         // A wave laid this step but with no room to go into yet.
@@ -6403,12 +6395,16 @@ impl World {
             }
             return;
         }
-        if residents.aboard.room.droid_count() > 0 {
-            return;
-        }
-        let Some(wave) = self.infestation(id).map(|it| it.wave) else {
+        let Some(it) = self.infestation(id).cloned() else {
             return;
         };
+        let wave = it.wave;
+        // The room holds its wave when it says so (October 2026: a wave
+        // may be the Manufacturers' people alone, no machine among them),
+        // or has machines from a save written before it said.
+        if residents.aboard.room.droid_count() > 0 || residents.manufacturers_laid >= wave {
+            return;
+        }
         if wave == 0 {
             // The crew have not docked here yet, so nothing has been
             // settled and there is nothing to lay out.
@@ -6417,35 +6413,30 @@ impl World {
         let Some(station) = self.station(id).cloned() else {
             return;
         };
-        let n = self.landing_wave_size();
         // The Machine Heart's own go on the deck first (feature 108), so
         // they keep the front of the list through every wave after — and
         // in its fortress they are the whole deck: no wave stands there,
         // its Guardians come for its conduits shot down (October 2026).
-        let mut droids = self.heart_machines_to_lay(&station);
-        let laid = if heart::is_heart(id) {
-            Vec::new()
-        } else if wave == 1 {
-            self.first_wave(&station, n, wave)
-        } else {
-            // A reinforcement was told where the crew are, and comes
-            // looking for them rather than waiting at its airlock.
-            let mut arriving = self.arriving_wave(&station, n, wave);
-            for d in &mut arriving {
-                d.seeking = true;
-            }
-            arriving
-        };
-        // What each of the wave pays in experience (October 2026).
-        self.price_the_wave(id, laid.len() as u32);
-        droids.extend(laid);
+        let heart = self.heart_machines_to_lay(&station);
         if let Some(residents) = &mut self.residents {
             residents
                 .aboard
                 .room
-                .adopt_droids(droids, bims::math::Vec2::ZERO);
+                .adopt_droids(heart, bims::math::Vec2::ZERO);
             residents.aboard.crew = residents.aboard.room.body_count();
         }
+        if heart::is_heart(id) || it.cleared {
+            self.price_the_wave(id, 0);
+            if let Some(residents) = &mut self.residents {
+                residents.manufacturers_laid = wave;
+            }
+            return;
+        }
+        // Wave one stands about the station's rooms; a reinforcement was
+        // told where the crew are, and comes looking for them rather than
+        // waiting at its airlock.
+        let n = self.landing_wave_size();
+        self.lay_held_wave(id, n, wave);
     }
 
     /// The machines' clock, a stage of the step: the first dock settles
@@ -6638,13 +6629,14 @@ impl World {
 
     /// How many armed **defenders** a site's room is opened with (task
     /// 111): none unless the machines are coming for it or its defence is
-    /// still running, and otherwise [`defense::defenders`] of the day.
+    /// still running, and otherwise the area's `defenders`
+    /// ([`World::area_now`]).
     pub fn defenders_of(&self, station: u32) -> u32 {
         let running = self.defense(station).is_some_and(|d| !d.over());
         if !running && !self.site_threatened(station) {
             return 0;
         }
-        defense::defenders(self.days_gone())
+        self.area_now().1.defenders
     }
 
     /// How many defenders the room open on the site the crew are
@@ -7140,28 +7132,18 @@ impl World {
         // on the ground have to be laid again — as many of them as were
         // still up, and not the wave at full strength, or a fight could
         // be won or lost by taking off and landing again.
-        // **Before day ten the wave is the Manufacturers'** (task 131):
-        // their people and the day's share of Troopers. Their people are
+        // **A wave is the day's mix** (October 2026, `World::lay_wave`):
+        // the Manufacturers' people and the machines. Their people are
         // Bims, and a room can hold the site's dead besides, so a room
-        // holds their wave when it says so (`manufacturers_laid`) rather
-        // than when it has machines.
-        let by_them = self.defense_by_manufacturers();
+        // holds its wave when it says so (`manufacturers_laid`) — or has
+        // machines, from a save written before it said.
         let wave_now = self.defense(id).map_or(0, |d| d.wave);
         let fresh_room = self.residents.as_ref().is_some_and(|r| {
-            r.station == id
-                && if by_them {
-                    r.manufacturers_laid != wave_now
-                } else {
-                    r.aboard.room.droid_count() == 0
-                }
+            r.station == id && r.manufacturers_laid != wave_now && r.aboard.room.droid_count() == 0
         });
         let left_standing = self.defense(id).map_or(0, |d| d.standing);
         if fresh_room && left_standing > 0 {
-            if by_them {
-                self.lay_defense_manufacturers(id, left_standing);
-            } else {
-                self.settle_defense_droids(id, left_standing);
-            }
+            self.lay_defense_wave(id, left_standing);
         }
         let standing = self.droids_standing();
         if let Some(d) = self.defense_mut(id) {
@@ -7261,11 +7243,7 @@ impl World {
                 self.clear_wrecks();
             }
             let n = self.landing_wave_size();
-            if by_them {
-                self.lay_defense_manufacturers(id, n);
-            } else {
-                self.settle_defense_droids(id, n);
-            }
+            self.lay_defense_wave(id, n);
             if let Some(d) = self.defense_mut(id) {
                 d.standing = standing + n;
             }
@@ -7339,30 +7317,6 @@ impl World {
         residents.last_hit_by.truncate(bims);
         residents.grave.truncate(bims);
         residents.defender.truncate(bims);
-    }
-
-    /// A wave onto the town's ground: the droid step's own arrival, at
-    /// the gate its lander set down beyond, the town's gates in turn
-    /// (`surface::gate_for_wave`).
-    fn settle_defense_droids(&mut self, id: u32, n: u32) {
-        let Some(wave) = self.defense(id).map(|d| d.wave) else {
-            return;
-        };
-        if wave == 0 || n == 0 {
-            return;
-        }
-        let Some(station) = self.station(id).cloned() else {
-            return;
-        };
-        let droids = self.arriving_wave(&station, n, wave);
-        self.price_the_wave(id, droids.len() as u32);
-        if let Some(residents) = &mut self.residents {
-            residents
-                .aboard
-                .room
-                .adopt_droids(droids, bims::math::Vec2::ZERO);
-            residents.aboard.crew = residents.aboard.room.body_count();
-        }
     }
 
     /// The town is held: the survivors who go with the crew.

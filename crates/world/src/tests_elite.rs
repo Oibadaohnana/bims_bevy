@@ -14,6 +14,9 @@ use crate::world::World;
 
 /// The combat ship's crew, a gun in every hand.
 fn armed(world: &mut World) {
+    // The machines' fight on day one (the scaling's area 0 is the
+    // Manufacturers alone, October 2026).
+    world.set_machines_only_for_probe();
     let kinds = WeaponKind::ALL.iter().copied().cycle();
     let crew = world.aboard.room.crew_count() as usize;
     for (who, kind) in kinds.take(crew).enumerate() {
@@ -85,11 +88,11 @@ fn about_one_system_in_ten_holds_an_elite_and_never_the_manufacturers() {
     }
 }
 
-/// **No elite on the floor's first five fights** (October 2026, the
-/// player's: "they shouldn't spawn the first 5 fights"): an elite the
-/// galaxy rolls on rows one to [`data::FLOOR_NO_ELITE_ROWS`] is a plain
-/// fight; above them every one stays, tier one included, and off the
-/// floor every one.
+/// **No elite in area 0** (October 2026, the player's: "Area 0 never has
+/// an elite"; the first five fights before, "they shouldn't spawn the
+/// first 5 fights"): an elite the galaxy rolls on a row of the scaling's
+/// area 0 is a plain fight; above them every one stays, tier one
+/// included, and off the floor every one.
 #[test]
 fn the_floor_s_first_five_fights_hold_no_elite() {
     let mut world = open_crewed_world(combat_ship(), REFERENCE_MONEY, 1, COMBAT_CREW);
@@ -125,7 +128,7 @@ fn the_floor_s_first_five_fights_hold_no_elite() {
                 assert!(!world.holds_elite(star), "star {star}: never rolled");
                 continue;
             }
-            let keep = row > data::FLOOR_NO_ELITE_ROWS;
+            let keep = crate::floor::row_day(row) >= world.scaling().tier_one_day();
             assert_eq!(
                 world.holds_elite(star),
                 keep,
@@ -210,8 +213,8 @@ fn an_elite_s_second_wave_has_the_scaling_s_guardians_a_player() {
         armed(&mut world);
         world.set_droid_tier_for_probe(Some(tier));
         let mut scaling = world.scaling();
-        scaling.tier2_guardians = 2;
-        scaling.tier3_guardians = 2;
+        scaling.tier_2_area.guardians = 2;
+        scaling.tier_3_area.guardians = 2;
         world.set_wave_scaling(scaling);
         let station = world.elite_dock_for_probe().expect("an elite in reach");
         world.set_droid_reinforce_minutes_for_probe(1.0);

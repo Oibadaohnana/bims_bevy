@@ -295,8 +295,9 @@ impl World {
 
     /// Whether `star`'s system holds an elite ([`crate::elite::holds`]),
     /// none under the tests' quiet dial — or one a probe forced there.
-    /// Never on the floor's first [`data::FLOOR_NO_ELITE_ROWS`] fights;
-    /// off the floor all.
+    /// Never on a row of the floor in the scaling's area 0 (October 2026,
+    /// the player's: "Area 0 never has an elite"; the first five fights
+    /// until then, `FLOOR_NO_ELITE_ROWS`); off the floor all.
     pub fn holds_elite(&self, star: u32) -> bool {
         // Never the machines' origin in a run: its one site is the Heart.
         self.elite_forced.is_some_and(|f| f.star == star)
@@ -305,7 +306,7 @@ impl World {
                 && crate::elite::holds(self.galaxy_seed, self.home_star, star)
                 && self
                     .floor_row_of(star)
-                    .is_none_or(|row| row > data::FLOOR_NO_ELITE_ROWS))
+                    .is_none_or(|row| crate::floor::row_day(row) >= self.scaling().tier_one_day()))
     }
 
     /// The probes' dial: `station` of this system an elite whatever the

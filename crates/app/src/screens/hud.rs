@@ -151,8 +151,9 @@ fn droid_line(world: &world::World) -> Option<(String, &'static str)> {
     if let Some(defending) = world.defense_here() {
         let waves = defending.wave + defending.waves_left;
         let standing = world.droids_standing();
-        // Before day ten the waves are the Manufacturers' (task 131).
-        let theirs = world.defense_by_manufacturers();
+        // The Manufacturers' while the day's waves hold no machine (the
+        // scaling's area 0, October 2026).
+        let theirs = world.machines_of(100, 1) == 0;
         let up = |wave, waves, standing| {
             if theirs {
                 manufacturers_standing(wave, waves, standing)

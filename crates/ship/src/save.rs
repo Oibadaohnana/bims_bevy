@@ -313,7 +313,11 @@ use crate::game::Game;
 /// 119: a Husk that has struck one down hunts on (`bims::droid::Droid::blooded`).
 /// 120: an elite fight's dials in the scaling (`tier2_guardians`,
 /// `tier3_guardians`, `tier2_elites`, `tier3_elites`).
-pub const SAVE_VERSION: u32 = 120;
+/// 121: the scaling is four areas (`world::droid::Area`, the run's
+/// difficulty with it) in place of the tier timings and the dials by the
+/// day, and `World::machines_forced` where `defense_by_machines_forced`
+/// was.
+pub const SAVE_VERSION: u32 = 121;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

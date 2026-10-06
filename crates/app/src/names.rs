@@ -574,68 +574,45 @@ pub const SOMEBODY_LEFT: &str = "Somebody left.";
 /// for the run (`world::droid::Difficulty`, task 147), their notes, and
 /// the button that puts them back to the tuning file's (`scaling.ron`).
 pub const DIFFICULTY: &str = "Difficulty";
-pub const DIFFICULTY_NOTE: &str = "How many machines a wave is: (per player + day scaling × steps) × players, plus per bot × bots (rounded up; the crew's bots, and a defence's defenders; none at an Area defend). Nothing else scales them. Tiers come by the day: the tier timings are the day every enemy has reached that tier (half of them at half the days).";
+pub const DIFFICULTY_NOTE: &str = "• The run is four areas, each so many days (a day a row)\n• A wave: (per player + every day's growth so far) × players, + per bot × bots\n• Area 0: Manufacturers only, pistols to full gear\n• Tier 1: machines 0% to 100% by tier 2's door\n• Tier 2 / 3: every enemy that tier from the area's first day, ramping from halfway through the area before";
 pub const WAVE_PER_PLAYER: &str = "Enemies per player";
-pub const WAVE_PER_PLAYER_NOTE: &str = "Machines in every wave for each player";
-pub const WAVE_DAY_SCALING: &str = "Day scaling";
-/// The day scaling's note: how long its step is, in days.
-pub fn wave_day_scaling_note(days: u32) -> String {
-    match days {
-        0 => "Enemies per player more each step; off while Scaling days is 0".to_string(),
-        1 => "Enemies per player more every day of the run".to_string(),
-        n => format!("Enemies per player more every {n} days of the run"),
-    }
-}
-pub const WAVE_SCALING_DAYS: &str = "Scaling days";
-pub const WAVE_SCALING_DAYS_NOTE: &str = "How many days one step of the day scaling is";
+pub const WAVE_PER_PLAYER_NOTE: &str = "On day 1, for each player";
 pub const WAVE_PER_BOT: &str = "Enemies per bot";
-pub const WAVE_PER_BOT_NOTE: &str = "Machines for each bot crewmate, and each defender at a defence; the total is rounded up (1.5 × 3 = 5)";
-pub const WAVE_DAYS: &str = "Wave days";
-/// The wave days' note: how often a site has one wave more.
-pub fn wave_days_note(days: u32) -> String {
-    match days {
-        0 => "Every site has one wave while this is 0".to_string(),
-        1 => "A site has one wave, and one more every day".to_string(),
-        n => format!("A site has one wave, and one more every {n} days"),
-    }
-}
-pub const BOMBER_EVERY: &str = "Bombers";
-pub const LANCER_EVERY: &str = "Lancers";
-/// An elite fight's dials in the tier-two and tier-three zones (October
-/// 2026): its Guardians a player, and its Bombers besides.
-pub const TIER2_GUARDIANS: &str = "Tier 2 Guardians";
-pub const TIER3_GUARDIANS: &str = "Tier 3 Guardians";
-pub const ELITE_GUARDIANS_NOTE: &str = "Per player, in an elite fight's Guardian wave";
-pub const TIER2_ELITES: &str = "Tier 2 elites";
-pub const TIER3_ELITES: &str = "Tier 3 elites";
-pub const ELITE_BOMBERS_NOTE: &str = "Bombers on top of an elite fight's Guardian wave";
-/// A tier-two machine's dial's note (task 157): one on top of a wave for
-/// every so many of it, from the map's tier-two rows on.
-pub fn tier_two_extra_note(kind: &str, every: u32) -> String {
-    match every {
-        0 => format!("No {kind} while this is 0"),
-        n => format!(
-            "From the tier-2 rows on, one {kind} on top of a wave for every {n} of it, one at least"
-        ),
-    }
-}
-pub const TIER1_TIMING: &str = "Tier 1 timing";
-pub const TIER2_TIMING: &str = "Tier 2 timing";
-pub const TIER3_TIMING: &str = "Tier 3 timing";
-/// A tier timing's note: whom it reaches and by which day.
-pub fn tier_timing_note(tier: u32, days: u32) -> String {
-    let who = if tier == 1 {
-        "Manufacturers with tier-1 gear (the rest carry pistols)".to_string()
-    } else {
-        format!("Machines and Manufacturer gear at tier {tier}")
+pub const WAVE_PER_BOT_NOTE: &str =
+    "Each bot, and each defender at a defence; rounded up (1.5 × 3 = 5)";
+/// The difficulty's table of areas (October 2026): a column an area, a
+/// row a dial.
+pub const AREA_NAMES: [&str; 4] = ["Area 0", "Tier 1", "Tier 2", "Tier 3"];
+pub const AREA_DAYS: &str = "Days";
+pub const AREA_DAYS_NOTE: &str =
+    "Rows of the map; tier 2's door and the trader before the Heart not counted";
+pub const AREA_GROWTH: &str = "Growth / day";
+pub const AREA_GROWTH_NOTE: &str = "Enemies per player more each day, carried into the next area";
+pub const AREA_WAVES: &str = "Waves";
+pub const AREA_WAVES_NOTE: &str = "A site's waves (an elite 2 at least)";
+pub const AREA_BOMBERS: &str = "Bombers";
+pub const AREA_LANCERS: &str = "Lancers";
+pub const AREA_EXTRAS_NOTE: &str = "On top of every wave";
+pub const AREA_GUARDIANS: &str = "Guardians";
+pub const AREA_GUARDIANS_NOTE: &str = "Per player, in an elite's Guardian wave";
+pub const AREA_ELITES: &str = "Elites";
+pub const AREA_ELITES_NOTE: &str = "Bombers on top of an elite's Guardian wave";
+pub const AREA_DEFENDERS: &str = "Defenders";
+pub const AREA_DEFENDERS_NOTE: &str = "Armed defenders at a defence";
+/// A cell area 0 has no dial for: it has no machines and no elite.
+pub const AREA_NONE: &str = "–";
+/// Where the areas fall on the map, for the dials as they stand.
+pub fn area_rows_line(tier_one: u32, door: u32, tier_three: u32, heart: u32) -> String {
+    let area0 = match tier_one {
+        1 => "no area 0".to_string(),
+        2 => "area 0 day 1".to_string(),
+        n => format!("area 0 days 1–{}", n - 1),
     };
-    match days {
-        0 => format!("{who}: all of them from the first day"),
-        n => format!(
-            "{who}: all of them by day {n}, half by day {}",
-            n.div_ceil(2)
-        ),
-    }
+    format!(
+        "{area0} · tier 1 days {tier_one}–{} · tier 2 from day {door} (trader) · tier 3 from day {tier_three} · trader day {} · Heart day {heart}",
+        door.saturating_sub(1),
+        heart.saturating_sub(1),
+    )
 }
 pub const DIFFICULTY_RESET: &str = "Default";
 pub const DIFFICULTY_RESET_HOVER: &str = "Back to scaling.ron";
@@ -654,7 +631,7 @@ pub fn first_wave_line(machines: u32, players: u32) -> String {
     } else {
         format!("{players} players")
     };
-    let m = if machines == 1 { "machine" } else { "machines" };
+    let m = if machines == 1 { "enemy" } else { "enemies" };
     format!("The first wave: {machines} {m} for {who}")
 }
 /// The setup's auto-shoot (October 2026): each player's own, beside the
@@ -3500,9 +3477,9 @@ pub const DROIDS_TIP: &str = "• Waves; the next once the last is down\n• In 
 /// The same warning over a town the crew are defending (feature 94):
 /// the fight is the machines', but the town's people are in it too.
 pub const DEFENSE_TIP: &str = "• First wave in 5 s, then one at a time\n• Defenders and guards fight beside you\n• Hold every wave: cleared, no pay\n• A town held stays friendly; some join you\n• Leave early: it falls";
-/// [`DEFENSE_TIP`] before day ten (task 131), when the attackers are the
-/// Manufacturers' people and the machines they still command.
-pub const DEFENSE_TIP_MANUFACTURERS: &str = "• Manufacturers, more machines each day\n• Day 10 on: machines only\n• First wave in 5 s, then one at a time\n• Defenders and guards fight beside you\n• Hold every wave: cleared, no pay\n• A town held stays friendly; some join you\n• Leave early: it falls";
+/// [`DEFENSE_TIP`] in the scaling's area 0 (task 131; October 2026),
+/// when the attackers are the Manufacturers' people alone.
+pub const DEFENSE_TIP_MANUFACTURERS: &str = "• Manufacturers only, for now\n• Machines join them from tier 1\n• First wave in 5 s, then one at a time\n• Defenders and guards fight beside you\n• Hold every wave: cleared, no pay\n• A town held stays friendly; some join you\n• Leave early: it falls";
 
 /// The header's word while the crew's alarm is up, and what it means.
 pub const ALARM_STATUS: &str = "To arms — an enemy is near";

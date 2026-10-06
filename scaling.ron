@@ -1,45 +1,54 @@
-// How the enemies scale, tuned while the game runs (task 147). These dials
-// are the whole of it: nothing else makes the machines more, more often or
-// better armed.
+// How the enemies scale, tuned while the game runs (task 147; areas since
+// October 2026). These dials are the whole of it: nothing else makes the
+// enemies more, more often or better armed.
 //
 // The game reads this file again whenever it is saved (BIMS_SCALING names
 // another). The next wave laid and the next site's wave count take the
 // new numbers; a wave already standing keeps its size. A field left out is
-// the built-in value, and a file that does not parse keeps the last good
-// numbers (the reason is printed on the terminal).
+// the built-in value (an area's row left out is the built-in area; a dial
+// left out of a row is nought, a wave one), and a file that does not parse
+// keeps the last good numbers (the reason is printed on the terminal).
 //
-// "day" is the day the top bar shows, one on the day the run opens.
+// "day" is the day the top bar shows, one on the day the run opens, and a
+// row of the map: the run is four areas, one after the other.
 //
-//   a wave        = (enemies_per_player + day_scaling * steps) * players
-//                   + enemies_per_bot * bots, rounded up (1.5 and three
-//                   bots is five). Bots are the crew's bots, hands and
-//                   joiners (never a commander's reinforcements), and at a
-//                   defence the site's defenders too; at an Area defend
-//                   no bot counts, crew's or defender
-//   steps         = whole scaling_days in the day (0: never grows)
-//   waves a site  = 1 + whole wave_days in the day (0: always one)
-//   tier timings  = the day every enemy has reached that tier; before it
-//                   day / timing of them have (half at half the days),
-//                   counted in whole enemies, so one at a time
-//     tier1_days  — the Manufacturers' gear: the rest carry a pistol alone
-//     tier2_days  — the machines and the Manufacturers' gear at tier two
-//     tier3_days  — the same at tier three
-//                   (0: that tier for everybody from the first day)
-//                   The map (the floor, a row a day) marks its rows tier
-//                   two from tier2_days and tier three from tier3_days
-//   bomber_every  — from the tier-2 rows on, a Bomber on top of a wave for
-//                   every this many of it, one at the least (0: none)
-//   lancer_every  — the same for a Lancer
-//   tier2_guardians — an elite fight in a tier-2 area: this many Guardians
-//                   for each player in its second wave (bots do not count)
-//   tier3_guardians — the same in a tier-3 area
-//   tier2_elites  — an elite fight in a tier-2 area: this many Bombers on
-//                   top of its second wave, besides the Guardians
-//   tier3_elites  — the same in a tier-3 area
-//                   (a tier-1 area's elite: one Guardian a tier, no more;
-//                   an Area defend has no Guardian, elite Bomber or
-//                   Conductor, only its waves)
-//   the Machine Heart is always four waves, every machine tier three
+//   area_0        — an easing the map does not show (its rows are drawn
+//                   tier one): the Manufacturers alone, no machine and no
+//                   elite; their gear goes from pistols and no armour on
+//                   day one to a gun and armour for all of them by the
+//                   tier-one area's first day
+//   tier_1_area   — the machines' share of every wave goes from none on
+//                   its first day to all of it at tier two's door
+//   tier_2_area   — every enemy tier two at the least; its days do not
+//                   count tier two's door (a trader, the area's first day)
+//   tier_3_area   — every enemy tier three; its days do not count the
+//                   trader under the Heart, nor the Heart
+//   So with 5, 14, 9 and 3: area 0 days 1-5, tier one 6-19, tier two's
+//   door 20, tier two 21-29, tier three 30-32, the trader 33, the Heart 34.
+//   Tier two comes in from halfway through the tier-one area (a growing
+//   share, all of them at the door); tier three the same from halfway
+//   through the tier-two area.
+//
+//   a wave        = (enemies_per_player + every day gone times the
+//                   growth_per_day of the area it was in) * players,
+//                   rounded down, + enemies_per_bot * bots, rounded up
+//                   (1.5 and three bots is five). Bots are the crew's bots,
+//                   hands and joiners (never a commander's
+//                   reinforcements), and at a defence the site's defenders
+//                   too; at an Area defend no bot counts. The count carries
+//                   over from area to area: it never jumps.
+//
+// Each area's row:
+//   days            — how many days (rows of the map) the area is
+//   growth_per_day  — enemies per player more each day of the area
+//   waves           — a site's waves (an elite two at the least)
+//   bombers         — Bombers on top of every wave (area 0: none)
+//   lancers         — Lancers the same
+//   guardians       — an elite's Guardians for each player, in its second
+//                     wave (bots do not count; area 0 has no elite)
+//   elites          — Bombers on top of an elite's Guardian wave
+//   defenders       — the armed defenders who stand with a defended site
+//   the Machine Heart is always its own fight, every machine tier three
 //
 // Only player Bims count as players; bots do not.
 //
@@ -47,23 +56,15 @@
 // the host moves one, the run keeps the setup's (saved with it, dealt to
 // every guest). The setup's "Save as default" writes its numbers into this
 // file, leaving the comments alone.
-// The built-in values: enemies_per_player 2, day_scaling 1, scaling_days 5,
-// enemies_per_bot 1.0, wave_days 10, tier1_days 5, tier2_days 20,
-// tier3_days 40, bomber_every 6, lancer_every 8, tier2_guardians 1,
-// tier3_guardians 1, tier2_elites 1, tier3_elites 1.
+// The built-in values: enemies_per_player 2, enemies_per_bot 1.0, and the
+// areas 5, 14, 9 and 3 days at 0.2 a day, 1/1/2/2 waves, Bombers 0/1/2 and
+// Lancers 0/1/1 (tiers one to three), a Guardian a player from tier one,
+// an elite Bomber from tier two, 2/3/5/7 defenders.
 (
-    enemies_per_player: 2,
-    day_scaling: 1,
-    scaling_days: 10,
+    enemies_per_player: 3,
     enemies_per_bot: 1.0,
-    wave_days: 15,
-    tier1_days: 20,
-    tier2_days: 19,
-    tier3_days: 29,
-    bomber_every: 6,
-    lancer_every: 8,
-    tier2_guardians: 1,
-    tier3_guardians: 1,
-    tier2_elites: 1,
-    tier3_elites: 1,
+    area_0: (days: 5, growth_per_day: 0.5, waves: 1, bombers: 0, lancers: 0, guardians: 0, elites: 0, defenders: 2),
+    tier_1_area: (days: 14, growth_per_day: 0.5, waves: 1, bombers: 0, lancers: 0, guardians: 1, elites: 0, defenders: 4),
+    tier_2_area: (days: 9, growth_per_day: 0.5, waves: 2, bombers: 2, lancers: 1, guardians: 1, elites: 1, defenders: 6),
+    tier_3_area: (days: 3, growth_per_day: 0.5, waves: 2, bombers: 2, lancers: 2, guardians: 1, elites: 1, defenders: 8),
 )

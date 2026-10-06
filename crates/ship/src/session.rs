@@ -987,6 +987,9 @@ impl Session {
         };
         game.world.set_droid_tier_for_probe(tier);
         game.world.set_droid_reinforce_minutes_for_probe(reinforce);
+        // The machines' fight whatever the day: the scaling's area 0 is
+        // the Manufacturers alone (October 2026).
+        game.world.set_machines_only_for_probe();
         // Before `infest`, and before the first step: the count is fixed
         // at the crew's first dock and never worked out again.
         game.world.set_droid_waves_for_probe(waves);

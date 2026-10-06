@@ -99,7 +99,12 @@ pub const MAX_TRIP_HOPS: u32 = 2;
 /// (`floor::tier_two_shop_row`, October 2026, the player's: "when
 /// entering tier 2 guarantee that there is a shop. Add one Day for the
 /// heart target for that"), a row of its own, put the Heart a day later.
-pub const FLOOR_HOPS: u32 = 33;
+/// Since the areas (October 2026) the default scaling's: the four areas'
+/// days, tier two's door, the trader under the Heart and the Heart —
+/// the floor itself is laid at the run's own scaling
+/// (`crate::droid::WaveScaling::heart_day`), which this is the default of.
+pub const FLOOR_HOPS: u32 =
+    AREA_0.days + TIER_1_AREA.days + TIER_2_AREA.days + TIER_3_AREA.days + 3;
 /// The fewest and the most separate ways up a floor: every row between
 /// the start and the Heart has this many places, at the least and at the
 /// most, and the leftmost and the rightmost are two ways that share none.
@@ -196,47 +201,61 @@ pub const SURFACE_POPULATION: (u32, u32) = (5, 30);
 
 // --- the droids (feature 83) ---------------------------------------------
 
-/// How the machines scale (task 147): these and nothing else, the
+/// How the enemies scale (task 147): these and nothing else, the
 /// defaults of `crate::droid::WaveScaling` (the app's `scaling.ron` and the
 /// game setup's Difficulty tune them). Every one reads the **run day**,
-/// one on the day the world opens. Machines a **player** Bim brings to a
-/// wave — never the bots, the worth or the levels.
+/// one on the day the world opens. Enemies a **player** Bim brings to a
+/// wave on day one — never the bots, the worth or the levels.
 pub const ENEMIES_PER_PLAYER: u32 = 2;
-/// How much [`ENEMIES_PER_PLAYER`] grows every [`SCALING_DAYS`] (the "y").
-pub const DAY_SCALING: u32 = 1;
-/// The days of one step of [`DAY_SCALING`] (the "x").
-pub const SCALING_DAYS: u32 = 5;
-/// Machines each bot brings — the crew's bots and a defence's
+/// Enemies each bot brings — the crew's bots and a defence's
 /// defenders — the product rounded up.
 pub const ENEMIES_PER_BOT: f32 = 1.0;
-/// Every this many days a site has one wave more, one to begin with.
-pub const WAVE_DAYS: u32 = 10;
-/// The day every Manufacturer carries tier-one gear, a gun and armour;
-/// before it that share of them (`day / TIER1_DAYS`), the rest the laser
-/// pistol alone.
-pub const TIER1_DAYS: u32 = 5;
-/// The day every enemy is tier two at the least — the machines and the
-/// Manufacturers' gear alike; before it that share of them.
-pub const TIER2_DAYS: u32 = 20;
-/// The same for tier three.
-pub const TIER3_DAYS: u32 = 40;
-/// From the floor's tier-two rows on (task 157), a wave of `n` gets
-/// `n / BOMBER_EVERY` Bombers and `n / LANCER_EVERY` Lancers on top of it, at
-/// least one of each; nought is none.
-pub const BOMBER_EVERY: u32 = 6;
-pub const LANCER_EVERY: u32 = 8;
-/// An elite fight's Guardians in the floor's tier-two zone (October 2026,
-/// the player's: "Guardians spawn one per player in Tier 2 and 3
-/// areas"): this many for each player Bim in its Guardian wave
-/// ([`ELITE_GUARDIAN_WAVE`]), and [`TIER3_GUARDIANS`] in tier three's.
-/// A tier-one zone keeps [`ELITE_GUARDIANS`].
-pub const TIER2_GUARDIANS: u32 = 1;
-pub const TIER3_GUARDIANS: u32 = 1;
-/// And its elites besides the Guardians: this many Bombers on top of the
-/// Guardian wave in the tier-two zone, [`TIER3_ELITES`] in tier three's —
-/// beside the Conductor and the wave's own Bombers ([`BOMBER_EVERY`]).
-pub const TIER2_ELITES: u32 = 1;
-pub const TIER3_ELITES: u32 = 1;
+/// The four areas the run is (October 2026, `crate::droid::Area`): how
+/// many days each is, how much a player's share grows a day in it, its
+/// waves, the Bombers and Lancers on top of a wave, an elite's Guardians
+/// (a player) and Bombers, and a defence's defenders. Area 0 is the
+/// Manufacturers alone, no elite; the floor is
+/// [`FLOOR_HOPS`] rows with these days.
+pub const AREA_0: crate::droid::Area = crate::droid::Area {
+    days: 5,
+    growth_per_day: 0.2,
+    waves: 1,
+    bombers: 0,
+    lancers: 0,
+    guardians: 0,
+    elites: 0,
+    defenders: 2,
+};
+pub const TIER_1_AREA: crate::droid::Area = crate::droid::Area {
+    days: 14,
+    growth_per_day: 0.2,
+    waves: 1,
+    bombers: 0,
+    lancers: 0,
+    guardians: 1,
+    elites: 0,
+    defenders: 3,
+};
+pub const TIER_2_AREA: crate::droid::Area = crate::droid::Area {
+    days: 9,
+    growth_per_day: 0.2,
+    waves: 2,
+    bombers: 1,
+    lancers: 1,
+    guardians: 1,
+    elites: 1,
+    defenders: 5,
+};
+pub const TIER_3_AREA: crate::droid::Area = crate::droid::Area {
+    days: 3,
+    growth_per_day: 0.2,
+    waves: 2,
+    bombers: 2,
+    lancers: 1,
+    guardians: 1,
+    elites: 1,
+    defenders: 7,
+};
 /// How many Guardians the Machine Heart sends for each conduit shot down
 /// (October 2026; the player's words: "first 1 guardian, then 2 all the
 /// way up to 5 when the last link is destroyed"): this many times the
@@ -258,10 +277,10 @@ pub const DROID_LANDER_TILES: f64 = 7.0;
 // --- the Manufacturers (feature 109, `crate::manufacturer`) -----------------
 //
 // The human faction that built the machines and defends what it made. A
-// site of theirs is a station they hold from the start of a run: a
-// garrison of their people with the machines beside them until they lose
-// control of the machines, and waves of their own people after. The whole
-// schedule is here.
+// site of theirs is a station they hold from the start of a run. Who
+// stands in a wave there — or anywhere — is the scaling's areas
+// (October 2026, `crate::droid::WaveScaling::machines_in`): their people
+// alone in area 0, the machines' share rising through tier one.
 
 /// A site of the galaxy is theirs with odds of this many in a hundred —
 /// any orbital station but the crew's home and the machines' own derived
@@ -273,16 +292,6 @@ pub const MANUFACTURER_SITE_CHANCE: u32 = 10;
 /// where the roll gave fewer.
 pub const MANUFACTURER_NEAR_SITES: usize = 2;
 pub const MANUFACTURER_NEAR_HOPS: u16 = 2;
-/// The day they **lose the machines**: before it a site of theirs is a
-/// fixed garrison with Troopers fighting beside them and no reinforcement;
-/// from it on their own people alone, in waves, geared by the machines'
-/// tier rules.
-pub const MANUFACTURER_DROIDS_LOST_DAY: u32 = 10;
-/// The share of a garrison that is a **Trooper** rather than one of their
-/// people, by day: each row from its day on, until the next row's. Each
-/// body of the garrison is rolled on its own against it.
-pub const MANUFACTURER_TROOPER_PERCENT: [(u32, u32); 6] =
-    [(0, 0), (5, 10), (7, 25), (8, 50), (9, 60), (10, 0)];
 /// How long after a wave of theirs is down the next docks, in steps of
 /// the mission clock: fifteen seconds at 1×, the machines' own
 /// ([`DROID_REINFORCE_STEPS`]) — it was four hours, twice theirs, until
@@ -441,18 +450,11 @@ pub const AREA_HEAL_PERCENT: f32 = 0.5;
 
 // --- defend missions (task 111)-------------------------------------------
 //
-// Placeholders, all three: how many armed **defenders** stand with a
-// site's own people while the machines come for it. They are the site's
-// and never the crew's — no loss if they fall — and
-// they count towards the wave size as crew would
-// (`World::droid_wave_size`).
-
-/// Defenders at a site the machines come for on day nought.
-pub const DEFENDERS_BASE: u32 = 2;
-/// One defender more every this many days of the world clock.
-pub const DEFENDER_DAYS: u32 = DROID_SPREAD_DAYS;
-/// And never more than this many.
-pub const DEFENDERS_MAX: u32 = 8;
+// How many armed **defenders** stand with a site's own people while the
+// machines come for it is each area's `defenders` (October 2026,
+// `crate::droid::Area`). They are the site's and never the crew's — no
+// loss if they fall — and they count towards the wave size as crew
+// would (`World::droid_wave_size`).
 
 /// What the Republic pays for a site on the run's first day, in euros
 /// (October 2026, `Rewards::site_money`): a **budget**, as a site's
@@ -671,21 +673,10 @@ pub const TRADER_SYSTEM_CHANCE: u32 = 10;
 /// first day, at least [`ELITE_WAVES`] waves, Guardians in the second —
 /// and the only fights that drop relics. Never the crew's own system.
 pub const ELITE_SYSTEM_CHANCE: u32 = 10;
-/// How many of the floor's first rows of fights hold no elite (October
-/// 2026, the player's: "they shouldn't spawn the first 5 fights"): an
-/// elite rolled on rows one to this is a plain fight. The rows above keep
-/// every one, tier one included; off the floor nothing changes.
-pub const FLOOR_NO_ELITE_ROWS: u32 = 5;
 /// The fewest waves an elite's machines come in.
 pub const ELITE_WAVES: u32 = 2;
 /// The wave an elite's Guardians come in (the first is wave one).
 pub const ELITE_GUARDIAN_WAVE: u32 = 2;
-/// How many Guardians an elite's [`ELITE_GUARDIAN_WAVE`] holds at least,
-/// by the wave's tier (one, two, three): one at tier one, two at tier
-/// two, three at tier three (`crate::elite::with_guardian`) — in the
-/// floor's tier-one zone; the zones above take [`TIER2_GUARDIANS`] and
-/// [`TIER3_GUARDIANS`] for each player.
-pub const ELITE_GUARDIANS: [u32; 3] = [1, 2, 3];
 /// And at least this many traders within [`TRADER_NEAR_HOPS`] lanes of the
 /// crew's own star, their own system counted: somewhere to buy a gun
 /// before the first fight has paid for one. Made up out of the systems

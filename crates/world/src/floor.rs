@@ -2,7 +2,9 @@
 //! Spire lays one — the crew start at the bottom and climb, a row a hop,
 //! to the Machine Heart at the top, and never go down.
 //!
-//! - **[`data::FLOOR_HOPS`] rows**, the start (row nought, the crew's own
+//! - **The scaling's Heart day of rows** ([`data::FLOOR_HOPS`] by
+//!   default: the four areas' days, tier two's door, the trader under the
+//!   Heart and the Heart — `crate::droid::WaveScaling::heart_day`), the start (row nought, the crew's own
 //!   station) below them and the Heart (the machines' origin) the last.
 //!   Row `r` is fought on run day `r` ([`row_day`]; the start and the
 //!   first row share day one), so how far up the crew are is the day.
@@ -122,14 +124,14 @@ pub fn row_day(row: u32) -> u32 {
     row.max(1)
 }
 
-/// The row of the trader at tier two's door: the first row fought on
-/// `tier2_days`, the scaling's day from which every enemy is tier two.
-/// `None` where that is no
+/// The row of the trader at tier two's door on a floor of `hops`: the
+/// tier-two area's first day, `tier_two_day`
+/// (`crate::droid::WaveScaling::tier_two_day`). `None` where that is no
 /// row a trader may stand on — before [`data::FLOOR_FIRST_SHOP_ROW`], or
 /// so near the Heart that it would meet the trader under it.
-pub fn tier_two_shop_row(tier2_days: u32) -> Option<u32> {
-    let hops = data::FLOOR_HOPS.max(2);
-    (tier2_days >= data::FLOOR_FIRST_SHOP_ROW && tier2_days + 3 <= hops).then_some(tier2_days)
+pub fn tier_two_shop_row(tier_two_day: u32, hops: u32) -> Option<u32> {
+    let hops = hops.max(2);
+    (tier_two_day >= data::FLOOR_FIRST_SHOP_ROW && tier_two_day + 3 <= hops).then_some(tier_two_day)
 }
 
 /// A floor's shape before any star is put on it: how many places each
@@ -151,12 +153,14 @@ pub fn seed(galaxy_seed: u64, home_star: u32) -> u64 {
     mix(galaxy_seed ^ 0x_464C_4F4F_5253) ^ mix(u64::from(home_star))
 }
 
-/// The shape of a floor off `seed`: [`data::FLOOR_HOPS`] rows above the
-/// start, two to four places a row between — one on `tier_two_shop`'s
+/// The shape of a floor off `seed`: `hops` rows above the start (the
+/// scaling's Heart day, `crate::droid::WaveScaling::heart_day`;
+/// [`data::FLOOR_HOPS`] its default's), two to four places a row
+/// between — one on `tier_two_shop`'s
 /// row ([`tier_two_shop_row`]) and the row under the Heart — the trips
 /// between two rows a lattice path that never crosses itself.
-pub fn shape(seed: u64, tier_two_shop: Option<u32>) -> Shape {
-    let hops = data::FLOOR_HOPS.max(2);
+pub fn shape(seed: u64, hops: u32, tier_two_shop: Option<u32>) -> Shape {
+    let hops = hops.max(2);
     let (least, most) = (
         data::FLOOR_MIN_WAYS.max(1),
         data::FLOOR_MAX_WAYS.max(data::FLOOR_MIN_WAYS.max(1)),
@@ -405,14 +409,17 @@ mod tests {
 
     /// The row of tier two's door at the default tier timing.
     fn door() -> Option<u32> {
-        tier_two_shop_row(data::TIER2_DAYS)
+        tier_two_shop_row(
+            crate::droid::WaveScaling::DEFAULT.tier_two_day(),
+            data::FLOOR_HOPS,
+        )
     }
 
     #[test]
     fn a_floor_is_thirty_three_rows_two_to_four_wide_and_wired_without_a_crossing() {
         let door = door().expect("the default tier timing has a door");
         for seed in 0..200u64 {
-            let shape = shape(mix(seed), Some(door));
+            let shape = shape(mix(seed), data::FLOOR_HOPS, Some(door));
             assert_eq!(shape.widths.len() as u32, data::FLOOR_HOPS + 1);
             assert_eq!(shape.widths[0], 1, "one start");
             assert_eq!(*shape.widths.last().unwrap(), 1, "one Heart");
@@ -529,7 +536,7 @@ mod tests {
         let seeds = 500u64;
         let (mut near, mut places, mut met, mut dry_sum, mut driest) = (0u32, 0u32, 0u32, 0u32, 0);
         for seed in 0..seeds {
-            let shape = shape(mix(seed), door());
+            let shape = shape(mix(seed), data::FLOOR_HOPS, door());
             let top = shape.widths.len() - 1;
             let rows: Vec<usize> = (0..=top)
                 .filter(|&r| shape.shops[r].iter().any(|&s| s))
@@ -586,20 +593,23 @@ mod tests {
 
     #[test]
     fn tier_two_s_door_is_its_day_s_row_where_a_trader_may_stand() {
-        assert_eq!(tier_two_shop_row(19), Some(19));
-        assert_eq!(tier_two_shop_row(data::FLOOR_FIRST_SHOP_ROW - 1), None);
+        assert_eq!(tier_two_shop_row(19, data::FLOOR_HOPS), Some(19));
         assert_eq!(
-            tier_two_shop_row(data::FLOOR_HOPS - 3),
+            tier_two_shop_row(data::FLOOR_FIRST_SHOP_ROW - 1, data::FLOOR_HOPS),
+            None
+        );
+        assert_eq!(
+            tier_two_shop_row(data::FLOOR_HOPS - 3, data::FLOOR_HOPS),
             Some(data::FLOOR_HOPS - 3)
         );
         assert_eq!(
-            tier_two_shop_row(data::FLOOR_HOPS - 2),
+            tier_two_shop_row(data::FLOOR_HOPS - 2, data::FLOOR_HOPS),
             None,
             "beside the last trader"
         );
         // Without a door the floor is the plain one: every row between two
         // to four wide but the one under the Heart.
-        let plain = shape(mix(1), None);
+        let plain = shape(mix(1), data::FLOOR_HOPS, None);
         assert_eq!(plain.tier_two_shop, None);
         let traders = plain.shops.iter().filter(|r| r.contains(&true)).count();
         assert_eq!(traders as u32, data::FLOOR_SHOPS);
@@ -607,7 +617,7 @@ mod tests {
         // trader, and no other trader beside it.
         for row in data::FLOOR_FIRST_SHOP_ROW..=data::FLOOR_HOPS - 3 {
             for seed in 0..40u64 {
-                let shape = shape(mix(seed), Some(row));
+                let shape = shape(mix(seed), data::FLOOR_HOPS, Some(row));
                 let r = row as usize;
                 assert_eq!(shape.widths[r], 1, "row {row} seed {seed}");
                 assert!(shape.shops[r][0]);
@@ -621,8 +631,14 @@ mod tests {
 
     #[test]
     fn the_same_seed_is_the_same_floor() {
-        assert_eq!(shape(seed(7, 3), door()), shape(seed(7, 3), door()));
-        assert_ne!(shape(seed(7, 3), door()), shape(seed(8, 3), door()));
+        assert_eq!(
+            shape(seed(7, 3), data::FLOOR_HOPS, door()),
+            shape(seed(7, 3), data::FLOOR_HOPS, door())
+        );
+        assert_ne!(
+            shape(seed(7, 3), data::FLOOR_HOPS, door()),
+            shape(seed(8, 3), data::FLOOR_HOPS, door())
+        );
     }
 
     #[test]

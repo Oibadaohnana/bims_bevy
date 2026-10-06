@@ -1,11 +1,10 @@
 //! The Manufacturers (feature 109): a human faction holding sites from the
-//! first day of a run — a garrison with the machines beside it until day
-//! ten, their own people in waves after — that the crisis never takes,
+//! first day of a run — every wave the day's mix of their people and the
+//! machines, as anywhere (October 2026) — that the crisis never takes,
 //! that is never a jammer, that nobody loots, and that bleeds out once
 //! down.
 
 use bims::combat::{Tier, WeaponKind};
-use bims::droid::DroidKind;
 use bims::sight::Stance;
 use shipdesign::fixture::flyer;
 
@@ -14,7 +13,6 @@ use crate::class::{self, Class};
 use crate::data;
 use crate::event::WorldEvent;
 use crate::fixture::{REFERENCE_MONEY, crewed_world};
-use crate::manufacturer;
 use crate::world::World;
 
 /// One player and a bot, docked at the nearest site of the
@@ -39,6 +37,13 @@ fn at_their_site_with(day: u32, before: impl FnOnce(&mut World)) -> (World, u32)
     }
     assert!(world.is_manufacturer_held(station));
     (world, station)
+}
+
+/// The last of the world clock's days whose waves are their people alone,
+/// every one geared: the run day the tier-one area begins on (October
+/// 2026), the machines' share nought and the gear's whole.
+fn people_alone_day() -> u32 {
+    crate::droid::WaveScaling::DEFAULT.tier_one_day() - 1
 }
 
 /// The residents' room's Manufacturers, by index.
@@ -264,15 +269,17 @@ fn a_manufacturer_downed_is_never_revived_and_nothing_of_it_is_taken() {
     );
 }
 
-/// **Day eight: about half the garrison is Troopers** — the machines they
-/// still command — beside their people, every one geared by now (task
-/// 147). Still one wave, and the Troopers have to be
+/// **Halfway through the tier-one area, about half the wave is machines**
+/// (October 2026, the scaling's areas: the machines' share rises from
+/// none on its first day to all at tier two's door) beside their people,
+/// every one geared by now. One wave, and the machines have to be
 /// destroyed for it to clear.
 #[test]
-fn a_day_eight_garrison_is_about_half_troopers_fighting_beside_them() {
+fn halfway_through_tier_one_about_half_the_wave_is_machines() {
     let mut troopers = 0;
     let mut people = 0;
-    for day in [8u32] {
+    let mut want = 0;
+    for day in [12u32] {
         let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 1, 2);
         world.set_droid_wave_for_probe(16);
         let station = world.manufacturer_dock_for_probe(day).unwrap();
@@ -280,12 +287,8 @@ fn a_day_eight_garrison_is_about_half_troopers_fighting_beside_them() {
             world.step(&[]);
         }
         let room = &world.residents.as_ref().unwrap().aboard.room;
-        for i in 0..room.droid_count() as usize {
-            let d = room.droid(i).unwrap();
-            assert_eq!(d.kind, DroidKind::Trooper);
-            // Each at its own tier by the day (task 147).
-            troopers += 1;
-        }
+        troopers += room.droid_count();
+        want = world.scaling().machines_in(16, world.run_day());
         for who in theirs(&world) {
             // Past the tier-one timing every one of them is geared, gun
             // and armour at one tier.
@@ -306,30 +309,19 @@ fn a_day_eight_garrison_is_about_half_troopers_fighting_beside_them() {
         assert!(world.droid_station_cleared(station));
     }
     assert_eq!(troopers + people, 16);
-    assert!(
-        (3..=13).contains(&troopers),
-        "{troopers} of 16 at day eight"
-    );
-    // And over many garrisons the share is the day's.
-    let many: usize = (0..400u64)
-        .map(|seed| {
-            manufacturer::garrison(10, 8, seed)
-                .iter()
-                .filter(|&&t| t)
-                .count()
-        })
-        .sum();
-    assert!((1_700..2_300).contains(&many), "{many} of 4000");
+    assert_eq!(troopers, want, "the day's share");
+    assert!((5..=11).contains(&troopers), "{troopers} of 16");
 }
 
-/// **From day ten, their own people in waves**: no machine among them,
-/// gear at the machines' tier, and the next wave four hours of the
-/// mission clock after the last is down — at the airlock — until none are
-/// left.
+/// **On the tier-one area's first day, their own people in waves**: no
+/// machine among them yet, every one geared at the day's tier, and the
+/// next wave a reinforcement's time of the mission clock after the last
+/// is down — at the airlock — until none are left.
 #[test]
-fn from_day_ten_they_come_in_waves_of_their_own_people_alone() {
+fn on_tier_one_s_first_day_they_come_in_waves_of_their_own_people_alone() {
     // A tier-one site has one wave; this is the waves after it.
-    let (mut world, station) = at_their_site_with(12, |w| w.set_droid_waves_for_probe(3));
+    let (mut world, station) =
+        at_their_site_with(people_alone_day(), |w| w.set_droid_waves_for_probe(3));
     let it = world.infestation(station).unwrap().clone();
     assert!(it.waves_left >= 1, "waves: {it:?}");
     let room = &world.residents.as_ref().unwrap().aboard.room;
@@ -505,7 +497,7 @@ fn they_shoot_the_crew_and_the_crew_shoot_back() {
 #[test]
 fn a_leech_and_an_arc_work_on_their_people() {
     use bims::module::{ARC_DAMAGE, LEECH_SHARE, ModuleKind};
-    let (mut world, _) = at_their_site(4);
+    let (mut world, _) = at_their_site_with(4, |w| w.set_droid_wave_for_probe(4));
     let mut gear = world.aboard.room.gear(0);
     gear.items[0] = Some(ModuleKind::LeechCapacitor.at(Tier::One));
     gear.items[1] = Some(ModuleKind::ArcCoil.at(Tier::One));
@@ -677,7 +669,8 @@ fn a_reinforcement_of_theirs_is_told_where_the_crew_are() {
 /// `forgotten` a minute and more after, crew member 0 out where the
 /// garrison stood — and the wave walked at it from its airlock.
 fn reinforcement_hunts(forgotten: bool) {
-    let (mut world, station) = at_their_site_with(12, |w| w.set_droid_waves_for_probe(3));
+    let (mut world, station) =
+        at_their_site_with(people_alone_day(), |w| w.set_droid_waves_for_probe(3));
     let garrison = theirs(&world);
     if forgotten {
         // Where one of the garrison stood, off the watched airlock.
@@ -783,8 +776,10 @@ fn black_market_lays_their_people_and_machines_with_more_health() {
             .collect();
         (people, machines)
     };
-    let (plain, _) = at_their_site(8);
-    let (tough, _) = at_their_site_with(8, |w| {
+    // Halfway through the tier-one area: their people and the machines.
+    let (plain, _) = at_their_site_with(13, |w| w.set_droid_wave_for_probe(8));
+    let (tough, _) = at_their_site_with(13, |w| {
+        w.set_droid_wave_for_probe(8);
         w.give_relic_for_probe(crate::relic::Relic::BlackMarket)
     });
     let (plain_people, plain_machines) = bars(&plain);

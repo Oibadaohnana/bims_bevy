@@ -23,16 +23,18 @@
 //!
 //! # Who, and with what
 //!
-//! Before [`data::MANUFACTURER_DROIDS_LOST_DAY`] a site is a **fixed
-//! garrison**: the machines' own wave size, each body rolled a Trooper at
-//! the day's [`trooper_percent`] and one of their people otherwise, and no
-//! reinforcement. From that day on it is their people alone, in the
-//! machines' own waves. What a Manufacturer carries is [`gear`], at the
-//! tier the run day deals it (`crate::droid::WaveScaling::gear_tiers`,
-//! task 147): the laser pistol alone for the share not yet geared, and a
-//! gun and armour at its tier for the rest. All of it is rolled off a seed the site and the world clock make, so it is fixed for
-//! a visit (the clock stands still in a mission) and rolled afresh on the
-//! next (every trip moves it).
+//! **Who stands in a wave is the same everywhere** (October 2026, the
+//! player's: mixed waves at every site): a share of it the machines and
+//! the rest their people, the share the day's
+//! (`crate::droid::WaveScaling::machines_in`) — their people alone
+//! through the scaling's area 0, the machines' share rising through the
+//! tier-one area to the whole wave at tier two's door. What one of them
+//! carries is [`gear`], at the tier the run day deals it
+//! (`crate::droid::WaveScaling::gear_tiers`): the laser pistol alone for
+//! the share not yet geared, and a gun and armour at its tier for the
+//! rest. All of it is rolled off a seed the site and the world clock
+//! make, so it is fixed for a visit (the clock stands still in a mission)
+//! and rolled afresh on the next (every trip moves it).
 
 use bims::combat::{Gear, Tier};
 use worldgen::{Galaxy, StationBlueprint};
@@ -126,32 +128,6 @@ pub fn holds(
         && (rolled(galaxy_seed, star, station.id) || near.contains(&(star, station.id)))
 }
 
-/// The share of a garrison that is a Trooper on `day`, in per cent: the
-/// row of [`data::MANUFACTURER_TROOPER_PERCENT`] the day has reached.
-pub fn trooper_percent(day: u32) -> u32 {
-    data::MANUFACTURER_TROOPER_PERCENT
-        .iter()
-        .rev()
-        .find(|&&(from, _)| day >= from)
-        .map_or(0, |&(_, percent)| percent)
-}
-
-/// Whether they still have the machines on `day`: before
-/// [`data::MANUFACTURER_DROIDS_LOST_DAY`], a fixed garrison with Troopers
-/// in it; from it on, waves of their own people.
-pub fn has_droids(day: u32) -> bool {
-    day < data::MANUFACTURER_DROIDS_LOST_DAY
-}
-
-/// A garrison of `n` on `day`, body by body: `true` for a Trooper, `false`
-/// for one of their people, each rolled on its own at
-/// [`trooper_percent`] off `seed`.
-pub fn garrison(n: u32, day: u32, seed: u64) -> Vec<bool> {
-    let percent = trooper_percent(day);
-    let mut rng = worldgen::rng::Rng::new(seed ^ 0x_5452_4F4F_5045_5253);
-    (0..n).map(|_| rng.below(100) < percent).collect()
-}
-
 /// What one of them carries, off `seed`, with its armour numbered
 /// `piece_ids` (task 147): with no `tier` the laser pistol and nothing
 /// else; with one a gun (never the schword) and armour at it. The tier is
@@ -173,21 +149,7 @@ mod tests {
     use bims::combat::WeaponKind;
 
     #[test]
-    fn the_schedule_is_the_one_asked_for() {
-        // --- the trooper share by day ---
-        for (day, share) in [
-            (0, 0),
-            (4, 0),
-            (5, 10),
-            (6, 10),
-            (7, 25),
-            (8, 50),
-            (9, 60),
-            (10, 0),
-            (40, 0),
-        ] {
-            assert_eq!(trooper_percent(day), share, "day {day}");
-        }
+    fn they_carry_the_pistol_or_a_gun_and_armour_at_the_tier() {
         // --- what they carry, by the tier the day deals them ---
         for seed in 0..50 {
             let g = gear(None, seed, 1);
@@ -208,16 +170,6 @@ mod tests {
             assert_eq!(g.weapon.unwrap().tier, tier);
             assert_eq!(g.armour.unwrap().tier, tier);
         }
-        // --- the garrison's rolls come out near the share ---
-        let troopers: usize = (0..200u64)
-            .map(|seed| garrison(10, 8, seed).iter().filter(|&&t| t).count())
-            .sum();
-        assert!(
-            (800..1200).contains(&troopers),
-            "{troopers} of 2000 at day 8"
-        );
-        assert!(garrison(16, 2, 3).iter().all(|&t| !t));
-        assert!(garrison(16, 10, 3).iter().all(|&t| !t));
     }
 
     #[test]

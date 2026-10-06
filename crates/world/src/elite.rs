@@ -10,12 +10,11 @@
 //! defence.
 //!
 //! **The fight**: at least [`data::ELITE_WAVES`] waves, and in wave
-//! [`data::ELITE_GUARDIAN_WAVE`] its Guardians ([`with_guardian`]): in the
-//! floor's tier-one zone a Guardian a tier — one at tier one, two at tier
-//! two, three at tier three ([`data::ELITE_GUARDIANS`]); in the tier-two
-//! and tier-three zones the scaling's `tier2_guardians` / `tier3_guardians`
-//! for each player (October 2026), with `tier2_elites` / `tier3_elites`
-//! Bombers on top ([`with_bombers`]) and a Conductor ([`with_conductor`]).
+//! [`data::ELITE_GUARDIAN_WAVE`] its Guardians ([`with_guardian`]): the
+//! day's area's `guardians` for each player (October 2026,
+//! `crate::droid::WaveScaling::elite_guardians`), with its `elites`
+//! Bombers on top ([`with_bombers`]) and, from the tier-two zone on, a
+//! Conductor ([`with_conductor`]). Area 0 has no elite.
 //! **The reward**: only an elite drops relics — the
 //! reward screen on its clear and a cache on its research desk; every
 //! other fight drops none (`World::relics_on_leaving`, `World::infest`).
@@ -40,15 +39,8 @@ pub fn holds(galaxy_seed: u64, home: u32, star: u32) -> bool {
     star != home && rolled(galaxy_seed, star)
 }
 
-/// The Guardians an elite's Guardian wave holds in a tier-one zone, by
-/// the site's `tier`: [`data::ELITE_GUARDIANS`].
-pub fn guardians_at(tier: Tier) -> u32 {
-    data::ELITE_GUARDIANS[tier.code() as usize - 1]
-}
-
 /// A wave's machines at an elite: in wave [`data::ELITE_GUARDIAN_WAVE`] at
-/// least `want` Guardians ([`guardians_at`] in a tier-one zone, the
-/// scaling's per player in the others), each one not there already in a
+/// least `want` Guardians (the area's for each player), each one not there already in a
 /// Trooper's place (the last
 /// one's, so the other Troopers' arms are dealt as before) — or the last
 /// machine's but a Guardian where there is no Trooper — and never more
@@ -127,7 +119,7 @@ mod tests {
     fn a_tier_two_elite_s_guardian_wave_has_a_conductor_in_a_trooper_s_place() {
         for n in [3u32, 6, 12] {
             let plain = bims::droid::wave_kinds(n);
-            let guarded = with_guardian(plain.clone(), 2, guardians_at(Tier::Two));
+            let guarded = with_guardian(plain.clone(), 2, 2);
             let kinds = with_conductor(guarded.clone(), 2, Tier::Two);
             assert_eq!(kinds.len(), guarded.len(), "a wave of {n}");
             assert_eq!(
@@ -163,11 +155,11 @@ mod tests {
     }
 
     #[test]
-    fn the_second_wave_has_one_guardian_a_tier_in_a_trooper_s_place() {
-        for (tier, want) in [(Tier::One, 1), (Tier::Two, 2), (Tier::Three, 3)] {
+    fn the_second_wave_has_its_guardians_in_a_trooper_s_place() {
+        for want in [1usize, 2, 3] {
             for n in 1..=16u32 {
                 let plain = bims::droid::wave_kinds(n);
-                let tier = guardians_at(tier);
+                let tier = want as u32;
                 assert_eq!(with_guardian(plain.clone(), 1, tier), plain, "wave one");
                 assert_eq!(with_guardian(plain.clone(), 3, tier), plain);
                 let second = with_guardian(plain.clone(), 2, tier);
@@ -175,7 +167,7 @@ mod tests {
                 assert_eq!(
                     guardians(&second),
                     want.min(n as usize),
-                    "{tier:?} {n}: {second:?}"
+                    "{want} {n}: {second:?}"
                 );
                 // The Wardens, then the Guardians, then the rest.
                 let wardens = second

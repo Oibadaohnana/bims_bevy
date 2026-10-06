@@ -24,7 +24,7 @@ use crate::world_checksum;
 /// Manufacturers' own tests are [`manufacturers_attack`] below.
 fn basic() -> World {
     let mut world = open_simulation_world(flyer(2), REFERENCE_MONEY, 2);
-    world.set_defense_by_machines_for_probe();
+    world.set_machines_only_for_probe();
     // A town's defence as it was before the Area defend (October 2026):
     // every wave down and won. `tests_area.rs` is the Area defend.
     world.set_area_defense_off_for_probe();
@@ -717,7 +717,7 @@ fn a_station_defence_counts_down_lands_at_the_far_airlock_and_pays_on_the_win() 
     // The defenders: the day's number, after the station's own people.
     let residents = world.residents.as_ref().expect("the station's room");
     let fielded = residents.defender.iter().filter(|&&d| d).count() as u32;
-    assert_eq!(fielded, defense::defenders(world.days_gone()));
+    assert_eq!(fielded, world.area_now().1.defenders);
     assert!(fielded > 0);
     // The countdown runs out on the step it says.
     let mut steps = 1;
@@ -897,19 +897,21 @@ fn the_defenders_are_armed_at_the_day_s_tier() {
         first.iter().any(|(_, gear)| gear.armour.is_none()),
         "a tier-one defender may go unarmoured, so the test shows the lift"
     );
-    for (tier3_days, tier) in [(1_000, Tier::Two), (0, Tier::Three)] {
+    for tier in [Tier::Two, Tier::Three] {
         let mut world = basic();
-        world.set_wave_scaling(crate::droid::WaveScaling {
-            tier2_days: 0,
-            tier3_days,
-            ..crate::droid::WaveScaling::DEFAULT
-        });
+        if tier == Tier::Two {
+            // Tier two's door on day one.
+            world.set_wave_scaling(crate::droid::WaveScaling::with_tier_days(1, 1_000));
+        } else {
+            world.set_droid_tier_for_probe(Some(Tier::Three));
+        }
         world.set_quiet_sites_for_probe(true);
         world.set_quiet_sites_for_probe(false);
         world.step(&[]);
         assert_eq!(world.zone_tier(), tier);
+        // The area's defenders, the first of them the same kits lifted.
         let lifted = defenders(&world);
-        assert_eq!(lifted.len(), first.len());
+        assert!(lifted.len() >= first.len());
         for ((who, before), (_, after)) in first.iter().zip(&lifted) {
             let weapon = after.weapon.expect("armed");
             assert_eq!(weapon.kind, before.weapon.unwrap().kind, "{who}'s gun");
@@ -1088,11 +1090,10 @@ fn a_townsperson_downed_is_picked_up_with_the_medkit() {
     assert!(!world.aboard.room.is_revivable_guest(patient));
 }
 
-/// **Before day ten a defence is attacked by the Manufacturers** (task
-/// 131): their people and, as the days go on, the machines they still
-/// command beside them at [`crate::manufacturer::trooper_percent`] of the
-/// day — none on day nought, about half on day eight — and from day ten the
-/// machines alone. A Manufacturer among the site's own people is an
+/// **A defence is attacked by the day's mix** (task 131; the scaling's
+/// areas since October 2026): their people alone through area 0, the
+/// machines beside them through the tier-one area — about half halfway —
+/// and from tier two's door the machines alone. A Manufacturer among the site's own people is an
 /// *intruder*: the crew's target and the site's, never the machines'.
 mod manufacturers_attack {
     use super::*;
@@ -1134,28 +1135,27 @@ mod manufacturers_attack {
     #[test]
     fn on_day_nought_the_wave_is_their_people_alone() {
         let (mut world, _) = at_the_spawn(0, 6);
-        assert!(world.defense_by_manufacturers());
+        assert_eq!(world.machines_of(6, 1), 0, "area 0");
         assert_eq!(the_wave(&mut world), (6, 0), "no Trooper on day nought");
         assert_eq!(world.droids_standing(), 6, "their people count as standing");
     }
 
     #[test]
-    fn on_day_eight_troopers_stand_beside_them_and_from_day_ten_the_machines_alone() {
-        let (mut world, _) = at_the_spawn(8, 16);
+    fn in_tier_one_machines_stand_beside_them_and_from_tier_two_the_machines_alone() {
+        let (mut world, _) = at_the_spawn(12, 16);
         let (people, machines) = the_wave(&mut world);
         assert_eq!(people + machines, 16);
         assert!(
             machines > 0 && people > 0,
-            "half and half on day eight, near enough: {people} people, {machines} machines"
+            "half and half in the tier-one area, near enough: {people} people, {machines} machines"
         );
 
-        let (mut world, _) = at_the_spawn(data::MANUFACTURER_DROIDS_LOST_DAY, 16);
-        assert!(!world.defense_by_manufacturers());
-        assert_eq!(
-            the_wave(&mut world),
-            (0, 16),
-            "the machines alone from day ten"
-        );
+        let door = crate::droid::WaveScaling::DEFAULT.tier_two_day();
+        let (mut world, _) = at_the_spawn(door, 16);
+        assert_eq!(world.machines_of(16, 1), 16);
+        let (people, machines) = the_wave(&mut world);
+        assert_eq!(people, 0, "the machines alone from tier two's door");
+        assert!(machines >= 16, "with the area's on top: {machines}");
     }
 
     #[test]

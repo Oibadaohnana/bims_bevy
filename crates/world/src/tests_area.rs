@@ -17,7 +17,7 @@ use crate::world::World;
 /// machines each. `None` where the roll put no friendly town to land at.
 fn an_area_defend(size: Option<u32>) -> Option<(World, u32)> {
     let mut world = open_simulation_world(flyer(2), REFERENCE_MONEY, 2);
-    world.set_defense_by_machines_for_probe();
+    world.set_machines_only_for_probe();
     world.set_defense_delay_for_probe(data::STEP_MINUTES * 4.0);
     if let Some(n) = size {
         world.set_droid_wave_for_probe(n);
@@ -304,8 +304,9 @@ fn every_wave_of_a_mission_is_its_first_wave_s_size() {
     assert!(came);
     // The wave's size is the first's; the day moved it into the tier-two
     // zone, whose Bombers and Lancers come on top of it (task 157).
-    let (bombers, lancers) = if world.zone_tier() >= bims::combat::Tier::Two {
-        world.scaling().tier_two_extras(first)
+    let (_, area) = world.area_now();
+    let (bombers, lancers) = if world.area_now().0 > 0 {
+        (area.bombers, area.lancers)
     } else {
         (0, 0)
     };
@@ -361,7 +362,7 @@ fn the_manufacturers_waves_stack_and_every_body_is_counted_once() {
     let Some(id) = world.ship.state.alongside() else {
         return;
     };
-    if !world.site_threatened(id) || !world.defense_by_manufacturers() {
+    if !world.site_threatened(id) || world.machines_of(4, 1) == 4 {
         return;
     }
     let (stacked, _) = until(&mut world, 4_000, |w| {
@@ -424,7 +425,7 @@ fn pad_on_deck(world: &World) -> bims::math::Vec2 {
 #[test]
 fn an_area_defend_starts_five_seconds_in_and_pays_an_elite_s_relics() {
     let mut world = open_simulation_world(flyer(2), REFERENCE_MONEY, 2);
-    world.set_defense_by_machines_for_probe();
+    world.set_machines_only_for_probe();
     world.set_droid_wave_for_probe(1);
     if !world.land_for_probe() {
         return;
@@ -474,7 +475,8 @@ fn an_area_defend_s_waves_have_no_elite_in_them() {
     assert!(world.is_elite_fight(id));
     let (landed, _) = until(&mut world, 600, |w| w.droids_standing() > 0);
     assert!(landed, "the first wave never landed");
-    let (bombers, lancers) = world.scaling().tier_two_extras(8);
+    let (_, area) = world.area_now();
+    let (bombers, lancers) = (area.bombers, area.lancers);
     let second = world.wave_kinds_for(8, data::ELITE_GUARDIAN_WAVE);
     let count = |kind| second.iter().filter(|&&k| k == kind).count() as u32;
     use bims::droid::DroidKind;

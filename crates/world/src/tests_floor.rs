@@ -209,9 +209,9 @@ fn a_trip_goes_only_up_the_floor_and_a_row_is_a_day() {
 #[test]
 fn a_trader_stands_at_tier_two_s_door_and_moves_with_its_day() {
     let mut world = default_world();
-    // The default timing: tier two from day twenty, its door row twenty.
+    // The default areas: tier two's door the tier-two area's first day.
     let floor = world.floor().unwrap().clone();
-    let door = data::TIER2_DAYS;
+    let door = WaveScaling::DEFAULT.tier_two_day();
     assert_eq!(floor.tier_two_shop, Some(door));
     assert_eq!(floor.heart_row(), data::FLOOR_HOPS);
     let at_door = |world: &World, row: u32| {
@@ -228,16 +228,14 @@ fn a_trader_stands_at_tier_two_s_door_and_moves_with_its_day() {
     assert_eq!(world.floor_tier(door - 1), Tier::One);
     // Every place below it leads there.
     assert!(floor.rows[door as usize - 1].iter().all(|n| n.up == [0]));
-    // The player's timing (tier two from day nineteen) moves the door to
-    // row nineteen, the Heart where it was.
-    world.set_wave_scaling(WaveScaling {
-        tier2_days: 19,
-        tier3_days: 29,
-        ..WaveScaling::DEFAULT
-    });
+    // Shorter areas (tier two from day nineteen, three from 29) move the
+    // door to row nineteen and the Heart with the areas.
+    let shorter = WaveScaling::with_tier_days(19, 29);
+    world.set_wave_scaling(shorter);
     let moved = world.floor().unwrap().clone();
     assert_eq!(moved.tier_two_shop, Some(19));
-    assert_eq!(moved.heart_row(), data::FLOOR_HOPS);
+    assert_eq!(moved.heart_row(), shorter.heart_day());
+    assert_ne!(moved.heart_row(), data::FLOOR_HOPS);
     let marks = at_door(&world, 19);
     assert_eq!(marks.len(), 1);
     assert_eq!(marks[0].kind, SiteKind::Trader, "{:?}", marks[0]);
@@ -249,21 +247,14 @@ fn a_trader_stands_at_tier_two_s_door_and_moves_with_its_day() {
     c.settle_crisis();
     assert_eq!(c.floor(), world.floor());
     // A difficulty over the file's dials is what the door follows.
-    world.set_difficulty(Some(WaveScaling {
-        tier2_days: 22,
-        ..WaveScaling::DEFAULT
-    }));
+    world.set_difficulty(Some(WaveScaling::with_tier_days(22, 32)));
     assert_eq!(world.floor().unwrap().tier_two_shop, Some(22));
 }
 
 #[test]
 fn the_rows_are_marked_by_the_tier_timings() {
     let mut world = default_world();
-    world.set_wave_scaling(WaveScaling {
-        tier2_days: 19,
-        tier3_days: 29,
-        ..WaveScaling::DEFAULT
-    });
+    world.set_wave_scaling(WaveScaling::with_tier_days(19, 29));
     let heart = world.floor().unwrap().heart_row();
     let tiers: Vec<Tier> = (0..=heart).map(|row| world.floor_tier(row)).collect();
     let count = |t: Tier| tiers[1..].iter().filter(|&&x| x == t).count();

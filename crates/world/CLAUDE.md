@@ -5892,7 +5892,7 @@ Trooper at `manufacturer::trooper_percent(day)` (the garrison's own roll,
 `manufacturer::garrison`, off `garrison_seed ^ DEFENSE_SALT`) and one of
 their people otherwise, armed by `manufacturer::gear`. The garrison and the
 defence share `stand_manufacturers`: their people first, then the Troopers.
-From day ten the machines as before. `set_defense_by_machines_for_probe`
+From day ten the machines as before. `set_machines_only_for_probe`
 (saved, not hashed, like `droid_kinds_forced`) keeps a defence's waves the
 machines' whatever the day, and `tests_defense.rs`' `basic()` takes it, since
 those tests are the machines' fight at day nought; `manufacturers_attack` in
@@ -8331,3 +8331,90 @@ offers differ.
 is the rule. Both ends must stock alike: `wire::PROTOCOL` follows `BUILD`.
 Meant to alter play at the traders only; the floor is off and no trader is
 met in the pinned runs, so no pin moves.
+
+## The run is four areas (October 2026)
+
+> "How the enemies scale: the run day and eight dials (task 147)", "The
+> Manufacturers attack a defence before day ten (task 131)", the
+> Manufacturers' garrison with Troopers before day ten (feature 109), the
+> elite's "one Guardian a tier" and its dials by zone, "No elite on the
+> floor's first five fights" and a floor of a fixed `FLOOR_HOPS` describe
+> what this change **replaced**. The player's words: define only how long
+> each area is; an area 0 for easing; Manufacturers alone there; the
+> machines coming in through tier one; the tiers ramping from halfway
+> through the area before; the count carried over.
+
+- **`droid::WaveScaling`** is `enemies_per_player`, `enemies_per_bot`
+  and four `droid::Area`s — `area_0`, `tier_1_area`, `tier_2_area`,
+  `tier_3_area` — each `{ days, growth_per_day, waves, bombers, lancers,
+  guardians, elites, defenders }` (`data::{AREA_0, TIER_1_AREA,
+  TIER_2_AREA, TIER_3_AREA}` the defaults). The days are rows of the
+  floor: `tier_one_day()` = area 0's days + 1, `tier_two_day()` (tier two's
+  **door**, the guaranteed trader, the tier-two area's first day and not
+  one of its `days`), `tier_three_day()`, `heart_day()` (past tier three's
+  days and the trader under the Heart). `area_index(day)` / `area_on`,
+  `zone_on(day)` (the door is tier two's; area 0 is tier one).
+  `with_tier_days(two, three)` is the tests' shorthand.
+- **A wave** (`size`): `enemies_per_player` and every day gone since day
+  one times the `growth_per_day` of the area it fell in — so the count
+  carries over and never jumps — times the players, rounded down, plus
+  `⌈per_bot × bots⌉`. Worked in hundredths.
+- **Who comes** (`ramp`, in half days so a ramp can start halfway through
+  an area; whole enemies, rounded down): `machines_in(n, day)` — none
+  through area 0, a line from the tier-one area's first day to all at the
+  door; `machine_tiers`/`gear_tiers` — tier two from halfway through the
+  tier-one area to all at the door, tier three from halfway through the
+  tier-two area to all on its first day; the Manufacturers' gear from the
+  pistol and nothing on day one to a gun and armour for all on the
+  tier-one area's first day. `usual_tier`, `tier_two_extras`, the tier
+  timings, `day_scaling`/`scaling_days`, `wave_days` and the tier-two/three
+  guardian and elite dials went.
+- **Every wave is a mix, at every site** (`garrison.rs`): `World::machines_of(n,
+  wave)` (the day's share; all of it at the Heart and under the probes'
+  `machines_forced`, forced kinds or tier; at an elite's Guardian wave at
+  least its Guardians) and `World::lay_wave` — the machines' kinds
+  (`wave_kinds_for`) at their tiers, the rest the Manufacturers' people
+  (`stand_people`, gear by `manufacturer_gear_tiers`), wave one about the
+  rooms, the rest at the arrival spots. `lay_held_wave` (an attack's, off
+  `garrison_seed`, a reinforcement `seeking`) and `lay_defense_wave` (off
+  the seed `^ DEFENSE_SALT`). `Residents::manufacturers_laid` is now every
+  wave's mark: `settle_droids` lays when the room has no machines and has
+  not got its wave, and the defence's put-back the same. A Manufacturers'
+  site (`Infestation::manufacturers`) is still a site of theirs for the
+  crisis, the jammer and the traders, but its waves are the day's mix as
+  anywhere. `manufacturer::{trooper_percent, has_droids, garrison}`,
+  `MANUFACTURER_DROIDS_LOST_DAY`, `MANUFACTURER_TROOPER_PERCENT`,
+  `lay_manufacturers`, `lay_defense_manufacturers`,
+  `defense_by_manufacturers`, `settle_defense_droids`, `first_wave` and
+  `arriving_wave` went.
+- **The area's numbers** (`World::area_now`: the run day's area, the
+  tier-three area's at the Heart, the probes' tier's where set):
+  `wave_kinds_for` puts its Bombers and Lancers on top of every wave
+  (none in area 0) and at an elite its `guardians` a player and `elites`
+  Bombers; `defenders_of` is its `defenders` (`defense::defenders` and
+  `DEFENDERS_*` went); `droid_wave_count` is the day's area's `waves`.
+  `elite::guardians_at` and `ELITE_GUARDIANS` went.
+- **The floor** is `heart_day()` rows (`World::floor_hops`, four at the
+  least; `data::FLOOR_HOPS` is the default's, 34): `floor::shape(seed,
+  hops, door)`, `floor::tier_two_shop_row(tier_two_day, hops)`, and
+  `floor_follows_the_tiers` lays it again when the door or the Heart's
+  row moves. `floor_tier` is `zone_on` of the row's day. **No elite in
+  area 0**: `holds_elite` keeps none on a row before `tier_one_day()`
+  (`FLOOR_NO_ELITE_ROWS` went).
+- **The probes**: `set_machines_only_for_probe` (was
+  `set_defense_by_machines_for_probe`; `World::machines_forced`, serde
+  alias of the old field) makes every wave the machines', and
+  `infest_here_for_probe` and `ship::Session::infest_the_dock_for_probe`
+  (the `droids` family) set it. Tests that fight machines on day one set
+  it in their helpers.
+- **The app**: the Difficulty page is the two per-enemy dials and a table
+  of the four areas (`builder::area_table`), with the rows each falls on
+  (`names::area_rows_line`); `wavecfg::with_difficulty` writes an area's
+  whole row on its one line.
+
+**`SAVE_VERSION` 121.** Meant to alter play everywhere: who comes, how
+many and at what tier, the floor's length, the defenders, the elites.
+`droid::tests`, `tests_droid`, `tests_defense`, `tests_area`,
+`tests_tier_two`, `tests_elite`, `tests_floor`, `tests_manufacturer`,
+`tests_site_xp`, `tests_relic` and the rest that fight are the rule;
+`SURVIVORS`, `REFERENCE_CHECKSUM` and the ship's `PINNED` move.

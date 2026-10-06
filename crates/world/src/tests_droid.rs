@@ -38,6 +38,9 @@ fn held_arena() -> (World, u32) {
         station,
     )
     .unwrap();
+    // The machines' fight on day one (the scaling's area 0 is the
+    // Manufacturers alone, October 2026).
+    world.set_machines_only_for_probe();
     world.arena_dock_for_probe();
     let kinds = WeaponKind::ALL.iter().copied().cycle();
     let crew = world.aboard.room.crew_count() as usize;
@@ -485,9 +488,9 @@ fn a_wave_is_the_players_and_the_day_and_nothing_else() {
     assert_eq!(world.droid_wave_size(), per_player + 7, "the first mission");
     world.run.missions = 2;
     assert_eq!(world.droid_wave_size(), per_player + 7, "the second");
-    // Five days on, one step of the day's scaling.
-    world.clock_minutes = 4.0 * 24.0 * 60.0;
-    assert_eq!(world.run_day(), 5);
+    // Five days on, a fifth an enemy a day is one more.
+    world.clock_minutes = 5.0 * 24.0 * 60.0;
+    assert_eq!(world.run_day(), 6);
     assert_eq!(world.droid_wave_size(), per_player + 1 + 7);
     // A bot dead is a machine fewer.
     world.aboard.room.kill_for_probe(7);
@@ -591,27 +594,25 @@ fn the_waves_never_shrink_with_the_clock_and_grow_over_a_run() {
     );
 }
 
-/// A site's count of waves is one, and one more every `wave_days` of the
-/// run day (task 147) — whatever tier the machines come at.
+/// A site's count of waves is its run day's area's (October 2026):
+/// one through tier one by default, two from tier two's door.
 #[test]
-fn a_site_has_a_wave_more_every_wave_days() {
+fn a_site_has_its_area_s_waves() {
     let mut world = crate::fixture::crewed_world(combat_ship(), REFERENCE_MONEY, 1, 4);
-    let days = crate::droid::WaveScaling::DEFAULT.wave_days;
+    let two = crate::droid::WaveScaling::DEFAULT.tier_two_day();
     let on = |world: &mut World, day: u32| {
         world.clock_minutes = f64::from(day - 1) * 24.0 * 60.0;
         world.droid_wave_count()
     };
     assert_eq!(on(&mut world, 1), 1);
-    assert_eq!(on(&mut world, days - 1), 1);
-    assert_eq!(on(&mut world, days), 2);
-    assert_eq!(on(&mut world, 2 * days), 3);
+    assert_eq!(on(&mut world, two - 1), 1);
+    assert_eq!(on(&mut world, two), 2);
     world.set_droid_tier_for_probe(Some(Tier::Three));
     assert_eq!(on(&mut world, 1), 1, "the tier says nothing of the count");
-    world.set_wave_scaling(crate::droid::WaveScaling {
-        wave_days: 3,
-        ..crate::droid::WaveScaling::DEFAULT
-    });
-    assert_eq!(on(&mut world, 9), 4, "tuned");
+    let mut tuned = crate::droid::WaveScaling::DEFAULT;
+    tuned.tier_1_area.waves = 4;
+    world.set_wave_scaling(tuned);
+    assert_eq!(on(&mut world, tuned.tier_one_day()), 4, "tuned");
 }
 
 /// The setup's difficulty stands in place of the tuning file's dials;
@@ -628,14 +629,21 @@ fn the_difficulty_stands_in_place_of_the_tuning_file() {
         ..crate::droid::WaveScaling::DEFAULT
     });
     assert_eq!(world.wave_size_at(0), 7 * players + bots);
-    world.set_difficulty(Some(crate::droid::Difficulty {
+    let mut difficulty = crate::droid::Difficulty {
         enemies_per_player: 3,
-        day_scaling: 2,
-        scaling_days: 5,
         ..crate::droid::WaveScaling::DEFAULT
-    }));
+    };
+    for area in [
+        &mut difficulty.area_0,
+        &mut difficulty.tier_1_area,
+        &mut difficulty.tier_2_area,
+        &mut difficulty.tier_3_area,
+    ] {
+        area.growth_per_day = 0.4;
+    }
+    world.set_difficulty(Some(difficulty));
     assert_eq!(world.wave_size_at(0), 3 * players + bots);
-    // Day sixteen: three steps of five days, two a step.
+    // Day sixteen: fifteen days at two fifths an enemy.
     assert_eq!(world.wave_size_at(later), (3 + 2 * 3) * players + bots);
     assert_eq!(
         world.wave_scaling().enemies_per_player,
@@ -647,24 +655,25 @@ fn the_difficulty_stands_in_place_of_the_tuning_file() {
 }
 
 /// Each machine of a wave comes at its own tier, the run day's shares
-/// (task 147): day ten with the default dials is half of them at tier
-/// two or better and a quarter at three.
+/// (task 147; along the areas since October 2026): day 27 with the
+/// default dials is every one at tier two or better and two fifths at
+/// three (its ramp from day 25 to the tier-three area's first, 30).
 #[test]
 fn a_wave_s_machines_come_at_the_tiers_the_day_deals() {
     let (mut world, _) = held_arena();
-    world.clock_minutes = 9.0 * 24.0 * 60.0;
-    assert_eq!(world.run_day(), 10);
+    world.clock_minutes = 26.0 * 24.0 * 60.0;
+    assert_eq!(world.run_day(), 27);
     let n = open_the_room(&mut world);
     let want = world.machine_tiers(n);
     let got: Vec<Tier> = room!(world).droids().iter().map(|d| d.tier).collect();
     assert_eq!(got, want);
     let at_least_two = got.iter().filter(|&&t| t != Tier::One).count() as u32;
-    assert_eq!(at_least_two, n / 2, "{got:?}");
+    assert_eq!(at_least_two, n, "{got:?}");
     assert_eq!(
         got.iter().filter(|&&t| t == Tier::Three).count() as u32,
-        n / 4
+        n * 4 / 10
     );
-    assert_eq!(world.droid_tier(), Tier::Two, "the tier most are at");
+    assert_eq!(world.droid_tier(), Tier::Two, "the zone's tier");
     // The probes' dial is every machine's.
     world.set_droid_tier_for_probe(Some(Tier::Three));
     assert!(world.machine_tiers(5).iter().all(|&t| t == Tier::Three));
@@ -824,7 +833,8 @@ fn the_probes_dials_move_the_tier_and_the_cap() {
     let n = open_the_room(&mut world);
     // The tier-two machines come on top of the wave the dial says (task
     // 157), the probes' tier being the zone.
-    let (bombers, lancers) = world.scaling().tier_two_extras(3);
+    let (_, area) = world.area_now();
+    let (bombers, lancers) = (area.bombers, area.lancers);
     assert!(n <= 3 + bombers + lancers, "the cap holds: {n}");
     let room = &world.residents.as_ref().unwrap().aboard.room;
     for i in 0..room.droid_count() as usize {

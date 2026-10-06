@@ -1319,7 +1319,7 @@ fn beams_are_cleared_by_a_bot_lost() {
 fn defended() -> (World, u32, usize) {
     let mut world =
         crate::fixture::open_simulation_world(shipdesign::fixture::flyer(2), REFERENCE_MONEY, 2);
-    world.set_defense_by_machines_for_probe();
+    world.set_machines_only_for_probe();
     world.step(&[]);
     assert_eq!(world.set_class(0, Class::Medic), Ok(()));
     ranks(&mut world, 0, [4, 0, 4, 0]);

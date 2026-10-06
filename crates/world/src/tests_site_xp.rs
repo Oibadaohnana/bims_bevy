@@ -39,6 +39,9 @@ fn held_arena(players: u32) -> (World, u32) {
     for slot in 0..players {
         world.set_class(slot, Class::Soldier).unwrap();
     }
+    // The machines' fight on day one (the scaling's area 0 is the
+    // Manufacturers alone, October 2026).
+    world.set_machines_only_for_probe();
     world.arena_dock_for_probe();
     let crew = world.aboard.room.crew_count() as usize;
     for (who, kind) in WeaponKind::ALL

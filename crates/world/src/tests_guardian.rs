@@ -78,11 +78,8 @@ fn no_guardian_comes_in_a_wave_that_is_not_an_elite_s() {
         let kinds = first_wave(&mut world);
         // From the tier-two zone on, the Bombers and the Lancers come on
         // top of the wave (task 157).
-        let (bombers, lancers) = if tier >= Tier::Two {
-            world.scaling().tier_two_extras(wave)
-        } else {
-            (0, 0)
-        };
+        let (_, area) = world.area_now();
+        let (bombers, lancers) = (area.bombers, area.lancers);
         assert_eq!(kinds.len(), (wave + bombers + lancers) as usize);
         let count = |k: DroidKind| kinds.iter().filter(|&&x| x == k).count() as u32;
         assert_eq!(

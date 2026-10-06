@@ -799,13 +799,9 @@ fn the_tank_and_soldier_are_offered_their_kit_a_tier_up_from_the_start() {
     let mut world = basic(3);
     assert_eq!(world.set_class(0, Class::Tank), Ok(()));
     assert_eq!(world.set_class(1, Class::Soldier), Ok(()));
-    // Every tier timing at nought: the day is past tier three.
-    world.set_wave_scaling(crate::droid::WaveScaling {
-        tier2_days: 0,
-        tier3_days: 0,
-        ..crate::droid::WaveScaling::DEFAULT
-    });
-    assert_eq!(world.zone_tier(), Tier::Three, "the day's tier");
+    // The zone tier three.
+    world.set_droid_tier_for_probe(Some(Tier::Three));
+    assert_eq!(world.zone_tier(), Tier::Three, "the zone's tier");
     at_a_trader(&mut world);
     let plain = trader::shelf(|_| Tier::One);
     let shelf = |world: &World, slot: u32| -> Vec<_> {

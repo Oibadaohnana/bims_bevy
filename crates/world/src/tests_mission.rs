@@ -81,6 +81,9 @@ fn held_arena() -> (World, u32) {
         station,
     )
     .unwrap();
+    // The machines' fight on day one (the scaling's area 0 is the
+    // Manufacturers alone, October 2026).
+    world.set_machines_only_for_probe();
     world.arena_dock_for_probe();
     let kinds = WeaponKind::ALL.iter().copied().cycle();
     let crew = world.aboard.room.crew_count() as usize;
@@ -1170,7 +1173,7 @@ fn travel_days_over_ten_galaxies() {
             "to the origin, {name}: {days:.0} days: waves of {sizes:?} for 1..=4 players, \
              {} of them, most at {:?}",
             scaling.waves(day),
-            scaling.usual_tier(day),
+            scaling.zone_on(day),
         );
     }
 }

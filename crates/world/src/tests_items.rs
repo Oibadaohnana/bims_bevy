@@ -135,12 +135,8 @@ fn a_player_s_bim_carries_four_items_and_a_bot_none() {
 #[test]
 fn a_trader_past_the_tier_days_sells_what_it_sold_on_the_first_day() {
     let mut world = basic();
-    world.set_wave_scaling(crate::droid::WaveScaling {
-        tier2_days: 0,
-        tier3_days: 0,
-        ..crate::droid::WaveScaling::DEFAULT
-    });
-    assert_eq!(world.zone_tier(), Tier::Three, "the day is past tier three");
+    world.set_droid_tier_for_probe(Some(Tier::Three));
+    assert_eq!(world.zone_tier(), Tier::Three, "the zone is tier three");
     at_a_trader(&mut world);
     for item in world.item_shelf() {
         assert_eq!(item.tier, item.kind.min_tier(), "{item:?}");

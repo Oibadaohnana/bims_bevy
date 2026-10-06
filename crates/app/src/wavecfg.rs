@@ -1,10 +1,10 @@
 //! The tuning files, read again while the game runs.
 //!
 //! - `scaling.ron` (or the file `BIMS_SCALING` names) holds a
-//!   [`world::droid::WaveScaling`] (task 147): the machines a player brings,
-//!   how much that grows and every how many days, the machines a bot
-//!   brings, every how many days a site has a wave more, and the three tier
-//!   timings — the whole of how the enemies scale.
+//!   [`world::droid::WaveScaling`] (task 147; areas since October 2026):
+//!   the enemies a player and a bot bring, and the four areas — area 0 and
+//!   tiers one to three — each so many days with its own growth, waves,
+//!   extras, elite and defenders: the whole of how the enemies scale.
 //! - `rewards.ron` (or `BIMS_REWARDS`) holds a [`world::rewards::Rewards`]:
 //!   the experience and the money an enemy down is worth, what a defence
 //!   pays of it, whether the money waits for the clear, and what the
@@ -91,22 +91,27 @@ impl Tuning for WaveScaling {
     const ENV: &'static str = "BIMS_SCALING";
     const UNTUNED: Self = WaveScaling::DEFAULT;
     fn describe(&self) -> String {
+        let area = |a: &world::droid::Area| {
+            format!(
+                "{} days +{}/day {} waves {}b {}l {}g {}e {}d",
+                a.days,
+                a.growth_per_day,
+                a.waves,
+                a.bombers,
+                a.lancers,
+                a.guardians,
+                a.elites,
+                a.defenders
+            )
+        };
         format!(
-            "{}/player +{} every {} days, {}/bot, a wave more every {} days, tiers by day {}/{}/{}, a bomber per {} and a lancer per {}, elite guardians {}/{} a player and bombers {}/{}",
+            "{}/player, {}/bot; area 0 {}; tier 1 {}; tier 2 {}; tier 3 {}",
             self.enemies_per_player,
-            self.day_scaling,
-            self.scaling_days,
             self.enemies_per_bot,
-            self.wave_days,
-            self.tier1_days,
-            self.tier2_days,
-            self.tier3_days,
-            self.bomber_every,
-            self.lancer_every,
-            self.tier2_guardians,
-            self.tier3_guardians,
-            self.tier2_elites,
-            self.tier3_elites
+            area(&self.area_0),
+            area(&self.tier_1_area),
+            area(&self.tier_2_area),
+            area(&self.tier_3_area)
         )
     }
 }
@@ -305,24 +310,29 @@ pub(crate) fn save_difficulty(difficulty: WaveScaling) -> Result<(), String> {
 /// or on a line of its own before the closing bracket when none does.
 /// `None` when there is no closing bracket.
 fn with_difficulty(text: &str, d: WaveScaling) -> Option<String> {
+    // `{:?}` keeps the point, so the file reads a float back as a float.
+    let area = |a: &world::droid::Area| {
+        format!(
+            "(days: {}, growth_per_day: {:?}, waves: {}, bombers: {}, lancers: {}, guardians: {}, elites: {}, defenders: {})",
+            a.days,
+            a.growth_per_day,
+            a.waves,
+            a.bombers,
+            a.lancers,
+            a.guardians,
+            a.elites,
+            a.defenders
+        )
+    };
     let fields = [
         ("enemies_per_player", d.enemies_per_player.to_string()),
-        ("day_scaling", d.day_scaling.to_string()),
-        ("scaling_days", d.scaling_days.to_string()),
-        // `{:?}` keeps the point, so the file reads it back as a float.
         ("enemies_per_bot", format!("{:?}", d.enemies_per_bot)),
-        ("wave_days", d.wave_days.to_string()),
-        ("tier1_days", d.tier1_days.to_string()),
-        ("tier2_days", d.tier2_days.to_string()),
-        ("tier3_days", d.tier3_days.to_string()),
-        ("bomber_every", d.bomber_every.to_string()),
-        ("lancer_every", d.lancer_every.to_string()),
-        ("tier2_guardians", d.tier2_guardians.to_string()),
-        ("tier3_guardians", d.tier3_guardians.to_string()),
-        ("tier2_elites", d.tier2_elites.to_string()),
-        ("tier3_elites", d.tier3_elites.to_string()),
+        ("area_0", area(&d.area_0)),
+        ("tier_1_area", area(&d.tier_1_area)),
+        ("tier_2_area", area(&d.tier_2_area)),
+        ("tier_3_area", area(&d.tier_3_area)),
     ];
-    let mut done = [false; 14];
+    let mut done = [false; 6];
     let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
     for line in &mut lines {
         let code = line.split("//").next().unwrap_or("");
@@ -335,10 +345,18 @@ fn with_difficulty(text: &str, d: WaveScaling) -> Option<String> {
             let Some(after) = after.trim_start().strip_prefix(':') else {
                 continue;
             };
-            // Past the number to whatever follows it: the comma, a
-            // comment, nothing.
+            // Past the number — or an area's bracketed row, on the one
+            // line — to whatever follows it: the comma, a comment,
+            // nothing.
             let number = after.trim_start();
-            let rest = number.trim_start_matches(|c: char| c.is_ascii_digit() || c == '.');
+            let rest = if number.starts_with('(') {
+                let Some(close) = number.find(')') else {
+                    continue;
+                };
+                &number[close + 1..]
+            } else {
+                number.trim_start_matches(|c: char| c.is_ascii_digit() || c == '.')
+            };
             let tail = &line[code.len() - rest.len()..];
             put = Some(format!("{}{name}: {value}{tail}", &code[..at]));
             done[i] = true;
@@ -428,21 +446,23 @@ mod tests {
     /// line of the file as it was written.
     #[test]
     fn saving_the_difficulty_changes_its_numbers_and_nothing_else() {
+        let area = |days, growth_per_day, waves| world::droid::Area {
+            days,
+            growth_per_day,
+            waves,
+            bombers: 2,
+            lancers: 1,
+            guardians: 3,
+            elites: 1,
+            defenders: 4,
+        };
         let d = WaveScaling {
             enemies_per_player: 4,
-            day_scaling: 2,
-            scaling_days: 7,
             enemies_per_bot: 1.5,
-            wave_days: 12,
-            tier1_days: 3,
-            tier2_days: 25,
-            tier3_days: 50,
-            bomber_every: 5,
-            lancer_every: 9,
-            tier2_guardians: 2,
-            tier3_guardians: 3,
-            tier2_elites: 0,
-            tier3_elites: 2,
+            area_0: area(3, 0.25, 1),
+            tier_1_area: area(12, 0.5, 2),
+            tier_2_area: area(7, 1.0, 3),
+            tier_3_area: area(2, 0.75, 4),
         };
         let text = include_str!("../../../scaling.ron");
         let new = with_difficulty(text, d).unwrap();
@@ -452,7 +472,7 @@ mod tests {
             .zip(new.lines())
             .filter(|(a, b)| a != b)
             .count();
-        assert!(changed <= 14, "{changed} lines changed");
+        assert!(changed <= 6, "{changed} lines changed");
         assert_eq!(text.lines().count(), new.lines().count());
         // A comment after the number stays, and a field left out is put in.
         let new = with_difficulty("(\n    enemies_per_bot: 1.0, // one\n)\n", d).unwrap();
@@ -461,10 +481,16 @@ mod tests {
             "{new}"
         );
         assert_eq!(parse(&new), Ok(d));
-        // A word in a comment is not a field.
-        let new = with_difficulty("// wave_days: 9\n(\n)\n", d).unwrap();
-        assert!(new.starts_with("// wave_days: 9\n"));
-        assert_eq!(parse::<WaveScaling>(&new).unwrap().wave_days, 12);
+        // A word in a comment is not a field, and an area's row is
+        // written whole over the one it had.
+        let new = with_difficulty(
+            "// area_0: (days: 9)\n(\n    tier_1_area: (days: 1, waves: 9), // tier one\n)\n",
+            d,
+        )
+        .unwrap();
+        assert!(new.starts_with("// area_0: (days: 9)\n"));
+        assert!(new.contains("), // tier one\n"), "{new}");
+        assert_eq!(parse(&new), Ok(d));
     }
 
     /// A field left out is the constant's.
@@ -472,14 +498,20 @@ mod tests {
     fn a_field_left_out_is_the_constant_s() {
         let s: WaveScaling = parse("(enemies_per_player: 7)").unwrap();
         assert_eq!(s.enemies_per_player, 7);
-        assert_eq!(s.scaling_days, WaveScaling::DEFAULT.scaling_days);
+        assert_eq!(s.area_0, WaveScaling::DEFAULT.area_0);
         assert!(parse::<WaveScaling>("(enemies_per_player: -1)").is_err());
         let s: WaveScaling = parse("(enemies_per_bot: 1.5)").unwrap();
         assert_eq!(s.enemies_per_bot, 1.5);
         // The name it had before still reads.
         let s: WaveScaling = parse("(enemies_per_defender: 2.5)").unwrap();
         assert_eq!(s.enemies_per_bot, 2.5);
-        assert_eq!(s.tier2_days, WaveScaling::DEFAULT.tier2_days);
+        assert_eq!(s.tier_2_area, WaveScaling::DEFAULT.tier_2_area);
+        // A dial left out of an area's row is nought (a wave, one): the
+        // row is whole or the area is the built-in one.
+        let s: WaveScaling = parse("(tier_1_area: (days: 3))").unwrap();
+        assert_eq!(s.tier_1_area.days, 3);
+        assert_eq!(s.tier_1_area.waves, 1);
+        assert_eq!(s.tier_1_area.guardians, 0);
         let r: Rewards = parse("(buyback: 3)").unwrap();
         assert_eq!(r.buyback, 3);
         assert_eq!(r.site_money, Rewards::DEFAULT.site_money);

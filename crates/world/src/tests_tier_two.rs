@@ -84,10 +84,13 @@ fn a_tier_one_zone_s_wave_has_none_and_a_tier_two_zone_s_has_them_on_top() {
         assert_eq!(count(&kinds, DroidKind::Husk), husks, "{tier:?} {wave}");
         assert_eq!(count(&kinds, DroidKind::Trooper), troopers);
         assert_eq!(count(&kinds, DroidKind::Warden), wardens);
-        let (bombers, lancers) = if tier >= Tier::Two {
-            ((wave / 6).max(1), (wave / 8).max(1))
-        } else {
-            (0, 0)
+        // The area's own on top (October 2026): none at tier one, one of
+        // each at tier two and two Bombers and a Lancer at three, by
+        // default.
+        let (bombers, lancers) = match tier {
+            Tier::One => (0, 0),
+            Tier::Two => (1, 1),
+            Tier::Three => (2, 1),
         };
         assert_eq!(count(&kinds, DroidKind::Bomber), bombers, "{tier:?} {wave}");
         assert_eq!(count(&kinds, DroidKind::Lancer), lancers, "{tier:?} {wave}");
@@ -99,7 +102,7 @@ fn a_tier_one_zone_s_wave_has_none_and_a_tier_two_zone_s_has_them_on_top() {
 #[test]
 fn the_zone_is_the_floor_s_tier_two_rows_by_the_run_day() {
     let (mut world, station) = held_arena(None, 8);
-    let tier2 = world.scaling().tier2_days;
+    let tier2 = world.scaling().tier_two_day();
     assert!(tier2 > 2, "a tier-two zone some way in");
     assert_eq!(world.zone_tier(), Tier::One);
     world.set_day_for_probe(tier2);
@@ -110,9 +113,9 @@ fn the_zone_is_the_floor_s_tier_two_rows_by_the_run_day() {
     assert_eq!(count(&kinds, DroidKind::Lancer), 1);
     // A dial at nought brings none of that kind.
     let mut scaling = world.scaling();
-    scaling.lancer_every = 0;
+    scaling.tier_2_area.lancers = 0;
     world.set_wave_scaling(scaling);
-    assert_eq!(world.scaling().tier_two_extras(8), (1, 0));
+    assert_eq!(world.scaling().extras(world.run_day()), (1, 0));
 }
 
 #[test]
@@ -171,11 +174,9 @@ fn a_bomber_s_bomb_and_a_lancer_s_slug_cross_the_seam_and_land_on_the_crew() {
     }
 }
 
-/// An elite fight's dials (October 2026): in the tier-two and tier-three
-/// zones its Guardian wave holds `tier2_guardians` / `tier3_guardians`
-/// Guardians a player and `tier2_elites` / `tier3_elites` Bombers on top
-/// of the wave's own; the tier-one zone keeps one Guardian a tier and no
-/// more Bombers.
+/// An elite fight's dials (October 2026): its Guardian wave holds the
+/// area's `guardians` a player and its `elites` Bombers on top of the
+/// wave's own, in every area that has an elite.
 #[test]
 fn an_elite_s_guardians_go_by_the_players_and_its_bombers_by_the_dial() {
     for (tier, guardians, elites) in [
@@ -187,28 +188,24 @@ fn an_elite_s_guardians_go_by_the_players_and_its_bombers_by_the_dial() {
         let (mut world, station) = held_arena(Some(tier), 12);
         world.set_elite_for_probe(station);
         let mut scaling = world.scaling();
-        scaling.tier2_guardians = guardians;
-        scaling.tier3_guardians = guardians;
-        scaling.tier2_elites = elites;
-        scaling.tier3_elites = elites;
+        for area in [
+            &mut scaling.tier_1_area,
+            &mut scaling.tier_2_area,
+            &mut scaling.tier_3_area,
+        ] {
+            area.guardians = guardians;
+            area.elites = elites;
+        }
         world.set_wave_scaling(scaling);
         first_wave(&mut world, station);
         let players = world.players();
         assert_eq!(players, 1);
-        let (own, _) = if tier >= Tier::Two {
-            world.scaling().tier_two_extras(12)
-        } else {
-            (0, 0)
-        };
+        let own = world.area_now().1.bombers;
         let first = world.wave_kinds_for(12, 1);
         assert_eq!(count(&first, DroidKind::Guardian), 0, "{tier:?}: wave one");
         assert_eq!(count(&first, DroidKind::Bomber), own, "{tier:?}: wave one");
         let second = world.wave_kinds_for(12, data::ELITE_GUARDIAN_WAVE);
-        let (want_guardians, want_bombers) = if tier >= Tier::Two {
-            (guardians * players, own + elites)
-        } else {
-            (crate::elite::guardians_at(world.droid_tier()), 0)
-        };
+        let (want_guardians, want_bombers) = (guardians * players, own + elites);
         assert_eq!(
             count(&second, DroidKind::Guardian),
             want_guardians,
