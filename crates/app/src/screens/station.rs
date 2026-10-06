@@ -474,7 +474,7 @@ fn frame(mut contexts: EguiContexts, mut screen: ResMut<StationScreen>) -> Resul
                     screen.side_edit != screen.sketch.side,
                     egui::Button::new("Resize"),
                 )
-                .on_hover_text("Keeps the top-left corner; what falls off the grid is lost")
+                .on_hover_text("• Keeps the top-left corner\n• What falls off is lost")
                 .clicked()
             {
                 resize_to = Some(screen.side_edit);

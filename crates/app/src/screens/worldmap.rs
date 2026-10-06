@@ -2489,7 +2489,7 @@ fn shelf_row(
             },
             open: price <= wallet,
             tip: Some(if upgrade {
-                format!("{TRADER_SHELF_UPGRADE_TIP}\n\n{tip}")
+                format!("{TRADER_SHELF_UPGRADE_TIP}\n{tip}")
             } else {
                 tip
             }),
@@ -2604,7 +2604,7 @@ fn item_row(
     let thing = bims::combat::Item::Module(item);
     let tier = item.tier.code();
     let price = world.item_offer_price(offer).unwrap_or(0);
-    let tip = crate::names::module_tip(item, !kind.active());
+    let tip = crate::names::module_tip(item);
     let bought = line_item(
         ui,
         wallet,
@@ -2621,7 +2621,7 @@ fn item_row(
             button: if upgrade { TRADER_UPGRADE } else { TRADER_BUY },
             open: !top && price <= wallet,
             tip: Some(if upgrade {
-                format!("{TRADER_UPGRADE_TIP}\n\n{tip}")
+                format!("{TRADER_UPGRADE_TIP}\n{tip}")
             } else {
                 tip
             }),

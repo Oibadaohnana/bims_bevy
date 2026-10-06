@@ -525,12 +525,9 @@ pub const RESYNC_ASKED: &str = "Catching up with the host…";
 /// The host's world arrived and took the guest's place.
 pub const RESYNC_DONE: &str = "Back on the host's world.";
 /// A guest's Load is greyed with this: the host's world is the world.
-pub const LOAD_GUEST: &str = "Only the host can load a game.";
+pub const LOAD_GUEST: &str = "Host only";
 /// The Esc sheet's Network buffer slider, under the pointer (task 148).
-pub const NET_BUFFER_HINT: &str = "On a shaky connection the host's world is played a little \
-     behind, so it runs smoothly instead of stopping and jumping. Only as \
-     much as the connection needs is used, up to this. Matters only when \
-     you join somebody else's game.";
+pub const NET_BUFFER_HINT: &str = "• Plays the host's world a little behind, for smoothness\n• Uses only what the line needs, up to this\n• Guests only";
 /// The Esc sheet's Restart (feature 79): the menu's button, the page's
 /// line, the button that does it, and the two reasons it is greyed.
 pub const RESTART_BUTTON: &str = "Restart";
@@ -542,19 +539,18 @@ pub const PAUSE_BUTTON: &str = "Pause";
 pub const RESUME_BUTTON: &str = "Resume";
 pub const RESTART_LINE: &str = "Play this run again from the situation it opened in — the fight, the town, the landing, or the run the lobby started. Everything since is lost, and a saved game is not touched.";
 pub const RESTART_AGAIN: &str = "Start again";
-pub const RESTART_NONE: &str = "Nothing to restart yet: the run starts when the ship is accepted.";
+pub const RESTART_NONE: &str = "No run yet";
 /// A guest's Restart is greyed with this, as its Load is.
-pub const RESTART_GUEST: &str = "Only the host can restart the run.";
+pub const RESTART_GUEST: &str = "Host only";
 /// The line the log carries after a restart, so the screen says what
 /// happened as well as showing it.
 pub const RESTART_DONE: &str = "Back at the beginning.";
 /// The Esc sheet's Retry mission: the button, why it is greyed, and the
 /// log's line after it.
 pub const RETRY_BUTTON: &str = "Retry mission";
-pub const RETRY_HINT: &str =
-    "Play this mission again from where it began. Everything since is lost.";
-pub const RETRY_NONE: &str = "No mission is running.";
-pub const RETRY_GUEST: &str = "Only the host can retry the mission.";
+pub const RETRY_HINT: &str = "• Mission from its start\n• Everything since lost";
+pub const RETRY_NONE: &str = "No mission running";
+pub const RETRY_GUEST: &str = "Host only";
 pub const RETRY_DONE: &str = "Back at the start of the mission.";
 /// The host's load does not fit the room.
 pub fn load_players(saved: u32, here: u32) -> String {
@@ -634,12 +630,11 @@ pub fn tier_timing_note(tier: u32, days: u32) -> String {
     }
 }
 pub const DIFFICULTY_RESET: &str = "Default";
-pub const DIFFICULTY_RESET_HOVER: &str = "Back to the numbers in scaling.ron";
+pub const DIFFICULTY_RESET_HOVER: &str = "Back to scaling.ron";
 /// The button that writes the dials into `scaling.ron`, and what it says
 /// after.
 pub const DIFFICULTY_SAVE: &str = "Save as default";
-pub const DIFFICULTY_SAVE_HOVER: &str =
-    "Write these numbers into scaling.ron: every new game starts from them";
+pub const DIFFICULTY_SAVE_HOVER: &str = "• Write into scaling.ron\n• Every new game starts from it";
 pub const DIFFICULTY_SAVED: &str = "Saved into scaling.ron.";
 pub fn difficulty_not_saved(why: &str) -> String {
     format!("Not saved: {why}")
@@ -681,15 +676,16 @@ pub const BIM_TINT_TAKEN: &str = "taken";
 /// The class chooser (features 74 and 75): a name a `world::Class`, in
 /// `Class::ALL`'s order, with a line each saying what it does.
 pub const BIM_CLASS: &str = "Class";
-pub const BIM_CLASS_NOTE: &str = "What your crew member is. One class each, chosen before the ship leaves its first berth. A class adds its own four abilities, and nothing else: every crew member does every job and brings the same money";
+pub const BIM_CLASS_NOTE: &str =
+    "• One class each, picked before launch\n• Adds four abilities\n• Same jobs and money for all";
 pub const CLASS_NAMES: [&str; 6] = ["None", "Engineer", "Soldier", "Medic", "Tank", "Commander"];
 pub const CLASS_TIPS: [&str; 6] = [
-    "No class: learns nothing.",
-    "Four ranked abilities, a skill point a level: mines that go off when an enemy comes within a tile (Q), a Healing Sentry that heals the crew round it (F), satchel charges thrown and set off together with a remote trigger on G (E), and for its ultimate a sentry with a minigun (R). Its charges come back on their own cooldowns, and it packs its mines and Healing Sentries up again.",
-    "Four ranked abilities, a skill point a level: Frag Grenades (Q), Weak Spot, hits that may land critical (F), a Stun Shot charged for two seconds that bursts where it lands, hurting and stunning every enemy in it (E), and for his ultimate a Rampage, firing and reloading faster and taking less (R). Sets out with an auto rifle in hand.",
-    "Four ranked abilities, a skill point a level: a Heal Drone that flies to whoever is lowest and heals them slowly (Q), Triage, every heal of his stronger on the badly hurt (F), the heal beam on a crewmate or himself, which heals him as much and lets him keep shooting (E), and for his ultimate a Healing Circle he switches on and off, healing everybody round him at his own cost and burning every enemy in it (R). An Override Core makes all his healing half as much again. Revives a downed crewmate in four seconds where anybody else takes ten, and gets them up at 40% of their bar where anybody else manages 30%.",
-    "Four ranked abilities, a skill point a level: a Riot Shield he holds up and puts down, bouncing every shot that meets it back where it came from (Q), Plated, less damage from every hit and his health mending as he goes (F), a Reflect Barrier sending every hit on him back on whoever struck (E), and for his ultimate the Bastion, a draining shield of 600 to 1200 by its rank over every friend near him (R). His armour drains at half rate, so the same armour takes twice as much on him. Sets out with the pistol and a tier-one armour on.",
-    "Four ranked abilities, a skill point a level: a Battle Cry that makes everybody near him fire faster (Q), a Medivac, a Republic medic called in beside him who runs to a player downed and revives him (F), a Rally that has the crew near him take less damage and move faster (E), and for his ultimate Republic soldiers called in beside him (R). Sets out with the pistol.",
+    "• No abilities",
+    "• Q Mine\n• F Healing Sentry\n• E Satchel Charge, G sets them off\n• R Sentry with a minigun\n• Packs up mines and sentries",
+    "• Q Frag Grenade\n• F Weak Spot: crits\n• E Stun Shot: 2 s charge, stuns\n• R Rampage: faster fire and reload, less damage taken\n• Starts with an auto rifle",
+    "• Q Heal Drone\n• F Triage: stronger heals on the hurt\n• E Heal Beam, heals you too\n• R Healing Circle: heals allies, burns enemies, costs you\n• Override Core: healing ×1.5\n• Revives in 4 s (others 10 s), up at 40% (others 30%)",
+    "• Q Riot Shield: bounces shots back\n• F Plated: less damage, regen\n• E Reflect Barrier: hits dealt back\n• R Bastion: 600–1200 shield on allies\n• Armour drains at half rate\n• Starts with a pistol and T1 armour",
+    "• Q Battle Cry: allies fire faster\n• F Medivac: a medic who revives players\n• E Rally: less damage taken, faster\n• R Reinforcements: Republic soldiers\n• Starts with a pistol",
 ];
 pub fn class_name(class: world::Class) -> &'static str {
     CLASS_NAMES
@@ -705,15 +701,18 @@ pub fn class_tip(class: world::Class) -> &'static str {
 /// that says one. (The two-key tables, `ABILITY_NAMES` and
 /// `ABILITY_TIPS`, went with the last class of talents, task 139: every
 /// box is a ranked ability's now.)
-const MINE_WHAT: &str = "Lay a mine on the tile under the pointer. It goes off when an enemy comes within a tile of it, blasting every enemy near it; never the crew.";
-const SATCHEL_WHAT: &str = "Hold to aim, let go to throw a satchel. They lie where they land, stacked if you like, until Space sets them all off: each its own blast, on enemies alone.";
+const MINE_WHAT: &str =
+    "• Laid on the tile at the pointer\n• Goes off: enemy within 1 tile\n• Hurts enemies only";
+const SATCHEL_WHAT: &str =
+    "• Hold: aim · release: throw\n• G sets them all off\n• Hurts enemies only";
 /// What the medic's Heal Drone and heal beam do (task 153).
-const HEAL_DRONE_WHAT: &str = "Drop a drone that flies — over walls — to the ally lowest on health, you included, and heals them slowly. When they are whole it finds the next.";
-const HEAL_BEAM_WHAT: &str = "Toggle. Beam the crewmate under the pointer, or yourself, healing over time — and you are healed as much. You keep shooting. From rank 4 each patient also gains what your items regenerate you by. The number is how many more you could link.";
+const HEAL_DRONE_WHAT: &str =
+    "• Flies over walls to the lowest ally, you too\n• Heals slowly, then the next";
+const HEAL_BEAM_WHAT: &str = "• Toggle\n• Ally at the pointer, or yourself\n• You heal as much\n• Keep shooting\n• Rank 4: adds your items' regen\n• Number: links left";
 /// The box past the class's four (feature 86): the medic's carry, named
 /// off the [`crate::keys::Action`] rather than off a slot.
 pub const CARRY: &str = "Carry";
-pub const CARRY_TIP: &str = "Pick up the downed crewmate under the pointer and carry them out of the fire, slowly and without shooting. Again to set them down; their countdown keeps running. The number is how many near you are down.";
+pub const CARRY_TIP: &str = "• Picks up the downed ally at the pointer\n• Slow, no shooting\n• Again: set down\n• Their countdown runs on\n• Number: downed nearby";
 
 /// The four abilities of a ranked kit (task 124), Q C E R, by class and
 /// slot: what the box, the log and the Skills tab call each. Empty for a
@@ -748,55 +747,47 @@ pub fn ranked_ability(class: world::Class, slot: u8) -> &'static str {
 pub fn ranked_what(class: world::Class, slot: u8) -> &'static str {
     match (class, slot) {
         (world::Class::Soldier, 0) => {
-            "Throw a grenade that bursts after 2 s, hurting everyone in the blast, allies too. Half damage at the edge."
+            "• Bursts after 2 s\n• Hurts allies too\n• Half damage at the edge"
         }
-        (world::Class::Soldier, 1) => {
-            "Passive. Your hits may strike a weak spot for extra damage. Grenades never do."
-        }
+        (world::Class::Soldier, 1) => "• Passive\n• Hits may crit\n• Not grenades",
         (world::Class::Soldier, 2) => {
-            "Charge 2 s, holding fire, then fire at the pointer within your weapon's reach. You can walk while it charges. The burst hurts and stuns every enemy in it."
+            "• Charge 2 s: no firing, can walk\n• Fires at the pointer, weapon's reach\n• Burst hurts and stuns"
         }
         (world::Class::Soldier, 3) => {
-            "Ultimate. Fire faster, take less damage and aim on the move. Goes on with a Stun Shot charging."
+            "• Ultimate\n• Faster fire and reload, less damage taken\n• Aim on the move\n• Works while a Stun Shot charges"
         }
         (world::Class::Engineer, 0) => MINE_WHAT,
         (world::Class::Engineer, 1) => {
-            "Lay a sentry that heals crewmates in its reach and sight. One per charge; a new one replaces your oldest."
+            "• Heals allies in reach and sight\n• A new one replaces your oldest"
         }
         (world::Class::Engineer, 2) => SATCHEL_WHAT,
         (world::Class::Engineer, 3) => {
-            "Ultimate. Lay a minigun sentry that turns to shoot what it sees, five tiles further than a minigun, and stands until destroyed. Ready every mission."
+            "• Ultimate\n• Minigun sentry, shoots what it sees\n• Stands until destroyed\n• Ready every mission"
         }
-        (world::Class::Commander, 0) => "Allies around you as you shout fire faster.",
+        (world::Class::Commander, 0) => "• Allies near you fire faster",
         (world::Class::Commander, 1) => {
-            "Call in a Republic medic with a pistol. He fights like any bot and runs to revive a downed player, fight or not. Armoured by rank."
+            "• A Republic medic with a pistol\n• Fights, revives downed players\n• Armour by rank"
         }
-        (world::Class::Commander, 2) => {
-            "Allies around you as you call it take less damage and move faster."
-        }
+        (world::Class::Commander, 2) => "• Allies near you take less damage\n• and move faster",
         (world::Class::Commander, 3) => {
-            "Ultimate. Call Republic soldiers in beside you. They fight like any bot for the rest of the mission; those called before stay. Ready every mission."
+            "• Ultimate\n• Republic soldiers beside you\n• Stay all mission, add up\n• Ready every mission"
         }
         (world::Class::Medic, 0) => HEAL_DRONE_WHAT,
         (world::Class::Medic, 1) => {
-            "Passive. Every heal of yours is stronger the less health its target has left: the full bonus on an ally near nothing, half of it at half health."
+            "• Passive\n• Heals stronger on the hurt\n• Full bonus near 0 HP, half at 50%"
         }
         (world::Class::Medic, 2) => HEAL_BEAM_WHAT,
         (world::Class::Medic, 3) => {
-            "Ultimate. Toggle. Allies around you in sight heal at your beam's rate while you lose as much — it can down you. Enemies in it burn at half the rate."
+            "• Ultimate, toggle\n• Allies in sight heal at the beam's rate\n• Costs you as much, can down you\n• Enemies inside burn at half"
         }
         (world::Class::Tank, 0) => {
-            "Toggle. Hold up a flat shield in front of you: every shot that meets it from the front is stopped and bounced back off it, the angle out the angle in, and can hit the enemy. It takes the shots' damage; at nothing it breaks. It mends 2 a second put away, or held up 5 s after the last hit."
+            "• Toggle\n• Front shots bounce back, can hit enemies\n• Takes their damage, breaks at 0\n• Mends lowered, or up after a pause"
         }
         (world::Class::Tank, 1) => {
-            "Passive. You take less damage from every hit, before your armour takes its share, and your health mends all the time."
+            "• Passive\n• Less damage a hit, before armour\n• Health regenerates"
         }
-        (world::Class::Tank, 2) => {
-            "For its seconds every hit you take — a shot, a beam, a blow — is dealt back to whoever struck you."
-        }
-        (world::Class::Tank, 3) => {
-            "Ultimate. Allies around you, you too, get a draining shield on their health bar: 600 losing 60 a second, up to 1200 losing 100 at the fourth rank."
-        }
+        (world::Class::Tank, 2) => "• Every hit taken dealt back to its source",
+        (world::Class::Tank, 3) => "• Ultimate\n• Draining shield on you and allies near",
         _ => "",
     }
 }
@@ -990,7 +981,7 @@ pub fn ranked_stats(class: world::Class, slot: u8) -> Vec<Stat> {
             }),
             Stat::ranks("Range", " tiles", |r| fig(c::HEAL_BEAM_RANGES[r] as f64)),
             Stat::ranks("Patients", "", |r| c::HEAL_BEAM_PATIENTS[r].to_string()),
-            Stat::one("Rank 4 adds", "", "your items' regeneration".to_string()),
+            Stat::one("Rank 4 adds", "", "items' regen".to_string()),
         ],
         (world::Class::Medic, 3) => vec![
             Stat::ranks("Radius", " tiles", |r| {
@@ -1000,14 +991,14 @@ pub fn ranked_stats(class: world::Class, slot: u8) -> Vec<Stat> {
                 "Heal",
                 "",
                 format!(
-                    "the beam's rate, costing {}% of it",
+                    "beam's rate, costs {}%",
                     (c::HEALING_CIRCLE_COST * 100.0).round()
                 ),
             ),
             Stat::one(
                 "Burn",
                 "",
-                format!("{}% of it", (c::HEALING_CIRCLE_BURN * 100.0).round()),
+                format!("{}% of the heal", (c::HEALING_CIRCLE_BURN * 100.0).round()),
             ),
         ],
         // The tank's (task 155).
@@ -1015,18 +1006,11 @@ pub fn ranked_stats(class: world::Class, slot: u8) -> Vec<Stat> {
             Stat::ranks("Shield", " hp", |r| fig(c::RIOT_SHIELD_HP[r] as f64)),
             Stat::ranks("Mends", " hp/s", |r| fig(c::RIOT_SHIELD_REGEN[r] as f64)),
             Stat::one(
-                "Held up, mends",
-                "",
-                format!("{} s after the last hit", fig(c::RIOT_SHIELD_REGEN_DELAY)),
+                "Held up, mends after",
+                " s",
+                fig(c::RIOT_SHIELD_REGEN_DELAY),
             ),
-            Stat::one(
-                "Broken",
-                "",
-                format!(
-                    "{} s before it can be raised",
-                    fig(c::RIOT_SHIELD_BROKEN_COOLDOWN)
-                ),
-            ),
+            Stat::one("Broken for", " s", fig(c::RIOT_SHIELD_BROKEN_COOLDOWN)),
         ],
         (world::Class::Tank, 1) => vec![
             Stat::ranks("Damage taken", "", |r| by(c::PLATED_DAMAGE_TAKEN[r] as f64)),
@@ -1098,16 +1082,13 @@ pub fn override_rank(class: world::Class) -> Option<String> {
 pub fn ranked_foot(class: world::Class, slot: u8, rank: u8) -> String {
     let top = world::class::MAX_RANK;
     let now = if rank == 0 {
-        "Not learnt.".to_string()
+        "Not learnt".to_string()
     } else {
-        format!("Rank {rank}/{top}.")
+        format!("Rank {rank}/{top}")
     };
     match world::class::rank_level(class, slot, rank + 1).filter(|_| rank < top) {
-        Some(level) => format!(
-            "{now} Next, rank {} at level {level}: Ctrl-click to learn.",
-            rank + 1
-        ),
-        None => format!("{now} The top rank."),
+        Some(level) => format!("{now} · rank {} at Lv {level} · Ctrl-click", rank + 1),
+        None => format!("{now} · max"),
     }
 }
 /// A ranked ability's whole tip as text: the line, the numbers and the
@@ -1152,7 +1133,7 @@ pub fn healing_circle_refused(why: world::Refusal) -> String {
 }
 /// The Skills tab of a ranked kit (task 124): what it says of the points
 /// waiting, and a rank's line and button.
-pub const RANKED_SKILLS_TIP: &str = "A skill point a level, from the first. Each buys one rank of one of your four abilities — Ctrl and its key, a Ctrl-click on its box, or the button here. Q, F and E rank up at levels 1, 3, 5 and 7; R, the ultimate, at 6, 9, 12 and 15. A point not spent is kept.";
+pub const RANKED_SKILLS_TIP: &str = "• 1 skill point a level\n• Buys a rank: Ctrl+key, Ctrl-click its box, or the button\n• Q F E: levels 1, 3, 5, 7\n• R: levels 6, 9, 12, 15\n• Unspent points kept";
 pub fn ranked_points(points: u8) -> String {
     match points {
         0 => "No skill points — the next comes with the next level.".to_string(),
@@ -1299,7 +1280,7 @@ pub fn orders_line(kind: u32) -> Option<&'static str> {
         _ => None,
     }
 }
-pub const ORDERS_TIP: &str = "The crew nobody is steering keep to your side and fight for themselves when they see an enemy. X puts an attack banner down for them to fight their way to; Y calls them back to the ship; either key again lets them follow you again. W, A, S and D walk your own Bim, the pointer aims it and the left button fires; F then a click walks it there shooting whatever it meets. Nobody leaves a fight aboard the ship.";
+pub const ORDERS_TIP: &str = "• Unsteered crew follow you and fight\n• X: attack banner\n• Y: back to the ship\n• Again: follow\n• WASD walk · pointer aims · left button fires\n• F + click: walk there shooting";
 /// The commander's rows on the crew panel (feature 78): the rally with
 /// its cooldown.
 pub fn rally_line(left: f64, cooldown: f64, level_enough: bool) -> String {
@@ -1349,7 +1330,7 @@ pub fn riot_shield_line(up: bool, left: f32, whole: f32, cooldown: f64) -> Strin
 }
 /// The Riot Shield before its first rank.
 pub const RIOT_SHIELD_NOT_LEARNT: &str = "Riot Shield not learnt yet";
-pub const RIOT_SHIELD_TIP: &str = "The Riot Shield: up, every shot that meets it from the front is bounced back off it. Q raises it and puts it down; going down puts it down, and at nothing it breaks and cannot be raised for ten seconds. It mends all the while it is down, and up five seconds after the last hit.";
+pub const RIOT_SHIELD_TIP: &str = "• Q: raise / lower\n• Bounces front shots back\n• Lowered when downed\n• Breaks at 0: 10 s before it rises\n• Mends lowered, or 5 s after the last hit";
 pub fn reflect_line(left: f64, cooldown: f64, learnt: bool) -> String {
     if !learnt {
         return REFLECT_NOT_LEARNT.to_string();
@@ -1382,7 +1363,7 @@ pub const BASTION_NOT_LEARNT: &str = "Bastion not learnt yet";
 /// the throw's cooldown, and the Stun Shot (October 2026).
 pub const CHARGING: &str = "Charging a shot";
 pub const CHARGING_TIP: &str =
-    "A Stun Shot charging: holding fire, free to walk, until it fires at the pointer.";
+    "• Stun Shot charging\n• No firing, can walk\n• Fires at the pointer";
 pub fn stun_shot_ready(cooldown: f64) -> String {
     if cooldown > 0.0 {
         format!("Stun Shot ready in {cooldown:.0} s")
@@ -1394,7 +1375,7 @@ pub fn stun_shot_ready(cooldown: f64) -> String {
 /// beam holds, and how the Heal Drone and the Healing Circle stand.
 pub const BEAM_ON: &str = "Beaming";
 pub const BEAM_OFF: &str = "No beam";
-pub const BEAM_TIP: &str = "The heal beam puts hit points back into a crewmate, or into the medic itself. E over a crew member — your own Bim included — links it; E again, or on nothing, unlinks. The medic walks and fires as ever while it is on, and is healed as much as his patient.";
+pub const BEAM_TIP: &str = "• E on an ally or yourself: link\n• E again, or on nothing: unlink\n• Walk and fire while on\n• The medic heals as much";
 pub fn beam_line(patients: &[String]) -> String {
     match patients {
         [] => BEAM_OFF.to_string(),
@@ -1937,114 +1918,112 @@ pub fn item_title(item: bims::module::Module) -> String {
     }
 }
 
-/// What an item does, in a line or two, off `bims::module`'s numbers at
-/// its tier: an item's tooltip.
+/// What an item does, a bullet a fact (an active one's first says so),
+/// off `bims::module`'s numbers at its tier: an item's tooltip.
 pub fn item_line(item: bims::module::Module) -> String {
     use bims::module::{self as m, ModuleKind};
     let t = (item.tier.code().clamp(1, 3) - 1) as usize;
     match item.kind {
         ModuleKind::BlinkDrive => format!(
-            "Active: puts the Bim where the pointer is, up to {} tiles off, on ground it can see. {} s cooldown, and not for {} s after a hit.",
+            "• Active\n• To the pointer, up to {} tiles, in sight\n• {} s cooldown\n• Not within {} s of a hit",
             fig(m::BLINK_RANGE_TILES[t] as f64),
             fig(m::BLINK_COOLDOWN_SECONDS[t] as f64),
             fig(m::BLINK_HIT_LOCK_SECONDS as f64),
         ),
         ModuleKind::Executioner => format!(
-            "{} of weapon hits are critical, for {} damage. Rolls on its own beside a soldier's Weak Spot; the bigger crit counts.",
+            "• {} crit chance, {} crit damage\n• Beside Weak Spot: the bigger counts",
             pc(m::EXECUTIONER_CHANCE[t] as f64),
             pc(m::EXECUTIONER_DAMAGE[t] as f64),
         ),
         ModuleKind::ReactorHeart => format!(
-            "+{} health. Regenerates {}% of max HP/s, {}% after {} s without a hit.",
+            "• +{} health\n• Regen {}% HP/s\n• {}% after {} s unhit",
             fig(m::HEART_HEALTH[t] as f64),
             fig(m::HEART_REGEN[t] as f64),
             fig(m::HEART_QUIET_REGEN[t] as f64),
             fig(m::HEART_QUIET_SECONDS as f64),
         ),
         ModuleKind::OverrideCore => format!(
-            "The class's ultimate plays one rank higher than bought, up to a fifth rank no skill point buys (needs a rank bought). Rank {}: {}",
+            "• Ultimate +1 rank, up to {}\n• Needs a rank bought\n• See the ultimate's tooltip",
             world::class::OVERRIDE_RANK,
-            "see the ultimate's tooltip.",
         ),
         ModuleKind::CoolantLoop => format!(
-            "-{}% class ability cooldowns. Several add up, to -{}% at most.",
+            "• -{}% ability cooldowns\n• Adds up, to -{}% at most",
             m::COOLANT_LOOP_PERCENT[t],
             m::COOLDOWN_CUT_MOST,
         ),
         ModuleKind::PressureSeal => {
-            format!("+{} health.", fig(m::PRESSURE_SEAL_HEALTH[t] as f64))
+            format!("• +{} health", fig(m::PRESSURE_SEAL_HEALTH[t] as f64))
         }
-        ModuleKind::SteadyGrip => format!("+{}% fire rate.", m::STEADY_GRIP_PERCENT[t]),
+        ModuleKind::SteadyGrip => format!("• +{}% fire rate", m::STEADY_GRIP_PERCENT[t]),
         ModuleKind::LongBarrel => format!(
-            "+{} tiles of weapon range.",
+            "• +{} tiles weapon range",
             fig(m::LONG_BARREL_TILES[t] as f64),
         ),
-        ModuleKind::LeechCapacitor => format!(
-            "{} of the damage your weapon does to an enemy comes back as health.",
-            pc(m::LEECH_SHARE[t] as f64),
-        ),
+        ModuleKind::LeechCapacitor => {
+            format!("• {} of weapon damage healed", pc(m::LEECH_SHARE[t] as f64),)
+        }
         ModuleKind::ArcCoil => format!(
-            "Every {}th weapon hit on an enemy arcs to the {} enemies nearest it within {} tiles, {} damage each.",
+            "• Every {}th hit arcs to {} enemies within {} tiles\n• {} damage each",
             m::ARC_EVERY,
             m::ARC_TARGETS[t],
             fig(m::ARC_REACH_TILES as f64),
             fig(m::ARC_DAMAGE[t] as f64),
         ),
         ModuleKind::FieldMender => format!(
-            "Active: heals every crewmate on their feet within {} tiles, yourself included, {}% of their max HP. {} s cooldown.",
+            "• Active\n• Heals allies within {} tiles, you too, {}% max HP\n• {} s cooldown",
             fig(m::MENDER_TILES as f64),
             fig(m::MENDER_HEAL[t] as f64),
             fig(m::MENDER_COOLDOWN_SECONDS[t] as f64),
         ),
         ModuleKind::ResetCapacitor => format!(
-            "Active: every class ability cooldown ready and every charge full, and your other items' cooldowns with them. {} s cooldown.",
+            "• Active\n• Every ability and item ready, charges full\n• {} s cooldown",
             fig(m::RESET_COOLDOWN_SECONDS[t] as f64),
         ),
         ModuleKind::AblativeShell => format!(
-            "Active: for {} s you take {} damage, and a Warden's lance strips none of your armour. {} s cooldown.",
+            "• Active\n• {} s: damage taken {}\n• Warden lances strip no armour\n• {} s cooldown",
             fig(m::SHELL_SECONDS[t] as f64),
             by(m::SHELL_DAMAGE_TAKEN as f64),
             fig(m::SHELL_COOLDOWN_SECONDS[t] as f64),
         ),
         ModuleKind::TrainingLog => format!(
-            "+{}% experience for every enemy down. Two do not add: the best counts. Best bought early.",
+            "• +{}% XP a kill\n• Two don't add\n• Best bought early",
             m::TRAINING_LOG_XP[t],
         ),
         ModuleKind::SmokeLauncher => format!(
-            "Active: a smoke cloud {} tiles across at the pointer, up to {} tiles off, for {} s. The enemy cannot see into it or through it, and nobody of the crew in it is a target. {} s cooldown.",
+            "• Active\n• Smoke {} tiles wide at the pointer, up to {} tiles off, {} s\n• Blocks enemy sight; crew inside not targeted\n• {} s cooldown",
             fig(2.0 * m::SMOKE_RADIUS_TILES[t] as f64),
             fig(m::SMOKE_RANGE_TILES as f64),
             fig(m::SMOKE_SECONDS[t] as f64),
             fig(m::SMOKE_COOLDOWN_SECONDS[t] as f64),
         ),
         ModuleKind::TargetingUplink => format!(
-            "The crew's bots within {} tiles of you do +{}% damage. Two do not add: the best counts.",
+            "• Bots within {} tiles: +{}% damage\n• Two don't add",
             fig(m::UPLINK_TILES as f64),
             m::UPLINK_DAMAGE_PERCENT[t],
         ),
         ModuleKind::TetherLink => format!(
-            "Active: links you to the crewmate at the pointer, up to {} tiles off, for {} s: you take {} of every hit on them instead. {} s cooldown.",
+            "• Active\n• Link the ally at the pointer, up to {} tiles, {} s\n• You take {} of their hits\n• {} s cooldown",
             fig(m::TETHER_RANGE_TILES as f64),
             fig(m::TETHER_SECONDS as f64),
             pc(m::TETHER_SHARE[t] as f64),
             fig(m::TETHER_COOLDOWN_SECONDS[t] as f64),
         ),
         ModuleKind::DecoyProjector => format!(
-            "Active: a ghost of you walks to the pointer, up to {} tiles of walk, at half your pace, and lasts {} s. Every enemy within {} tiles that sees it shoots at it and nothing else. {} s cooldown.",
+            "• Active\n• A ghost walks to the pointer, up to {} tiles, half pace, {} s\n• Enemies within {} tiles that see it shoot only it\n• {} s cooldown",
             fig(m::DECOY_RANGE_TILES as f64),
             fig(m::DECOY_SECONDS as f64),
             fig(m::DECOY_TAUNT_TILES as f64),
             fig(m::DECOY_COOLDOWN_SECONDS as f64),
         ),
         ModuleKind::AdrenalInjector => format!(
-            "Under {} health: +{}% fire rate and speed for {} s. {} s cooldown.",
+            "• Under {} health: +{}% fire rate and speed, {} s\n• {} s cooldown",
             pc(m::ADRENAL_BELOW as f64),
             m::ADRENAL_PERCENT[t],
             fig(m::ADRENAL_SECONDS[t] as f64),
             fig(m::ADRENAL_COOLDOWN_SECONDS as f64),
         ),
         ModuleKind::Overcharger => format!(
-            "+{}% weapon damage. A critical hit is a multiple of it, so crits hit harder too.",
+            "• +{}% weapon damage\n• Crits too",
             m::OVERCHARGE_PERCENT[t],
         ),
     }
@@ -2235,7 +2214,7 @@ pub fn relic_lines(relic: world::Relic) -> Vec<(String, bool)> {
 pub const RELICS_HEADING: &str = "Relics";
 pub const NO_RELICS: &str = "None yet. Beating an elite (a crowned site) offers relics.";
 pub const REWARD_TITLE: &str = "The elite is beaten";
-pub const REWARD_INTRO: &str = "Choose one relic for the whole crew, or none. A relic is kept for the rest of the run and works on the crew it names: the players and their bots, never an enemy. Every one has its price: green is what it gives, red what it costs. One of you proposes; the rest say yes.";
+pub const REWARD_INTRO: &str = "• One relic for the whole crew, or none\n• Kept all run\n• Green: gain · red: cost\n• One proposes, the rest accept";
 pub const TAKE_NONE: &str = "Take none";
 pub const ACCEPT: &str = "Accept";
 /// The end of a fight (`screens::fightwon`): up in the mission the moment
@@ -2347,8 +2326,8 @@ pub const AREA_TAKEN: &str = "The machines hold the FOB. It is lost, and the run
 pub const BONUS_WAVE_CHOSEN: &str = "Bonus wave: ON";
 pub const BONUS_WAVE_NOT_CHOSEN: &str = "Bonus wave: off";
 pub const BONUS_WAVE_OVERTIME: &str = "Bonus wave: ON (Overtime)";
-pub const BONUS_WAVE_OVERTIME_TIP: &str = "The crew hold Overtime: every fight that can have a bonus wave has it, paying twice what it would.";
-pub const BONUS_WAVE_TIP: &str = "One more wave after this site's own, half as big again, for half the site's experience again and its machines' bounty. Chosen here, before the fight, by any player; a change takes back every Ready.";
+pub const BONUS_WAVE_OVERTIME_TIP: &str = "• Overtime: every bonus wave on\n• Pays ×2";
+pub const BONUS_WAVE_TIP: &str = "• One more wave, ×1.5 the size\n• +50% the site's XP, plus its bounty\n• Any player toggles\n• Resets every Ready";
 pub const AREA_TIME_UP: &str = "Time! No more waves are coming — destroy the last of them.";
 
 // --- the world map and the end of a mission (feature 103) -------------------
@@ -2362,7 +2341,7 @@ pub const MAP_READ_ONLY: &str =
 /// At a trader (task 114): the visit is here, and the vote goes on.
 pub const MAP_AT_TRADER: &str =
     "At a trader. Buy what you want, then choose where to go next — everybody has to accept.";
-pub const MAP_TIP: &str = "The map is the floor: you start at the bottom and climb to the Machine Heart at the top, thirty-two rows up. Every row is a day. Each place is one system's mission — crossed blades to attack, a shield to defend, $ a trader (four rows are all traders), a crown an elite with relics. A trip goes only up, to a place joined by a line to the one you are at (the bright lines); there are always two to four separate ways to the Heart. The bands say which tier the enemy is at: tier 2 and tier 3 begin on the days the game setup's tier timings say, and a few enemies may be a tier up a little before. Click a place and press Propose at the bottom of the map; everybody has to accept. The wheel scrolls the floor, Ctrl and the wheel zooms it, a drag moves it; the list behind the tab on the right says the same.";
+pub const MAP_TIP: &str = "• Climb from the bottom to the Machine Heart\n• 1 row = 1 day\n• Blades: attack · shield: defend · $: trader · crown: elite, relics\n• Up along the lines only\n• Bands: the enemy's tier\n• Click a place, Propose; everybody accepts\n• Wheel: scroll · Ctrl+wheel: zoom · drag: move";
 /// The two halves of the list.
 pub const MAP_THIS_SYSTEM: &str = "This system";
 /// A way up the floor on the list (October 2026): its star and its row's day.
@@ -2399,12 +2378,12 @@ pub fn floor_progress(day: u32, heart: u32) -> String {
     format!("Day {day} of {heart} — the Machine Heart on day {heart}")
 }
 pub const FLOOR_FOCUS: &str = "Back to where you are";
-pub const FLOOR_FOCUS_TIP: &str = "Scroll the map back to the crew's row";
+pub const FLOOR_FOCUS_TIP: &str = "Scroll to your row";
 pub const FLOOR_ZOOM_OUT: &str = "-";
 pub const FLOOR_ZOOM_IN: &str = "+";
-pub const FLOOR_ZOOM_TIP: &str = "Zoom the map (Ctrl and the wheel does too)";
+pub const FLOOR_ZOOM_TIP: &str = "Zoom (Ctrl+wheel)";
 pub const FLOOR_SKETCH_CLEAR: &str = "Clear drawing";
-pub const FLOOR_SKETCH_TIP: &str = "Right-drag on the map draws the way you mean to go, in your colour, for everybody to see; it stays up across missions, and the next place on it is picked for you. Shift and a right-drag rubs a line out. This rubs out all of yours.";
+pub const FLOOR_SKETCH_TIP: &str = "• Right-drag: draw your way\n• Shift+right-drag: rub a line out\n• This: rub out all of yours\n• Seen by all, kept across missions\n• Next stop on it picked for you";
 /// A system's heading on the list, by how many hyperlanes off it is
 /// (the second map rework: one or two).
 pub fn map_next_system(star: &str, hops: u32) -> String {
@@ -2418,7 +2397,7 @@ pub fn map_next_system(star: &str, hops: u32) -> String {
 /// trip to it is, the nearest first.
 pub const MAP_SORT_SYSTEM: &str = "By system";
 pub const MAP_SORT_DISTANCE: &str = "By distance";
-pub const MAP_SORT_TIP: &str = "By system lists this system's sites, then each system one or two hyperlanes off, under its name. By distance lists every site together, the shortest trip first, with its system beside it; the sites no trip can go to come last.";
+pub const MAP_SORT_TIP: &str = "• By system: this one, then 1–2 hops off\n• By distance: shortest trip first\n• Out of reach last";
 /// The site the crew are at, in the list.
 pub const MAP_HERE: &str = "here";
 /// A trip within the system, which takes no time (the map rework).
@@ -2466,10 +2445,9 @@ pub fn site_place_word(station: u32) -> &'static str {
 }
 /// The crew's money on the map, where the top frame is hidden.
 pub const MAP_MONEY: &str = "Money";
-pub const MAP_MONEY_TIP: &str =
-    "Your money: your wallet and your share of the takings, as the top frame shows it on the ship.";
+pub const MAP_MONEY_TIP: &str = "Wallet + your share";
 /// What a site kind means, for the `?` beside the map's list.
-pub const SITE_KIND_TIP: &str = "Every system offers one mission, marked on its star. ATTACK (crossed blades): the machines, the Manufacturers or the Machine Heart hold it — go in and clear it. DEFEND (a shield): the machines are coming for a station — five seconds after you arrive the first wave lands, and its own people and armed defenders fight beside you; hold the last wave and it is cleared (no money: its people are the reward), leave before and it falls. AREA DEFEND (a flag in a ring of sandbags): the machines are coming for a town on a planet — hold its FOB, the ring at its crossing, for three minutes, the first wave five seconds after you land and then one every thirty-one seconds, whether or not the last is down, each a second sooner; then destroy what is left. It is an elite fight: hold it and the crew choose a relic. Machines standing in the ring for twenty seconds with nobody of yours in it take it, and the run is lost. TRADER (the green square): a system with a trader has no mission — buy gear and items on the map. Relics come only from beating an elite (a crowned site). In a system the machines have taken, its one site is an attack and their jammer — the Heart at their origin, and a trader too, which trades again once you have cleared it.";
+pub const SITE_KIND_TIP: &str = "• ATTACK (blades): clear it\n• DEFEND (shield): hold every wave, first in 5 s; no pay\n• AREA DEFEND (flag): hold the FOB 3 min, then clear; elite, relic\n• FOB: machines alone in it 20 s = run lost\n• TRADER (green square): shop, no mission\n• Relics: elites only (crown)\n• Taken systems: attack their jammer";
 /// What the crew find on arrival, a word each.
 pub const ARRIVE_MACHINES: &str = "machines";
 pub const ARRIVE_JAMMER: &str = "jammer";
@@ -2520,7 +2498,7 @@ pub fn out_line(cost: u64) -> String {
 pub const BACK_TO_SHIP: &str = "Back to ship";
 /// The same button once the fight is won and the deck frozen (task 133).
 pub const FIGHT_WON_BACK_TO_SHIP: &str = "Fight won — Back to ship";
-pub const BACK_TO_SHIP_TIP: &str = "Say you are done here. The first press sends every bot back to the ship, and every press walks your own Bim there too. The ship leaves once every player still on their feet has pressed it and is aboard: anybody outside then is left behind, and dead for it, if everybody agrees. Leave before the place is cleared and it is put back as you found it — the bounty is lost, the experience is kept. Once the fight is won everything stands still, nobody bleeds out, and nobody has to walk: the ship leaves when every player has pressed it and takes everybody alive, the downed too.";
+pub const BACK_TO_SHIP_TIP: &str = "• First press: bots go back\n• Every press: you walk back\n• Leaves when every standing player pressed and is aboard\n• Outside: left behind, dead (vote)\n• Before clear: site resets, bounty lost, XP kept\n• After a win: at once, everybody comes";
 /// *Back to ship* pressed (feature 107's words for feature 103's count):
 /// the players aboard who have pressed it, of the players the ship waits
 /// for — `World::returning_count`, the departure check's own rule.
@@ -2573,7 +2551,7 @@ pub const HEART_ON_ARRIVAL: &str = "On arrival:";
 /// The trader (task 114): its tag on the map, why one is shut, and the
 /// Trader panel's every word.
 pub const ARRIVE_TRADER: &str = "TRADER";
-pub const TRADER_TIP: &str = "A trader is visited on the map: no mission, no room, and neither clock moves while the crew are there. Its shelf is rolled afresh every visit. It sells no relics: only beating an elite gives the crew one. It is closed while the machines have its system, until every site of the system they took is cleared.";
+pub const TRADER_TIP: &str = "• On the map: no mission, clocks stop\n• New shelf every visit\n• No relics\n• Closed while its system is taken";
 pub const TRADER_CLOSED: &str = "closed";
 pub const TRADER_CLOSED_ON_ARRIVAL: &str = "closed on arrival";
 pub const TRADER_TITLE: &str = "Trader";
@@ -2589,13 +2567,13 @@ pub const TRADER_DELIVER_TO: &str = "Deliver to";
 pub const TRADER_FRONT_STAMP: &str = "Front prices";
 /// The total line at the foot of the form.
 pub const TRADER_BALANCE: &str = "Your balance";
-pub const TRADER_INTRO: &str = "Buy off your own shelf with your own money — every player has a trader of their own and pays the whole price — onto your own Bim or into your own armory. What it replaces goes into your armory. The shelf is every weapon and the armour, each at tier one until you buy that kind (a soldier's auto rifle and a tank's armour at two: they set out with tier one), then a tier past the best of it you have bought; a thing bought is gone until the next visit. The laser pistol is neither sold nor bought. Tab opens the Armory beside this.";
+pub const TRADER_INTRO: &str = "• Your shelf, your money\n• Onto your Bim or into your armory\n• What it replaces: armory\n• Each kind T1, then a tier past your best\n• Bought: gone till next visit\n• Tab: Armory";
 pub const TRADER_WEAPONS: &str = "Weapons";
 pub const TRADER_ARMOUR: &str = "Armour";
 /// The item shelf (October 2026): every item at the day's tier, never
 /// sold out.
 pub const TRADER_ITEMS: &str = "Items";
-pub const TRADER_ITEMS_INTRO: &str = "Every item at the tier the day has reached, one of each a visit, onto your own Bim's first free item slot — never into the armory, and a bot carries none. An item your Bim already carries is offered a tier up instead, at every trader after the one you bought it at: Upgrade, at the next tier's price, in the slot it is in.";
+pub const TRADER_ITEMS_INTRO: &str = "• The day's tier, one each a visit\n• Into your Bim's first free slot\n• Owned: Upgrade a tier, next tier's price\n• Bots carry none";
 /// The items column's three groups (October 2026), in the order they
 /// stand: what an item does for the Bim.
 pub const TRADER_ITEMS_UTILITY: &str = "Utility";
@@ -2603,7 +2581,7 @@ pub const TRADER_ITEMS_DAMAGE: &str = "Damage";
 pub const TRADER_ITEMS_DURABILITY: &str = "Durability";
 /// The search field over the trader's columns, and a column it empties.
 pub const TRADER_SEARCH_HINT: &str = "Search…";
-pub const TRADER_SEARCH_TIP: &str = "Shows only the lines whose name has this in it — or whose column or group does: \"damage\", \"armour\".";
+pub const TRADER_SEARCH_TIP: &str = "Filter by name, column or group";
 pub const TRADER_SEARCH_CLEAR: &str = "×";
 pub const TRADER_NO_MATCH: &str = "Nothing matches.";
 pub const TRADER_SOLD: &str = "SOLD";
@@ -2614,12 +2592,12 @@ pub const TRADER_UPGRADE: &str = "Upgrade";
 /// The note under such a line.
 pub const TRADER_UPGRADE_NOTE: &str = "yours, a tier up";
 /// The hover over such a line.
-pub const TRADER_UPGRADE_TIP: &str = "Your Bim carries this item: buying it takes yours a tier up, in the slot it is in, for the next tier's price.";
+pub const TRADER_UPGRADE_TIP: &str = "• You carry this\n• Buy: a tier up, same slot";
 /// The note under a shelf line of the weapon or armour the Bim it goes to
 /// wears a tier under: bought onto it, the old one is sold at once.
 pub const TRADER_SHELF_UPGRADE_NOTE: &str = "better than the one worn";
 /// The hover over such a line.
-pub const TRADER_SHELF_UPGRADE_TIP: &str = "The Bim it goes to wears this a tier under: bought onto it, this replaces that and the old one is sold back into your wallet at once. Bought into the armory, the old one stays on.";
+pub const TRADER_SHELF_UPGRADE_TIP: &str = "• Better than the one worn\n• Onto the Bim: the old one sold at once\n• Into the armory: the old one stays on";
 /// The stamp on an item line the player's own Bim carries at its top.
 pub const TRADER_TOP: &str = "MAX";
 pub const TRADER_INTO_ARMORY: &str = "Armory";
@@ -2627,7 +2605,7 @@ pub const TRADER_INTO_ARMORY: &str = "Armory";
 pub const TRADER_TAB_BUY: &str = "Buy";
 pub const TRADER_TAB_SELL: &str = "Sell";
 pub const TRADER_SELL: &str = "Sell";
-pub const TRADER_SELL_INTRO: &str = "Sell back what you may change — your own Bim's weapon, armour and items and your armory's — for half of what it cost. An item fetches half of everything paid for it, its upgrades too; a weapon or armour half its price on the shelf today. What you sell leaves its slot empty.";
+pub const TRADER_SELL_INTRO: &str = "• Half of what it cost\n• Items: half of all paid, upgrades too\n• Weapons, armour: half today's price\n• Leaves the slot empty";
 pub const TRADER_SELL_NONE: &str = "Nothing to sell.";
 /// The note on a line the player's own Bim wears or carries.
 pub const TRADER_SELL_WORN: &str = "equipped — yours";
@@ -2705,7 +2683,7 @@ pub fn portrait_tip(
         words.push_str(" · down");
     }
     if returning && !out {
-        words.push_str(" · heading back to the ship");
+        words.push_str(" · returning");
     }
     words
 }
@@ -2734,9 +2712,7 @@ pub const NO_CLASS: &str = "No class";
 pub const DOWNED_BANNER: &str = "Downed";
 /// What the hero's health bar's tooltip says while it is critically
 /// hit (feature 110).
-pub const CRITICAL_TIP: &str = "Badly hurt: under twenty hit points and bleeding \
-    on the deck, or down with the countdown running. Get a medic's beam on it, \
-    or get out of the fight.";
+pub const CRITICAL_TIP: &str = "• Under 20 HP: bleeding\n• Get a medic's beam on it, or get out";
 /// What a downed body has left, in one line — the hero panel's and the
 /// portraits' (task 120).
 pub fn downed_short(seconds: f32) -> String {
@@ -2829,16 +2805,15 @@ pub const MAP_CLOSE: &str = "Close";
 /// with, leaving the width to the charts: the tab that brings it out,
 /// and the one on its head that puts it away.
 pub const MAP_COLUMN_OPEN: &str = "« Destinations";
-pub const MAP_COLUMN_OPEN_TIP: &str = "The day, the pool, every place a trip can go with its quote, and the card for the place looked at.";
+pub const MAP_COLUMN_OPEN_TIP: &str = "Day, money, destinations, quotes";
 pub const MAP_COLUMN_SHUT: &str = "»";
-pub const MAP_COLUMN_SHUT_TIP: &str = "Put the column away: more room for the charts.";
+pub const MAP_COLUMN_SHUT_TIP: &str = "Hide the column";
 /// The Trader panel shut to look at the map, and the button that
 /// brings it back.
 pub const TRADER_SHUT: &str = "×";
-pub const TRADER_SHUT_TIP: &str =
-    "Put the purchase order away to look at the map. The Trader button brings it back.";
+pub const TRADER_SHUT_TIP: &str = "• Hide, to see the map\n• Trader button: back";
 pub const TRADER_REOPEN: &str = "Trader";
-pub const TRADER_REOPEN_TIP: &str = "Bring back the trader's purchase order.";
+pub const TRADER_REOPEN_TIP: &str = "Back to the trader";
 pub const MAP_DAY: &str = "Day";
 pub const MAP_POOL: &str = "Your money";
 pub const MAP_PICK_HINT: &str =
@@ -2847,8 +2822,7 @@ pub const MAP_PICK_HINT: &str =
 /// button that puts it to the crew, or the one on the table and the
 /// answers to it.
 pub const PROPOSE_NOTHING: &str = "Pick a place on the chart or the list to go to.";
-pub const PROPOSE_TIP: &str =
-    "Put this trip to the crew. Everybody has to accept it before the ship goes.";
+pub const PROPOSE_TIP: &str = "• Put it to the crew\n• Everybody accepts";
 pub fn propose_trip(site: &str) -> String {
     format!("Propose · {site}")
 }
@@ -2960,7 +2934,7 @@ pub fn station_name(name: worldgen::Name) -> String {
 
 // --- the room's words ------------------------------------------------------
 
-pub const HEALTH_TIP: &str = "Hit points: one bar for the whole Bim. A hit comes off the armour worn where it lands first — its protection off the damage before anything else, the rest draining the piece — and only what the piece cannot take reaches the bar. The blue on the end is that armour, and the pale cyan after it a shield thrown over the Bim — a tank's Bastion — which a hit takes before the armour and which drains away on its own. Under twenty the Bim bleeds on the deck; at nothing it is down: it lies where it fell, can do nothing and is shot at by nothing, and dies thirty seconds later unless a crewmate standing beside it brings it round — ten seconds with hands on, a medic's four. It gets up at three tenths of its bar. A piece at nothing is broken for the rest of the mission and whole again at the next.";
+pub const HEALTH_TIP: &str = "• A hit takes armour first: protection off, the rest drains it\n• Blue: armour · cyan: shield, drains\n• Under 20 HP: bleeding\n• 0: downed, dies in 30 s\n• Revive: ally beside, 10 s (medic 4 s)\n• Up at 30%\n• Armour at 0: broken till next mission";
 
 // --- down, and the revive (task 120) -----------------------------------------
 //
@@ -2986,7 +2960,7 @@ pub fn downed_remedy() -> String {
 pub fn downed_reviver(who: &str) -> String {
     format!("{who} is bringing it round.")
 }
-pub const DOWNED_TIP: &str = "At nothing a Bim goes down: it lies where it fell, can do nothing, and nothing shoots at it. Unless a crewmate revives it by standing beside it it dies when the countdown runs out. Revived, it gets up at three tenths of its bar.";
+pub const DOWNED_TIP: &str = "• 0 HP: down, helpless, not shot at\n• An ally beside revives\n• Dies when the countdown ends\n• Up at 30%";
 /// A Bim under [`bims::health::BLEEDS_UNDER`]: bleeding on the deck.
 pub const BADLY_HURT: &str = "Badly hurt — bleeding";
 /// What a dead body says under its name.
@@ -3022,9 +2996,9 @@ pub const REVIVE_NOBODY_NEAR: &str = "Nobody down close enough to get up.";
 /// and one key swapping them (October 2026).
 pub const HAND_WEAPON: &str = "Weapon";
 pub const HAND_MEDKIT: &str = "Medkit";
-pub const HAND_WEAPON_TIP: &str =
-    "The weapon in hand: your Bim fires as it always does. An attack order takes it up by itself.";
-pub const HAND_MEDKIT_TIP: &str = "The medkit in hand: your Bim holds its fire, and a right-click on a downed crewmate walks over and revives them — their countdown stands while your hands are on them.";
+pub const HAND_WEAPON_TIP: &str = "• Fires as ever\n• An attack order takes it up";
+pub const HAND_MEDKIT_TIP: &str =
+    "• Holds fire\n• Right-click a downed ally: revive\n• Their countdown stops";
 /// Under the two: the key that swaps them.
 pub fn hand_swap_key(key: &str) -> String {
     format!("{key}: swap")
@@ -3038,19 +3012,14 @@ pub fn trigger_seconds(seconds: f32) -> String {
     format!("{:.2}s", seconds.max(0.0))
 }
 /// An item's tip in the hero panel (October 2026): its name with its
-/// tier, what it does, and whether its key does anything.
-pub fn module_tip(item: bims::module::Module, passive: bool) -> String {
+/// tier, then what it does (an active one says so first).
+pub fn module_tip(item: bims::module::Module) -> String {
     let name = item_name(item.kind);
     let name = match tier_word(item.tier).filter(|_| item.kind.tiered()) {
         Some(tier) => format!("{name} — {tier}"),
         None => name.to_string(),
     };
-    let how = if passive {
-        "Passive."
-    } else {
-        "Active: press its key."
-    };
-    format!("{name}\n{}\n{how}", item_line(item))
+    format!("{name}\n{}", item_line(item))
 }
 /// The countdown's seconds over a downed body on the deck.
 pub fn downed_seconds(seconds: f32) -> String {
@@ -3194,9 +3163,7 @@ pub const SLOT_NAMES: [&str; 8] = [
 
 /// The hero panel's magazine column's tooltip.
 pub fn magazine_tip(left: u32, size: u32) -> String {
-    format!(
-        "{left} of {size} shots in the magazine. An empty one reloads by itself, and the reload key reloads it sooner; there is no end to the magazines."
-    )
+    format!("• {left}/{size}\n• Empty: reloads itself\n• Reload key: sooner\n• Endless magazines")
 }
 
 /// A number to the tenth, as a gear table says it: `8.75` is "8.8".
@@ -3331,7 +3298,7 @@ pub const LOCKED_STATUS: &str = "locked in melee";
 pub fn locked_tip() -> String {
     use bims::combat::{FIST_DAMAGE, MELEE_PERIOD, WeaponKind};
     format!(
-        "A blade within reach: the gun stays quiet and it fights with its fists, {} every {} s — a schword in its own hand cuts for {} instead. It is free again when one of them steps out of reach.",
+        "• Blade in reach: no gun\n• Fists: {} every {} s\n• Schword: {}\n• Free once out of reach",
         FIST_DAMAGE,
         MELEE_PERIOD,
         WeaponKind::Schword.stats().damage
@@ -3342,23 +3309,23 @@ pub fn locked_tip() -> String {
 /// indexed by `physics::ResourceId`. A piece of armour's numbers are put
 /// after its line by the grid, off the piece itself.
 pub const ITEM_TIPS: [&str; 22] = [
-    "A vegetable off the bay.",
-    "A block of tofu, pressed from soy.",
-    "A pressure suit, for a walk outside.",
-    "A laser handgun. Bought at a trader.",
+    "• Food",
+    "• Food",
+    "• For a walk outside",
+    "• Sidearm",
     // The medkit and the bandage are still resources — the trade's book
     // has a row for each — but nothing uses either since task 120: a
     // downed crewmate is revived by hand.
-    "A medkit. Nothing uses one any more: a downed crewmate is revived by a crewmate standing beside it.",
-    "A bandage. Nothing uses one any more: a downed crewmate is revived by a crewmate standing beside it.",
+    "• Unused",
+    "• Unused",
     // 6 and 8 were the helm and the leg guards (gone October 2026).
     "",
-    "Armour, over the whole body — the one piece a Bim wears. Takes every hit first. Bought at a trader.",
+    "• Whole body\n• Takes every hit first",
     "",
-    "A shotgun. Hits hard up close.",
-    "An auto rifle. Fires steadily while the trigger is held.",
-    "A sniper rifle. Reaches furthest.",
-    "A schword, a blade with a laser edge. Cuts, at arm's length.",
+    "• Hard up close",
+    "• Steady fire while held",
+    "• Longest reach",
+    "• Laser blade, arm's length",
     // 13 and 14 were the research keys (gone October 2026).
     "",
     "",
@@ -3366,8 +3333,8 @@ pub const ITEM_TIPS: [&str; 22] = [
     "",
     "",
     "",
-    "A minigun, tier 2 and up: light bolts at ten a second for as long as the trigger is held, a hundred to its magazine, then four seconds to reload. Shreds the machines; good armour shrugs off much of each bolt. Bought at a trader, and only ever the crew's.",
-    "A rail lance, tier 3 only: one slug every five seconds that goes through every enemy in its line, each taking the whole hit. Walls and a Guardian's shield from the front stop it. Bought at a trader, and only ever the crew's.",
+    "• T2 and up\n• 10 shots/s, 100 a magazine, 4 s reload\n• Shreds machines, weak on armour\n• Crew only",
+    "• T3 only\n• 1 slug / 5 s, through every enemy in line\n• Stopped by walls, a Guardian's shield\n• Crew only",
     // 20 and 21 were the arc greaves and the Reflective plate.
     "",
     "",
@@ -3381,11 +3348,11 @@ pub fn item_tip(id: ResourceId) -> &'static str {
 /// guns, the armour and the medicine here are dearer than they are
 /// anywhere quieter, and how much dearer is how near the machines are.
 /// `front_premium` takes the hops.
-pub const FRONT_PREMIUM_TIP: &str = "Weapons and armour are dearer this near the machines.";
+pub const FRONT_PREMIUM_TIP: &str = "• Weapons and armour dearer";
 pub fn front_premium(hops: u16) -> String {
     match hops {
-        1 => "Front prices · the infection is one hop away".to_string(),
-        n => format!("Front prices · the infection is {n} hops away"),
+        1 => "• Infection 1 hop away".to_string(),
+        n => format!("• Infection {n} hops away"),
     }
 }
 
@@ -3473,7 +3440,7 @@ pub fn area_next(span: &str) -> String {
 pub const AREA_LAST_WAVE: &str = "Last wave";
 pub const AREA_FOB: &str = "FOB";
 pub const AREA_CONTESTED: &str = "contested";
-pub const AREA_DEFENSE_TIP: &str = "Area defend: hold the FOB — the ring with the sandbags and the post in the middle — for three minutes. The first wave lands five seconds after you arrive; then a wave lands thirty-one seconds after the one before it landed, whether or not that one is down, and each a second sooner than the last; when the time is up, destroy everything still standing and the town is held. The machines fight their way in from cover to cover, stopping to shoot. Machines standing in the ring for twenty seconds with nobody of yours in it — you, your bots, the town's defenders — take the FOB, and the run is lost. Anybody of yours in the ring stops their count; the machines driven out of it puts it back to nothing. The green arrow at the edge of the screen points to the FOB when it is out of sight.";
+pub const AREA_DEFENSE_TIP: &str = "• Hold the FOB (sandbag ring) 3 min\n• First wave in 5 s, then every 31 s, 1 s sooner each\n• Time up: clear the rest\n• Machines alone in it 20 s = run lost\n• Anybody of yours inside stops the count\n• Green arrow: the FOB off screen";
 
 /// The Machine Heart's line (feature 108), ahead of the wave's in the same
 /// red chip while the crew are in its fortress: the core's health and how
@@ -3507,7 +3474,7 @@ pub fn heart_next_wave(span: &str, wave: u32, waves: u32) -> String {
 pub fn heart_and_waves(heart: &str, waves: &str) -> String {
     format!("{heart} · {waves}")
 }
-pub const HEART_TIP: &str = "The Machine Heart, where the machines began. Its core cannot be hurt while any conduit stands — they are spread through the fortress's rooms, a line of red light from each to the core. Bring the last one down and the core sweeps a beam at whoever is nearest, and the fabricators beside it build a machine every half minute until they are wrecked. Take the core under a third of its health and it overloads: two beams, faster, and the fabricators building twice as fast. Destroy it and the run is won. Go back to the ship first and the fortress is as you found it.";
+pub const HEART_TIP: &str = "• Core safe while conduits stand (red lines)\n• Last conduit down: beam at the nearest, a machine built every 30 s\n• Core under 1/3: two beams, ×2 building\n• Core destroyed: run won\n• Leave: it resets";
 /// The top bar's count of how many enemies a wave is here and now
 /// (`World::droid_wave_size`), shown always so `scaling.ron` can be tuned
 /// by eye.
@@ -3519,19 +3486,19 @@ pub fn wave_size_chip(n: u32) -> String {
 pub fn wave_counter(wave: u32, waves: u32) -> String {
     format!("Wave {wave}/{waves}")
 }
-pub const WAVE_SIZE_TIP: &str = "How many enemies each wave is here and now: the base, one more for each player and more as the days go by (the first mission a little fewer). A wave already on the deck keeps the size it landed with. Tuned in scaling.ron.";
-pub const DROIDS_TIP: &str = "The station is held by the machines, and they come in waves. How many waves there are is worked out when you arrive, and how big each one is as it appears. Go back to the ship before the last wave is down and the station is as you found it — the bounty for what you destroyed is lost, the experience is kept — and the next visit is a fresh fight. No wave arrives while a machine of the last one is still standing — the countdown starts when the last of them is destroyed — and the next comes in through the airlock farthest from your own, or through a gate of the town on a planet.";
+pub const WAVE_SIZE_TIP: &str = "• Enemies a wave, here and now\n• Grows with players and days\n• A landed wave keeps its size\n• scaling.ron";
+pub const DROIDS_TIP: &str = "• Waves; the next once the last is down\n• In at the farthest airlock, or a town gate\n• Leave early: site resets, bounty lost, XP kept";
 
 /// The same warning over a town the crew are defending (feature 94):
 /// the fight is the machines', but the town's people are in it too.
-pub const DEFENSE_TIP: &str = "The machines are coming for this place, and the first wave lands five seconds after you arrive — at a far airlock, or outside a town's gate — a wave at a time after that. Its armed defenders and a town's guard fight beside you; everybody else goes indoors and stays there. Hold the last wave and the place is cleared — the Republic pays nothing for a defence; the people who live through it are the reward — and a town is yours to keep: it stays friendly even after its system falls, and some of its people join your crew. Go back to the ship before the last wave is down and it falls to the machines behind you.";
+pub const DEFENSE_TIP: &str = "• First wave in 5 s, then one at a time\n• Defenders and guards fight beside you\n• Hold every wave: cleared, no pay\n• A town held stays friendly; some join you\n• Leave early: it falls";
 /// [`DEFENSE_TIP`] before day ten (task 131), when the attackers are the
 /// Manufacturers' people and the machines they still command.
-pub const DEFENSE_TIP_MANUFACTURERS: &str = "The Manufacturers are coming for this place — their people, and as the days go on more of the machines they still command beside them — and the first wave lands five seconds after you arrive, at a far airlock or outside a town's gate, a wave at a time after that. From the tenth day it is the machines alone. Its armed defenders and a town's guard fight beside you; everybody else goes indoors and stays there. Hold the last wave and the place is cleared — the Republic pays nothing for a defence; the people who live through it are the reward — and a town is yours to keep: it stays friendly even after its system falls, and some of its people join your crew. Go back to the ship before the last wave is down and it falls behind you.";
+pub const DEFENSE_TIP_MANUFACTURERS: &str = "• Manufacturers, more machines each day\n• Day 10 on: machines only\n• First wave in 5 s, then one at a time\n• Defenders and guards fight beside you\n• Hold every wave: cleared, no pay\n• A town held stays friendly; some join you\n• Leave early: it falls";
 
 /// The header's word while the crew's alarm is up, and what it means.
 pub const ALARM_STATUS: &str = "To arms — an enemy is near";
-pub const ALARM_TIP: &str = "An enemy within thirty tiles of anybody or in anybody's sight, or a crew member hit, in the last half minute: every crew member but the one you steer draws its weapon and fights, walking to wherever it can shoot from, until nobody is near, nobody has seen one and nobody has been hit for half a minute — then it goes back to its day, however many of the station's people are still alive somewhere on it. The one you steer is yours: recruit it yourself, or leave it to its errands.";
+pub const ALARM_TIP: &str = "• Enemy within 30 tiles, seen, or crew hit, in the last 30 s\n• Every crew member but yours fights\n• Ends after 30 s quiet";
 
 #[cfg(test)]
 mod tests {
@@ -3569,12 +3536,12 @@ mod tests {
         assert_eq!(h::BLEEDS_UNDER, 20.0);
         for words in [HEALTH_TIP, DOWNED_TIP] {
             assert!(
-                words.contains("three tenths") && !words.contains("slower"),
+                words.contains("30%") && !words.contains("slower"),
                 "{words}"
             );
         }
-        assert!(HEALTH_TIP.contains("ten seconds") && HEALTH_TIP.contains("four"));
-        assert!(HEALTH_TIP.contains("twenty") && CRITICAL_TIP.contains("twenty"));
+        assert!(HEALTH_TIP.contains("30 s") && HEALTH_TIP.contains("10 s (medic 4 s)"));
+        assert!(HEALTH_TIP.contains("20 HP") && CRITICAL_TIP.contains("20 HP"));
         assert_eq!(downed_short(29.2), "DOWNED — dies in 30 s");
     }
 
@@ -3737,8 +3704,8 @@ mod tests {
                         "{class:?} {slot}: a line, not a paragraph"
                     );
                     assert!(ranked_tip(class, slot, 0).contains("Not learnt"));
-                    assert!(ranked_tip(class, slot, 1).contains("Next, rank 2"));
-                    assert!(ranked_tip(class, slot, 4).contains("top rank"));
+                    assert!(ranked_tip(class, slot, 1).contains("rank 2 at Lv"));
+                    assert!(ranked_tip(class, slot, 4).contains("max"));
                     assert!(!ranked_tip(class, slot, 2).contains("roll"));
                 }
             }
@@ -4104,7 +4071,7 @@ mod tests {
             {
                 let item = kind.at(tier);
                 assert!(!item_line(item).is_empty());
-                assert!(module_tip(item, !kind.active()).starts_with(item_name(kind)));
+                assert!(module_tip(item).starts_with(item_name(kind)));
             }
             // A kind made at every tier has a row a tier, each its own
             // numbers; one made at a tier alone has no table.

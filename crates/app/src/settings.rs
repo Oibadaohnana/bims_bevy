@@ -293,9 +293,7 @@ fn game_row(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, saves: &mut Saves, all
     ui.horizontal(|ui| {
         let save = ui
             .add_enabled(allowed.save, egui::Button::new("Save"))
-            .on_disabled_hover_text(
-                "Nothing to save yet: the game starts when the ship is accepted.",
-            );
+            .on_disabled_hover_text("No run yet");
         if save.clicked() {
             saves.note = None;
             saves.refresh();
@@ -376,7 +374,7 @@ fn wide(ui: &mut egui::Ui, text: &str) {
 }
 
 /// Why a key cannot be clicked on the defaults.
-const DEFAULTS_FIXED: &str = "These are the game's defaults. Switch to My profile to change a key.";
+const DEFAULTS_FIXED: &str = "• Defaults: read-only\n• Switch to My profile";
 
 /// Whose keys are in play (October 2026): the player's own profile, kept
 /// on this computer, or the game's defaults, from `keys.ron` where the
@@ -388,12 +386,12 @@ fn profile_row(ui: &mut egui::Ui, keys: &mut Keys) {
             (
                 Profile::Mine,
                 "My profile",
-                "Your own keys, kept on this computer and saved as you change them. The first time, they start as the defaults.",
+                "• Your keys, on this computer\n• Saved as you change them\n• Start as the defaults",
             ),
             (
                 Profile::Defaults,
                 "Defaults",
-                "The game's keys, from keys.ron where the game was started. Shown, not changed here.",
+                "• The game's keys, keys.ron\n• Read-only here",
             ),
         ] {
             if ui
@@ -421,7 +419,7 @@ fn profile_buttons(ui: &mut egui::Ui, keys: &mut Keys) {
                 keys.profile() == Profile::Mine,
                 egui::Button::new("Reset to defaults"),
             )
-            .on_hover_text("Every key of your profile back to the game's defaults.")
+            .on_hover_text("Every key back to the defaults")
             .on_disabled_hover_text(DEFAULTS_FIXED);
         if reset.clicked() {
             // The keys, not the edge-scroll speed or the network buffer:
@@ -431,7 +429,7 @@ fn profile_buttons(ui: &mut egui::Ui, keys: &mut Keys) {
         }
         let path = crate::keys::defaults_path();
         let save = ui.button("Save as defaults").on_hover_text(format!(
-            "Write the keys shown into {} as the game's defaults: what a player plays with no profile of their own.",
+            "• Write these keys into {}\n• For players with no profile",
             path.display()
         ));
         if save.clicked() {

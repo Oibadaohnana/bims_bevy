@@ -5971,9 +5971,8 @@ fn item_grid(ui: &mut egui::Ui, world: &world::World, who: u32, keys: &Keys) {
                                 );
                                 item_seconds(painter, rect, rush, theme::CAUTION);
                             }
-                            let passive = !item.kind.active();
                             response.on_hover_ui(|ui| {
-                                ui.label(crate::names::module_tip(item, passive));
+                                ui.label(crate::names::module_tip(item));
                                 crate::crew::item_tiers(ui, item.kind, item.tier.code());
                             });
                         }
