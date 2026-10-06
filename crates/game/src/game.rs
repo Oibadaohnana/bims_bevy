@@ -943,6 +943,16 @@ pub struct Game {
     whereabouts: Vec<Option<Vec2>>,
     #[cfg_attr(feature = "serde", serde(skip))]
     machine_whereabouts: Vec<Option<Vec2>>,
+    /// How each of the room's targets went over the last step, in room
+    /// units a second — index for index with `whereabouts`, nought for
+    /// one down, just come or put somewhere else outright — and where
+    /// each stood at the end of the step before (`Game::simulate`). What
+    /// the setup's auto-shoot leads its aim by (`Game::auto_aim`); the
+    /// simulation never reads it. Left out of a save.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    target_moving: Vec<Vec2>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    target_was: Vec<Option<Vec2>>,
     /// How far the window's clock is between the last step and the next,
     /// nought to one: the bodies are drawn that far from where they stood
     /// before the last step (`Character::was`, `Droid::was`) to where they
@@ -970,6 +980,29 @@ fn shown(was: Vec2, pos: Vec2, blend: Option<f32>) -> Vec2 {
         Some(t) if t < 1.0 && (pos - was).len() <= BLEND_JUMP => was + (pos - was) * t,
         _ => pos,
     }
+}
+
+/// Where a bolt from `from` at `pace` meets a body at `at` going on at
+/// `moving` (room units a second): the machines' lead (`Game::lead`) and
+/// the auto-shoot's (`Game::auto_aim`). A body slower than a unit a
+/// second is aimed at where it stands; never further ahead than a bolt
+/// flies in `reach`.
+fn intercept(from: Vec2, at: Vec2, moving: Vec2, pace: f32, reach: f32) -> Vec2 {
+    let v = moving;
+    if v.len() < 1.0 {
+        return at;
+    }
+    // |at + v t - from| = pace t, for the first t ahead.
+    let d = at - from;
+    let a = v.dot(v) - pace * pace;
+    let b = 2.0 * d.dot(v);
+    let c = d.dot(d);
+    let ahead = if a < -1e-3 {
+        (-b - (b * b - 4.0 * a * c).max(0.0).sqrt()) / (2.0 * a)
+    } else {
+        d.len() / pace
+    };
+    at + v * clamp(ahead, 0.0, reach / pace)
 }
 
 impl Game {
@@ -1127,6 +1160,8 @@ impl Game {
             told: false,
             whereabouts: Vec::new(),
             machine_whereabouts: Vec::new(),
+            target_moving: Vec::new(),
+            target_was: Vec::new(),
             blend: None,
             step_dt: 0.0,
         };
@@ -1527,6 +1562,25 @@ impl Game {
                     Vec2::ZERO
                 };
             }
+            // And each target's, for the auto-shoot's lead alone.
+            let was = &self.target_was;
+            self.target_moving = self
+                .whereabouts
+                .iter()
+                .enumerate()
+                .map(|(i, now)| {
+                    let went = match (now, was.get(i).copied().flatten()) {
+                        (Some(now), Some(was)) => (*now - was) * (1.0 / dt),
+                        _ => Vec2::ZERO,
+                    };
+                    if went.len() <= fastest {
+                        went
+                    } else {
+                        Vec2::ZERO
+                    }
+                })
+                .collect();
+            self.target_was.clone_from(&self.whereabouts);
         }
         // A belief about where the crew are ages, and is given up after a
         // minute unseen.
@@ -7203,18 +7257,21 @@ impl Game {
     /// auto-shoot, October 2026): `picked` — an index in the room's
     /// target list — where that enemy is up, in reach, made out and on a
     /// clear line of fire, else the nearest such that is no sealed core.
-    /// Its index and where it stands; `None` with nothing to shoot or
+    /// Its index, where it stands and where to aim — where it will be
+    /// when the bolt gets there, were it to keep going
+    /// (`target_moving`); `None` with nothing to shoot or
     /// nobody to shoot at. A steered shot leaves the muzzle along the
     /// heading and never from a peek, so only the body's own line counts.
     /// A reading for the player's screen, which turns the steered Bim onto
     /// it with the trigger held: the room is told nothing a click does
     /// not tell it.
-    pub fn auto_aim(&self, who: usize, picked: Option<usize>) -> Option<(usize, Vec2)> {
+    pub fn auto_aim(&self, who: usize, picked: Option<usize>) -> Option<(usize, Vec2, Vec2)> {
         let bim = self.bims.get(who)?;
         if bim.hand == Hand::Medkit || !bim.is_alive() || bim.character.is_unconscious() {
             return None;
         }
-        let reach = self.shot_skill(who).stats(bim.gear.weapon?).reach();
+        let stats = self.shot_skill(who).stats(bim.gear.weapon?);
+        let reach = stats.reach();
         let from = bim.character.pos;
         let sight = &self.room.sight;
         let shot = |t: &crate::combat::Target| {
@@ -7224,17 +7281,25 @@ impl Game {
                 && crate::combat::line_of_fire(sight, from, t.at)
         };
         let targets = self.combat.targets();
-        if let Some(i) = picked
-            && let Some(t) = targets.get(i).copied().flatten()
-            && shot(&t)
-        {
-            return Some((i, t.at));
+        let picked = picked
+            .and_then(|i| targets.get(i).copied().flatten().map(|t| (i, t)))
+            .filter(|(_, t)| shot(t));
+        let (i, t) = picked.or_else(|| {
+            targets
+                .iter()
+                .enumerate()
+                .filter_map(|(i, t)| t.filter(|t| !t.sealed() && shot(t)).map(|t| (i, t)))
+                .min_by(|a, b| (a.1.at - from).len().total_cmp(&(b.1.at - from).len()))
+        })?;
+        // Led, as the machines lead theirs (`Game::lead`): aimed where the
+        // enemy, going on as it went over the last step, and the bolt
+        // meet — a blade, or one standing still, where it stands.
+        let pace = stats.pace();
+        if stats.melee || pace <= 0.0 {
+            return Some((i, t.at, t.at));
         }
-        targets
-            .iter()
-            .enumerate()
-            .filter_map(|(i, t)| t.filter(|t| !t.sealed() && shot(t)).map(|t| (i, t.at)))
-            .min_by(|a, b| (a.1 - from).len().total_cmp(&(b.1 - from).len()))
+        let moving = self.target_moving.get(i).copied().unwrap_or(Vec2::ZERO);
+        Some((i, t.at, intercept(from, t.at, moving, pace, reach)))
     }
 
     /// Whether target `enemy` is still up (on the list, neither down nor
@@ -8677,21 +8742,7 @@ impl Game {
         else {
             return at;
         };
-        let v = body.moving;
-        if v.len() < 1.0 {
-            return at;
-        }
-        // |at + v t - from| = pace t, for the first t ahead.
-        let d = at - from;
-        let a = v.dot(v) - pace * pace;
-        let b = 2.0 * d.dot(v);
-        let c = d.dot(d);
-        let ahead = if a < -1e-3 {
-            (-b - (b * b - 4.0 * a * c).max(0.0).sqrt()) / (2.0 * a)
-        } else {
-            d.len() / pace
-        };
-        at + v * clamp(ahead, 0.0, stats.reach() / pace)
+        intercept(from, at, body.moving, pace, stats.reach())
     }
 
     /// [`Game::enemy_fire`] signed with who fired it, by its index on
@@ -14746,15 +14797,63 @@ mod tests {
             None,
             Some((beyond, pistol)),
         ]);
-        assert_eq!(game.auto_aim(0, None), Some((1, near)), "the nearest");
-        assert_eq!(game.auto_aim(0, Some(0)), Some((0, far)), "the picked one");
+        assert_eq!(game.auto_aim(0, None), Some((1, near, near)), "the nearest");
+        assert_eq!(
+            game.auto_aim(0, Some(0)),
+            Some((0, far, far)),
+            "the picked one"
+        );
         // One down or out of reach is passed over for the nearest.
-        assert_eq!(game.auto_aim(0, Some(2)), Some((1, near)));
-        assert_eq!(game.auto_aim(0, Some(3)), Some((1, near)));
+        assert_eq!(game.auto_aim(0, Some(2)), Some((1, near, near)));
+        assert_eq!(game.auto_aim(0, Some(3)), Some((1, near, near)));
         assert!(game.enemy_up(0) && !game.enemy_up(2));
         // With the medkit in hand there is nothing to shoot with.
         game.order_hand(0, Hand::Medkit);
         assert_eq!(game.auto_aim(0, None), None);
+    }
+
+    /// The auto-shoot leads an enemy on the move, as the machines lead
+    /// the crew: aimed where the enemy, going on as it went over the last
+    /// step, and the bolt meet; one standing is aimed at where it stands.
+    #[test]
+    fn auto_aim_leads_an_enemy_on_the_move() {
+        let mut game = room();
+        game.set_autonomous(false);
+        game.set_players(1);
+        let james = game.put_for_probe(0, vec2(ROOM_W * 0.2, ROOM_H * 0.5));
+        let rifle = WeaponKind::AutoRifle.basic();
+        game.issue(
+            0,
+            Gear {
+                weapon: Some(rifle),
+                ..Gear::default()
+            },
+        );
+        let pistol = WeaponKind::LaserPistol.basic();
+        let dt = 1.0 / 60.0;
+        let still = james + vec2(4.0 * TILE, 0.0);
+        let was = james + vec2(6.0 * TILE, -TILE);
+        let going = vec2(0.0, 120.0);
+        let now = was + going * dt;
+        game.set_hostiles(vec![Some((still, pistol)), Some((was, pistol))]);
+        game.simulate(dt);
+        game.set_hostiles(vec![Some((still, pistol)), Some((now, pistol))]);
+        game.simulate(dt);
+        assert_eq!(
+            game.auto_aim(0, Some(0)),
+            Some((0, still, still)),
+            "standing"
+        );
+        let (i, at, led) = game.auto_aim(0, Some(1)).expect("a shot at the walker");
+        assert_eq!((i, at), (1, now));
+        let from = game.bim_pos(0);
+        let ahead = (led - now).len() / going.len();
+        assert!(ahead > 0.0 && (led - now).normalize_or_zero().dot(vec2(0.0, 1.0)) > 0.999);
+        let pace = game.shot_skill(0).stats(rifle).pace();
+        assert!(
+            ((led - from).len() - pace * ahead).abs() < 0.5,
+            "the bolt and the enemy get there together"
+        );
     }
 
     #[test]

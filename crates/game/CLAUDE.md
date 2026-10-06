@@ -5515,6 +5515,16 @@ the relics moved.
 `a_machine_leads_a_body_on_the_move` pins the intercept. `SAVE_VERSION`
 118. Meant to alter play: every survivor pin with a bolt in it moves.
 
+**The setup's auto-shoot leads too** (the player's word): `Game::auto_aim`
+answers `(index, where it stands, where to aim)`, the aim the same
+intercept (`game::intercept`, which `lead` goes through) off
+`Game::target_moving` — each target's step-to-step velocity from
+`whereabouts`, worked out at the end of `simulate` beside `Bim::moving`
+(`target_was` the step before; a jump past four marches a second is
+nought). Both `serde(skip)` and read by nothing but `auto_aim`, so no pin
+moved; the app turns the Bim onto the aim and keeps its brackets on where
+the enemy stands. `auto_aim_leads_an_enemy_on_the_move`.
+
 ## A Husk that downs its prey hunts the next (October 2026)
 
 Since the fourteen-tile sight cap a machine's side often sees nobody once

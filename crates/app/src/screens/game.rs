@@ -160,9 +160,10 @@ pub struct GameScreen {
     /// October 2026): a left click on one, an index in the room's target
     /// list; a click elsewhere lets it go, and so does its going down.
     auto_pick: Option<usize>,
-    /// Whom the auto-shoot is firing at this frame and where it stands,
-    /// in room units, for its mark on the deck.
-    auto_shot: Option<(usize, bims::math::Vec2)>,
+    /// Whom the auto-shoot is firing at this frame, where it stands, in
+    /// room units, for its mark on the deck, and where the shot is aimed:
+    /// led onto where it is going (`Game::auto_aim`).
+    auto_shot: Option<(usize, bims::math::Vec2, bims::math::Vec2)>,
     /// The dodge roll's key (Alt, task 150) was down last frame: a roll
     /// goes on its way down, once.
     dodge_was: bool,
@@ -2639,7 +2640,7 @@ fn frame(
             }
         }
         let (aim, fire) = match screen.auto_shot {
-            Some((_, to)) => (Some(angle_code((to.y - at.y).atan2(to.x - at.x))), true),
+            Some((_, _, to)) => (Some(angle_code((to.y - at.y).atan2(to.x - at.x))), true),
             None => (aim, fire),
         };
         if let Some(aim) = aim
@@ -4464,7 +4465,7 @@ fn frame(
     // The auto-shoot's target: four red brackets round the enemy it is
     // firing at, heavier for one the crosshair picked.
     if !deck_hidden
-        && let Some((who, to)) = screen.auto_shot
+        && let Some((who, to, _)) = screen.auto_shot
         && let Some(game) = &session.game
     {
         let (x, y) = ship::world_paint::room_point_on_screen(game, to);
