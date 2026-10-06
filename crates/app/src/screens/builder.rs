@@ -511,6 +511,7 @@ fn frame(
                 screen.said_bim_name = None;
                 screen.said_bim_hair = None;
                 screen.said_bim_tint = None;
+                screen.said_bim_class = None;
             }
             Event::Roster => {
                 // A joiner has no settings yet; the host says them again.
@@ -519,6 +520,7 @@ fn frame(
                 screen.said_bim_name = None;
                 screen.said_bim_hair = None;
                 screen.said_bim_tint = None;
+                screen.said_bim_class = None;
                 // And who came or went, by name.
                 let now_here: Vec<wire::PeerId> = online.peers.iter().map(|p| p.id).collect();
                 for p in &online.peers {
@@ -601,7 +603,9 @@ fn frame(
                         }
                     }
                     settings.hair[mine] = screen.bim_hair;
-                    // And its class, the same way.
+                    // But its class is what the host dealt, even its own:
+                    // the class is the world's, so a pick that missed
+                    // Start would part the guest's world from the host's.
                     settings.classes = classes
                         .into_iter()
                         .map(|c| Class::from_code(c).unwrap_or_default())
@@ -609,7 +613,6 @@ fn frame(
                     if settings.classes.len() <= mine {
                         settings.classes.resize(mine + 1, Class::None);
                     }
-                    settings.classes[mine] = screen.bim_class;
                     // And its colour, the same way (feature 84).
                     settings.tints = tints.into_iter().map(Tint::from_code).collect();
                     if settings.tints.len() <= mine {
