@@ -463,6 +463,11 @@ const PLACE: f32 = 2.0 * bims::room::TILE;
 /// eight times over.
 const SHOT_PITCH: f32 = 0.05;
 
+/// The laser pistol's takes (`laser_1` … `laser_9`) are all played this
+/// much faster than recorded: two semitones higher (2^(2/12)), the
+/// player wanting them brighter, with [`SHOT_PITCH`]'s stray on top.
+const LASER_SPEED: f32 = 1.122_462;
+
 impl Kind {
     fn of(cue: Cue) -> Kind {
         match cue {
@@ -793,6 +798,7 @@ impl Sounds {
                 };
                 let theirs = theirs * others;
                 let v = self.volumes;
+                let mut pitch = 1.0;
                 let (clip, level, volume) = match weapon {
                     WeaponKind::LaserPistol => {
                         // Nine takes, picked at random: the four
@@ -810,6 +816,7 @@ impl Sounds {
                             Clip::Laser9,
                         ];
                         let clip = takes[self.take(takes.len() as u32) as usize];
+                        pitch = LASER_SPEED;
                         (clip, 0.5, v.of(clip))
                     }
                     WeaponKind::Shotgun => (Clip::Shotgun, 0.7, v.shotgun),
@@ -833,7 +840,7 @@ impl Sounds {
                     // to a heavy single shot the box holds.
                     WeaponKind::Unmaker => (Clip::Sniper, 0.6, v.unmaker),
                 };
-                let speed = self.shot_speed();
+                let speed = pitch * self.shot_speed();
                 self.one_shot_at(commands, clip, level * theirs, volume, speed);
             }
             // A hit is heard under the shot that made it, never over it:
