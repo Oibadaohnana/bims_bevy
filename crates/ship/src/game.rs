@@ -103,9 +103,12 @@ impl Output {
     /// heard at a step, the first time and since.
     pub fn merge(&mut self, more: Output) {
         fn add<T>(have: &mut Vec<T>, more: Vec<T>, same: impl Fn(&T, &T) -> bool) {
-            let mut unmatched: Vec<bool> = vec![true; have.len()];
+            // Matched against what was there before: one pushed here is
+            // `more`'s own, and `unmatched` is only as long as `have` was.
+            let had = have.len();
+            let mut unmatched: Vec<bool> = vec![true; had];
             for item in more {
-                match (0..have.len()).find(|&i| unmatched[i] && same(&have[i], &item)) {
+                match (0..had).find(|&i| unmatched[i] && same(&have[i], &item)) {
                     Some(i) => unmatched[i] = false,
                     None => have.push(item),
                 }
@@ -1027,4 +1030,51 @@ impl Game {
 pub fn turned(x: f32, y: f32, angle: f32) -> (f32, f32) {
     let (s, c) = (angle.sin(), angle.cos());
     (x * c - y * s, x * s + y * c)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Output;
+    use world::WorldEvent;
+
+    fn of(events: &[WorldEvent]) -> Output {
+        Output {
+            events: events.to_vec(),
+            ..Output::default()
+        }
+    }
+
+    /// Two or more new things merged into a list that had fewer: the
+    /// guest's rollback hearing a step again with more in it (the panic
+    /// "the len is 0 but the index is 0" joining a mission).
+    #[test]
+    fn a_merge_brings_several_new_things_at_once() {
+        let mut have = of(&[]);
+        have.merge(of(&[
+            WorldEvent::CrewHit { who: 1 },
+            WorldEvent::CrewHit { who: 1 },
+        ]));
+        assert_eq!(have.events.len(), 2, "both, one for one");
+
+        let mut have = of(&[WorldEvent::CrewHit { who: 1 }]);
+        have.merge(of(&[
+            WorldEvent::CrewHit { who: 2 },
+            WorldEvent::CrewHit { who: 1 },
+            WorldEvent::CrewHit { who: 2 },
+            WorldEvent::CrewHit { who: 1 },
+        ]));
+        let who: Vec<u32> = have
+            .events
+            .iter()
+            .map(|e| match e {
+                WorldEvent::CrewHit { who } => *who,
+                _ => unreachable!(),
+            })
+            .collect();
+        assert_eq!(
+            who,
+            [1, 2, 2, 1],
+            "the one already heard kept, the rest added"
+        );
+    }
 }
