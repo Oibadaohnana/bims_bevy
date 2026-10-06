@@ -60,19 +60,25 @@
 //!
 //! A rollback is a copy of the world — a millisecond or two, the rooms'
 //! sight being most of it — and a replay of the lead's steps, a fraction
-//! of a millisecond each. Another player's aim moving is an order, so with
-//! company a guest rolls back most frames. `BIMS_ROLLBACK=0` is the old
-//! way, for comparing.
+//! of a millisecond each: four milliseconds in a fight of forty on a
+//! desktop, nine at the most. Another player's aim moving is an order,
+//! twenty a second a player, and a rollback for each stalled a guest's
+//! frames and its sound with them. So another player's walk and aim are
+//! played on the shown world as they come, and rolled back for at most
+//! every [`DRIFT_STEPS`]; anything else they do, and this player's own
+//! order landing at another step, still at once. `BIMS_ROLLBACK=0` is the
+//! old way, for comparing.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
+use bims::order::CrewOrder;
 use ship::Session;
 use ship::game::{Output, Timeline};
 use wire::PeerId;
 use world::{World, WorldEvent};
 
-use crate::screens::designer::{Message, Net};
+use crate::screens::designer::{Message, Net, Order};
 use crate::screens::loading::Loading;
 
 /// Steps ahead of the confirmed world aimed at before the host has said
@@ -107,6 +113,15 @@ pub const MAX_HOLD: u64 = 120;
 /// How many steps what was heard is kept for: more than the shown world
 /// ever runs ahead.
 pub const HEARD_STEPS: usize = 240;
+/// Steps of the shown world at the least between two rollbacks asked for
+/// by nothing but the others' walk and aim — a fifth of a second at 1×.
+/// A player's control order goes twenty times a second (task 144's
+/// `CONTROL_EVERY`), and a rollback for each, a copy of the world and the
+/// lead's steps played again, was most of a guest's frames with company:
+/// its frames stalled and its sound with them. Those orders are played
+/// on the shown world the moment they come instead, a few steps late, and
+/// put right by the next rollback.
+pub const DRIFT_STEPS: u64 = 12;
 
 /// What a guest's ask carries of its own guess: the step its own world
 /// applied it at, and its number among this player's guesses.
@@ -259,6 +274,15 @@ pub struct Rollback {
     /// The confirmed timeline took something the shown one had not
     /// played at that step.
     parted: bool,
+    /// It took another player's walk or aim, which waits for a rollback
+    /// until the shown world is [`DRIFT_STEPS`] past the last one.
+    drifted: bool,
+    /// Those orders, from whom and as said, to be played on the shown
+    /// world this frame if it is not rolled back.
+    drift: Vec<(u32, u64, Message)>,
+    /// The shown world's step when it was last rolled back, or guessing
+    /// began.
+    rolled_at: u64,
     /// Steps ahead of the confirmed world aimed at; [`FIRST_LEAD`] when
     /// guessing begins.
     lead: f64,
@@ -321,6 +345,7 @@ impl Rollback {
         let (Some(other), Some(game)) = (self.other.as_mut(), session.game.as_mut()) else {
             return;
         };
+        hand_dials(&game.world, &mut other.world);
         self.events = std::mem::take(&mut game.events);
         game.swap(other);
         self.inside = true;
@@ -350,16 +375,37 @@ impl Rollback {
         self.news.extend(news);
     }
 
-    /// The host applied an order: from player `from` (a slot), with what
-    /// it said of a stamped ask, at `step` of the confirmed world. Called
-    /// after it was applied to the session's, between `enter` and `leave`.
-    pub fn applied(&mut self, me: u32, from: u32, asked: Option<Asked>, step: u64) {
+    /// The host applied an order: from player `from` (a slot), said at
+    /// `at`, with what it said of a stamped ask, at `step` of the
+    /// confirmed world. Called after it was applied to the session's,
+    /// between `enter` and `leave`.
+    pub fn applied(
+        &mut self,
+        me: u32,
+        from: u32,
+        at: u64,
+        message: Message,
+        asked: Option<Asked>,
+        step: u64,
+    ) {
         if !self.inside {
             return;
         }
         let Ok(mut ledger) = self.ledger.lock() else {
             return;
         };
+        // Somebody else's walk and aim: played on the shown world at once
+        // and rolled back for now and then ([`DRIFT_STEPS`]).
+        if from != me
+            && matches!(
+                message,
+                Message::Order(Order::Crew(CrewOrder::Control { .. }))
+            )
+        {
+            self.drifted = true;
+            self.drift.push((from, at, message));
+            return;
+        }
         let mine = (from == me).then_some(asked).flatten();
         let Some(asked) = mine else {
             // Somebody else's, or one of this player's never played here:
@@ -408,6 +454,9 @@ impl Rollback {
             {
                 self.other = Some(game.fork());
                 self.parted = false;
+                self.drifted = false;
+                self.drift.clear();
+                self.rolled_at = game.world.steps;
                 self.lead = FIRST_LEAD;
                 self.ahead = 0.0;
                 self.backlog = 0.0;
@@ -442,9 +491,21 @@ impl Rollback {
         }
         self.hear_orders();
         self.heard.forget_through(confirmed);
-        if self.parted || game.world.steps < confirmed {
+        // The others' walk and aim alone wait their turn; a world not
+        // running has no steps to play again, and is put right at once.
+        let drift_due = self.drifted
+            && (game.world.effective_speed().multiplier() == 0
+                || game.world.steps >= self.rolled_at + DRIFT_STEPS);
+        if self.parted || drift_due || game.world.steps < confirmed {
             let _timed = crate::perf::scope(crate::perf::Phase::Rollback);
+            self.drift.clear();
             self.roll_back(session, me);
+        } else {
+            for (from, at, message) in std::mem::take(&mut self.drift) {
+                self.again(session, |s| {
+                    Net::receive(s, from, at, message);
+                });
+            }
         }
         if let Some(game) = session.game.as_mut() {
             let news = std::mem::take(&mut self.news);
@@ -461,6 +522,8 @@ impl Rollback {
         self.other = None;
         self.inside = false;
         self.parted = false;
+        self.drifted = false;
+        self.drift.clear();
         self.events.clear();
         self.news = Output::default();
         self.heard = Heard::default();
@@ -486,6 +549,8 @@ impl Rollback {
         let unread = game.take_unread();
         game.restore(other);
         self.parted = false;
+        self.drifted = false;
+        self.rolled_at = target;
         self.tally.rollbacks += 1;
         let pending: Vec<Pending> = self
             .ledger
@@ -593,6 +658,22 @@ impl Rollback {
                 residents.aboard.room.fade(real);
             }
         }
+    }
+}
+
+/// The tuning files' dials (`wavecfg`) of `from` handed to `to` where they
+/// differ: they are neither saved nor hashed, and the app hands them to
+/// the session's world alone. A guest's copy of the host's timeline takes
+/// them from the world shown, and a world arrived over the wire from the
+/// one it replaces — else a mission's world come mid-mission (a Retry, a
+/// resync) lays its waves by the constants on the guest alone, and parts
+/// from the host's at the first.
+pub fn hand_dials(from: &World, to: &mut World) {
+    if to.wave_scaling() != from.wave_scaling() {
+        to.set_wave_scaling(from.wave_scaling());
+    }
+    if to.rewards() != from.rewards() {
+        to.set_rewards(from.rewards());
     }
 }
 
@@ -844,7 +925,7 @@ mod tests {
                     end.rollback
                         .confirm(&mut end.session, |s| net.applied(s, from, at, message));
                     let step = steps(end);
-                    end.rollback.applied(1, from, asked, step);
+                    end.rollback.applied(1, from, at, message, asked, step);
                 }
                 Packet::Steps { n, checksum } => {
                     for _ in 0..n {
@@ -983,6 +1064,51 @@ mod tests {
         let r = &ends[GUEST].rollback;
         assert!(r.tally.rollbacks >= 8, "{:?}", r.tally);
         assert!(r.tally.replayed > 0);
+        same_world(&mut ends);
+    }
+
+    /// Another player's aim swung every frame is a rollback at most every
+    /// `DRIFT_STEPS` on the guest, not one a frame, and the guest's world
+    /// still comes out the host's.
+    #[test]
+    fn the_host_s_aim_rolls_the_guest_back_only_now_and_then() {
+        let mut ends = pair();
+        let delay = 4;
+        let mut frame = 0;
+        let mut step = |ends: &mut [End; 2], aim: Option<u16>| {
+            frame += 1;
+            if let Some(aim) = aim {
+                let e = &mut ends[HOST];
+                let order = Order::Crew(CrewOrder::Control {
+                    walk: None,
+                    aim,
+                    fire: false,
+                    sprint: false,
+                });
+                e.net.order(&mut e.session, order);
+            }
+            host_frame(&mut ends[HOST], frame, 1);
+            guest_frame(&mut ends[GUEST], frame);
+            post(ends, frame, delay);
+        };
+        for _ in 0..60 {
+            step(&mut ends, None);
+        }
+        let before = ends[GUEST].rollback.tally.rollbacks;
+        let frames = 120u16;
+        for i in 0..frames {
+            step(&mut ends, Some(i * 500));
+        }
+        for _ in 0..30 {
+            step(&mut ends, None);
+        }
+        let r = &ends[GUEST].rollback;
+        let rolled = r.tally.rollbacks - before;
+        assert!(rolled >= 2, "{:?}", r.tally);
+        assert!(
+            u64::from(rolled) <= u64::from(frames) / DRIFT_STEPS + 2,
+            "{rolled} rollbacks for {frames} aims"
+        );
         same_world(&mut ends);
     }
 

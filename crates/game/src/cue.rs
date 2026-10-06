@@ -93,6 +93,20 @@ pub struct Cued {
     pub at: Vec2,
 }
 
+/// How far apart two cues of one thing may be and still be heard as one,
+/// in room units: a guest's rollback (task 156) plays a step again with
+/// another player's aim or walk put right, and the same shot comes out
+/// of a muzzle swung round its body, or a body a few units over. A tile.
+pub const ALIKE: f32 = 52.0;
+
+impl Cued {
+    /// Whether two cues are one thing said twice — by a world and by its
+    /// copy played again: the same cue, within [`ALIKE`] of each other.
+    pub fn alike(&self, other: &Cued) -> bool {
+        self.cue == other.cue && (self.at - other.at).len() <= ALIKE
+    }
+}
+
 /// Which way a door's leaves have just started moving, if they have.
 ///
 /// `moving` is the door's own memory of the direction it was going — `1`
@@ -135,5 +149,28 @@ mod tests {
         assert_eq!(door_motion(0.9, 0.8, &mut moving), None);
         // Reversed part way: somebody walked back into the opening.
         assert_eq!(door_motion(0.8, 0.9, &mut moving), Some(Cue::DoorOpens));
+    }
+
+    /// One shot from a muzzle swung a little round — a guest's step
+    /// played again with another player's aim put right — is the shot
+    /// already heard; another kind of cue, or one a room away, is not.
+    #[test]
+    fn a_shot_a_little_way_off_is_the_same_shot() {
+        let shot = Cue::Shot {
+            weapon: WeaponKind::LaserPistol,
+            hostile: false,
+            by: Some(0),
+        };
+        let at = |x: f32| Cued {
+            cue: shot,
+            at: Vec2 { x, y: 100.0 },
+        };
+        assert!(at(100.0).alike(&at(130.0)));
+        assert!(!at(100.0).alike(&at(100.0 + ALIKE + 1.0)));
+        let ricochet = Cued {
+            cue: Cue::Ricochet,
+            at: Vec2 { x: 100.0, y: 100.0 },
+        };
+        assert!(!at(100.0).alike(&ricochet));
     }
 }

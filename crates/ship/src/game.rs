@@ -116,7 +116,7 @@ impl Output {
         }
         add(&mut self.events, more.events, |a, b| a == b);
         for (mine, theirs) in self.rooms.iter_mut().zip(more.rooms) {
-            add(&mut mine.0, theirs.0, |a, b| a == b);
+            add(&mut mine.0, theirs.0, |a, b| a.alike(b));
             add(&mut mine.1, theirs.1, |a, b| a.same(b));
         }
     }
@@ -141,7 +141,7 @@ impl Output {
         let [heard_aboard, heard_residents] = &heard.rooms;
         let room = |(cues, sprays): (Vec<_>, Vec<_>), heard: &(Vec<_>, Vec<bims::fx::Spray>)| {
             (
-                sift(cues, &heard.0, |a, b| a == b),
+                sift(cues, &heard.0, |a: &bims::cue::Cued, b| a.alike(b)),
                 sift(sprays, &heard.1, |a: &bims::fx::Spray, b| a.same(b)),
             )
         };

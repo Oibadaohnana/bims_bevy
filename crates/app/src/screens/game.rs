@@ -1374,7 +1374,9 @@ fn frame(
                         .rollback
                         .confirm(session, |s| net.applied(s, from, at, message));
                     let step = session.game.as_ref().map_or(0, |g| g.world.steps);
-                    screen.rollback.applied(screen.net.slot, from, asked, step);
+                    screen
+                        .rollback
+                        .applied(screen.net.slot, from, at, message, asked, step);
                 }
                 // A line another player drew on the floor's chart, or
                 // rubbed out; one from nobody dealt a slot is nobody's.
@@ -1484,6 +1486,12 @@ fn frame(
                                 loaded.crew_names[slot as usize] = mine;
                             }
                             crate::names::set_crew_names(&loaded.crew_names);
+                            // The tuning files' dials, which a save leaves
+                            // out, kept: the steps behind it in this drain
+                            // come before the app hands them over again.
+                            if let (Some(old), Some(new)) = (&session.game, &mut loaded.game) {
+                                crate::rollback::hand_dials(&old.world, &mut new.world);
+                            }
                             *session = loaded;
                             *screen = screen.again(slot, players);
                             screen.log.push(RESYNC_DONE.into());

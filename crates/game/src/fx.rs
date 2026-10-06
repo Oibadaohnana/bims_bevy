@@ -247,12 +247,16 @@ pub struct Spray {
 impl Spray {
     /// Whether two sprays are the same thing thrown: everything but the
     /// seed, which numbers sprays in the order a room made them and so
-    /// differs between two copies of one room (task 156's rollback).
+    /// differs between two copies of one room (task 156's rollback), and
+    /// where it was thrown and which way only near enough — a step played
+    /// again with another player's aim put right throws the same sparks
+    /// from a muzzle swung a little round (`cue::ALIKE`).
     pub fn same(&self, other: &Spray) -> bool {
         let colour = |c: Color| (c.r, c.g, c.b, c.a);
+        let near = |a: Vec2, b: Vec2| (a - b).len() <= crate::cue::ALIKE;
         self.kind == other.kind
-            && self.at == other.at
-            && self.to == other.to
+            && near(self.at, other.at)
+            && near(self.to, other.to)
             && self.reach == other.reach
             && self.life == other.life
             && colour(self.colour) == colour(other.colour)

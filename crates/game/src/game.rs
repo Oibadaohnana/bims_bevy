@@ -1463,7 +1463,7 @@ impl Game {
         let mut sift = |list: &mut Vec<Cued>, from: usize| {
             let mut i = from.min(list.len());
             while i < list.len() {
-                if let Some(j) = cues_left.iter().position(|c| *c == list[i]) {
+                if let Some(j) = cues_left.iter().position(|c| c.alike(&list[i])) {
                     cues_left.swap_remove(j);
                     list.remove(i);
                 } else {
