@@ -62,6 +62,15 @@ pub const NEAR_TILES: f32 = 4.0;
 /// line between the two from [`NEAR_TILES`].
 pub const FAR_TILES: f32 = 7.0;
 
+/// What every bolt's pace is multiplied by, whoever fires it — a gun of
+/// the crew's, a sentry's, a machine's arm, a rail: each weapon's
+/// `speed` below is the pace it was tuned at, and a bolt flies at this
+/// much of it (`WeaponStats::pace`). October 2026, the player's word:
+/// every projectile 30% slower, and the machines lead their shots by the
+/// pace they fly at (`Game::lead`). A grenade, a bomb and a beam fly by
+/// their own clocks and are not bolts.
+pub const BOLT_PACE: f32 = 0.7;
+
 /// A factor `near` within [`NEAR_TILES`], `far` past [`FAR_TILES`] and a
 /// straight line between, at `flown` tiles.
 pub fn near_far(flown: f32, near: f32, far: f32) -> f32 {

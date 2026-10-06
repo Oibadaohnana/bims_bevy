@@ -5482,3 +5482,33 @@ and a Riot Shield — beside `point_blank`: the near factor within
 straight line between (`balance::near_far`). A blow is not moved.
 `a_bolt_takes_its_shooter_s_near_and_far_factors` pins it. Nobody without
 the relics moved.
+
+## Bolts a third slower, and the machines lead them (October 2026)
+
+> Every bolt pace above — "speed 18", a lance "70", a sentry's — is what
+> a weapon's `speed` says; the bolt flies at 0.7 of it now.
+
+- **`balance::BOLT_PACE`** (0.7) multiplies every bolt's pace in
+  `WeaponStats::pace` (now `pub`), which `Combat::loose` — the one place
+  a bolt is put in the air — reads: the crew's, a sentry's, a machine's,
+  a rail's, a bounced one. The weapons' `speed` rows were left as tuned,
+  so the curve tests and `weapons.ron` did not move. A grenade, a bomb,
+  a Stun Shot and a beam fly by their own clocks and are untouched.
+- **`Bim::moving`** (serde default) is how a body went over the room's
+  last step, `(pos − was) / dt`, set in `simulate` after every body has
+  moved (`carry_the_carried`); a jump of more than four marches a second
+  (a lift, a body put somewhere) is read as nought.
+- **`Game::lead(from, at, weapon)`** is where a machine's bolt is aimed:
+  the Bim whose feet or peek are within a tile of `at` (where the
+  machines saw it, a step old), and the point where it — going on as it
+  went — and a bolt at `pace()` meet (`|at + v t − from| = pace t`, the
+  first `t` ahead, held to the bolt's flight). Nobody there, a body
+  standing, a blade: `at` as it was. `enemy_fire`, `enemy_fire_by` and a
+  machine's bolt at a defended town's own people (`tick_droids`) are led;
+  the hit is rolled against the led point, so the odds are the weapon's
+  and only a change of course turns a hit into a miss. A Lancer's slug
+  is led too, so it leaves a little off its locked line on a body that
+  runs.
+
+`a_machine_leads_a_body_on_the_move` pins the intercept. `SAVE_VERSION`
+118. Meant to alter play: every survivor pin with a bolt in it moves.

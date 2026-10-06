@@ -547,7 +547,8 @@ pub struct WeaponStats {
     /// `range`.
     pub damage: f32,
     pub damage_far: f32,
-    /// How fast the shot flies, in tiles a second.
+    /// How fast the shot flies, in tiles a second, before
+    /// [`balance::BOLT_PACE`] — [`WeaponStats::pace`] is what it flies at.
     pub speed: f32,
     /// Trigger pulls a second.
     pub fire_rate: f32,
@@ -633,13 +634,15 @@ impl WeaponStats {
         }
     }
 
-    /// Range and speed in room units.
+    /// Range in room units.
     pub fn reach(&self) -> f32 {
         self.range * TILE
     }
 
-    fn pace(&self) -> f32 {
-        self.speed * TILE
+    /// The pace a bolt of it flies at, in room units a second: its
+    /// `speed` times [`balance::BOLT_PACE`].
+    pub fn pace(&self) -> f32 {
+        self.speed * TILE * balance::BOLT_PACE
     }
 }
 

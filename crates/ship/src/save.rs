@@ -308,7 +308,9 @@ use crate::game::Game;
 /// (`Run::money_each`).
 /// 117: six more relics (codes 13–18) and a bolt's near and far factors
 /// (`bims::combat::{Skill, Bolt}::{near_damage, far_damage, near, far}`).
-pub const SAVE_VERSION: u32 = 117;
+/// 118: how a Bim went over the room's last step (`bims::bim::Bim::moving`),
+/// what a machine's bolt is led by.
+pub const SAVE_VERSION: u32 = 118;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

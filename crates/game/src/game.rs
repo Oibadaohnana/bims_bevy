@@ -1502,6 +1502,20 @@ impl Game {
         // (feature 86), after the shoving rather than before it, or it
         // would be pushed out of them again.
         self.carry_the_carried();
+        // How each went over the step, all moving done: what a machine's
+        // bolt is led by (`lead`). A body put somewhere else outright — a
+        // lift, a jump onto a deck — went nowhere it will keep going.
+        if dt > 0.0 {
+            let fastest = 4.0 * crate::balance::MARCH_SPEED;
+            for bim in &mut self.bims {
+                let went = (bim.character.pos - bim.character.was) * (1.0 / dt);
+                bim.moving = if went.len() <= fastest {
+                    went
+                } else {
+                    Vec2::ZERO
+                };
+            }
+        }
         // A belief about where the crew are ages, and is given up after a
         // minute unseen.
         for seen in self
@@ -2752,6 +2766,7 @@ impl Game {
                     // At one of this room's own bodies (feature 94): the
                     // bolt flies **here**, hostile, and `Combat::step`
                     // finds the townsperson it was aimed at.
+                    let at = self.lead(eye, at, weapon);
                     self.combat.fire(eye, at, weapon, true, walking);
                 }
             }
@@ -8533,8 +8548,60 @@ impl Game {
     /// An enemy's shot, fired here as a hostile bolt: red, and looking
     /// for this room's own bodies. `from` and `at` in this room's units;
     /// `moving` while the enemy walked as it fired, for the odds.
+    /// Led ([`Game::lead`]) onto where the body there is going.
     pub fn enemy_fire(&mut self, from: Vec2, at: Vec2, weapon: Weapon, moving: bool) {
+        let at = self.lead(from, at, weapon);
         self.combat.fire(from, at, weapon, true, moving);
+    }
+
+    /// Where a machine's bolt from `from` at a body of this room's own
+    /// standing at `at` is aimed (October 2026, the player's word: the
+    /// machines predict where the crew are going): the point where that
+    /// body, going on as it went over the last step ([`Bim::moving`]),
+    /// and a bolt of `weapon` at its pace (`WeaponStats::pace`) meet. A
+    /// body standing still is aimed at where it stands; so is anything at
+    /// `at` that is no Bim — a sentry, a decoy — and a blade. The body is
+    /// the Bim whose feet or peek are nearest `at`, within a tile, since
+    /// where the machines saw it is a step old. Never further ahead than
+    /// the bolt can fly; the hit is rolled against the led point as it
+    /// would be against the body, so the odds are the weapon's and only
+    /// a change of course makes a hit a miss.
+    pub fn lead(&self, from: Vec2, at: Vec2, weapon: Weapon) -> Vec2 {
+        let stats = weapon.stats();
+        let pace = stats.pace();
+        if stats.melee || pace <= 0.0 {
+            return at;
+        }
+        let near = |b: &Bim| {
+            let feet = (b.character.pos - at).len();
+            b.peek.map_or(feet, |p| feet.min((p - at).len()))
+        };
+        let Some(body) = self
+            .bims
+            .iter()
+            .filter(|b| b.is_alive() && !b.gone)
+            .map(|b| (b, near(b)))
+            .filter(|(_, d)| *d <= TILE)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(b, _)| b)
+        else {
+            return at;
+        };
+        let v = body.moving;
+        if v.len() < 1.0 {
+            return at;
+        }
+        // |at + v t - from| = pace t, for the first t ahead.
+        let d = at - from;
+        let a = v.dot(v) - pace * pace;
+        let b = 2.0 * d.dot(v);
+        let c = d.dot(d);
+        let ahead = if a < -1e-3 {
+            (-b - (b * b - 4.0 * a * c).max(0.0).sqrt()) / (2.0 * a)
+        } else {
+            d.len() / pace
+        };
+        at + v * clamp(ahead, 0.0, stats.reach() / pace)
     }
 
     /// [`Game::enemy_fire`] signed with who fired it, by its index on
@@ -8548,6 +8615,7 @@ impl Game {
         moving: bool,
         shooter: Option<usize>,
     ) {
+        let at = self.lead(from, at, weapon);
         self.combat.fire_hostile(from, at, weapon, moving, shooter);
     }
 
@@ -12006,6 +12074,36 @@ mod tests {
         assert_eq!(glow_at(&game, far), 0);
     }
 
+    /// A machine's bolt is led (October 2026): at a body going across its
+    /// line it is aimed where the body and a bolt at the weapon's pace
+    /// meet; at one standing still, or at nobody, where it was aimed.
+    #[test]
+    fn a_machine_leads_a_body_on_the_move() {
+        let mut game = room();
+        game.set_autonomous(false);
+        let at = vec2(ROOM_W * 0.5, ROOM_H * 0.5);
+        game.put_for_probe(0, at);
+        let at = game.bim_pos(0);
+        let from = at + vec2(-6.0 * TILE, 0.0);
+        let pistol = WeaponKind::LaserPistol.basic();
+        game.bims[0].moving = Vec2::ZERO;
+        assert_eq!(game.lead(from, at, pistol), at, "standing still");
+        let going = vec2(0.0, 200.0);
+        game.bims[0].moving = going;
+        let led = game.lead(from, at, pistol);
+        let ahead = (led - at).len() / going.len();
+        assert!(ahead > 0.0 && (led - at).normalize_or_zero().dot(vec2(0.0, 1.0)) > 0.999);
+        let pace = pistol.stats().pace();
+        assert!(
+            ((led - from).len() - pace * ahead).abs() < 0.5,
+            "the bolt and the body get there together"
+        );
+        assert!((pace - 18.0 * TILE * crate::balance::BOLT_PACE).abs() < 1e-3);
+        // Nobody stands at a point a tile and more off.
+        let empty = at + vec2(0.0, -3.0 * TILE);
+        assert_eq!(game.lead(from, empty, pistol), empty, "nobody there");
+    }
+
     /// A body downed keeps its gun (task 113: a loadout is never
     /// dropped), holstered, is nobody's target — a bolt flies over it —
     /// and comes round with the gun still in its hand.
@@ -14397,9 +14495,11 @@ mod tests {
         game.order(0, control(PI / 2.0, true));
         let (mut fired, mut hits) = (0, 0);
         for _ in 0..180 {
-            let before = game.bolts_in_flight();
+            // Counted at the trigger: a slower bolt (`BOLT_PACE`) can
+            // strike the wall the step the next leaves the muzzle.
+            let before = game.bims[0].shots;
             game.simulate(DT);
-            fired += usize::from(game.bolts_in_flight() > before);
+            fired += (game.bims[0].shots - before) as usize;
             hits += game.take_hits().len();
         }
         assert!(
@@ -14875,9 +14975,9 @@ mod tests {
         );
         let mut fired = 0;
         for _ in 0..30 {
-            let before = game.bolts_in_flight();
+            let before = game.bims[0].shots;
             game.simulate(DT);
-            fired += usize::from(game.bolts_in_flight() > before);
+            fired += (game.bims[0].shots - before) as usize;
         }
         assert!(fired > 0, "walking it fires again");
     }
@@ -14962,7 +15062,12 @@ mod tests {
             assert_eq!(game.take_wounds_taken().len(), 0, "the volley flew past");
         }
         assert_eq!(rolling, 0, "a roll slips every bolt");
-        let standing = volley(&mut game, roll_steps / 2);
+        let mut standing = volley(&mut game, roll_steps / 2);
+        // The bolts fly at `BOLT_PACE`: the last of them land after it.
+        for _ in 0..30 {
+            game.simulate(DT);
+            standing += game.take_wounds_taken().len();
+        }
         assert!(standing > 0, "standing, the same volley lands: {standing}");
     }
 

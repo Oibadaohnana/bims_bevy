@@ -280,6 +280,13 @@ pub struct Bim {
     /// (`Game::order_hand`); everybody else keeps the weapon.
     #[cfg_attr(feature = "serde", serde(default))]
     pub hand: Hand,
+    /// How it went over the room's last step, in room units a second:
+    /// where it stood at the end of the step less where it stood at the
+    /// top, over the step's length (`Game::simulate`). What a machine's
+    /// bolt is **led** by (October 2026, `Game::lead`): aimed where the
+    /// body will be when the bolt gets there, were it to keep going.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub moving: Vec2,
 }
 
 /// The quickselect (task 138): what a player's own Bim holds.
@@ -345,6 +352,7 @@ impl Bim {
             focus: None,
             gone: false,
             hand: Hand::Weapon,
+            moving: Vec2::ZERO,
         }
     }
 
