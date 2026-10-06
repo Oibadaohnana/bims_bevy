@@ -193,8 +193,9 @@
 //! | 4 | 30 | 3.0 tiles | 3 s | 20 s |
 //!
 //! **R, Rampage** (ultimate, active; ready at every mission's start, and
-//! may be used charging): the fire rate up, the damage taken down and full
-//! aim on the move, for its seconds of the mission clock.
+//! may be used charging): the fire rate up, the reload 80% faster
+//! ([`RAMPAGE_RELOAD_SPEED`]), the damage taken down and full aim on the
+//! move, for its seconds of the mission clock.
 //!
 //! | rank | duration | fire rate | damage taken | cooldown |
 //! |---|---|---|---|---|
@@ -935,6 +936,9 @@ pub const RAMPAGE_FIRE_RATE: [f32; 5] = [1.75, 2.125, 2.5, 2.5, 2.875];
 /// Half again in October 2026, with every ability's damage, heal and
 /// buff — the bonus or the cut (was 0.8, 0.75, 0.7, 0.7, 0.65).
 pub const RAMPAGE_DAMAGE_TAKEN: [f32; 5] = [0.70, 0.625, 0.55, 0.55, 0.475];
+/// How much faster a magazine reloads while it runs, at every rank: 80%
+/// (October 2026, the player's).
+pub const RAMPAGE_RELOAD_SPEED: f32 = 1.8;
 /// Seconds of the mission clock from one Rampage to the next, a rank:
 /// half of [`ULTIMATE_COOLDOWN`] (the player halved it).
 pub const RAMPAGE_COOLDOWN: [f64; 5] = [35.0, 30.0, 25.0, 20.0, 17.5];

@@ -693,10 +693,16 @@ impl Trigger {
     /// The clock: the reload runs down every step, aimed or not, and a
     /// magazine being reloaded is full when its seconds run out.
     pub fn tick(&mut self, dt: f32) {
+        self.tick_at(dt, 1.0);
+    }
+
+    /// [`Trigger::tick`] with a reload under way run down `rate` times as
+    /// fast ([`Skill::reload`]); the fire cooldown keeps its own pace.
+    pub fn tick_at(&mut self, dt: f32, rate: f32) {
         self.reload = (self.reload - dt).max(0.0);
         self.began = false;
         if self.reloading > 0.0 {
-            self.reloading -= dt;
+            self.reloading -= dt * rate;
             if self.reloading <= 0.0 {
                 self.reloading = 0.0;
                 self.spent = 0;
@@ -973,6 +979,11 @@ pub struct Skill {
     /// The same past [`balance::FAR_TILES`].
     #[cfg_attr(feature = "serde", serde(default = "one"))]
     pub far_damage: f32,
+    /// How fast a magazine's reload runs down: [`Trigger::tick_at`]'s
+    /// rate — a soldier's Rampage while it runs (×1.8). One for
+    /// everybody else.
+    #[cfg_attr(feature = "serde", serde(default = "one"))]
+    pub reload: f32,
 }
 
 impl Skill {
@@ -1011,6 +1022,7 @@ impl Skill {
         reflect: 0.0,
         near_damage: 1.0,
         far_damage: 1.0,
+        reload: 1.0,
     };
 
     /// The skill for this body's next shot, with `shots` fired before it:
@@ -5633,6 +5645,37 @@ mod tests {
             50,
             "ten a second again"
         );
+    }
+
+    /// A reload ticked at a rate runs down that many times as fast — a
+    /// Rampage's ×1.8 (October 2026) — and the fire cooldown does not.
+    #[test]
+    fn a_reload_ticked_at_a_rate_is_over_that_much_sooner() {
+        let stats = WeaponKind::AutoRifle.basic().stats();
+        let seconds = |rate: f32| {
+            let mut trigger = Trigger::default();
+            trigger.load(WeaponKind::AutoRifle);
+            trigger.spent = 1;
+            assert!(trigger.reload_now(&stats));
+            let dt = 1.0 / 240.0;
+            let mut steps = 0;
+            while trigger.is_reloading() {
+                trigger.tick_at(dt, rate);
+                steps += 1;
+            }
+            assert_eq!(trigger.spent, 0, "full again");
+            steps as f32 * dt
+        };
+        let plain = seconds(1.0);
+        assert!((plain - stats.reload_time).abs() < 0.01, "{plain}");
+        let fast = seconds(1.8);
+        assert!((fast - stats.reload_time / 1.8).abs() < 0.01, "{fast}");
+        let mut trigger = Trigger {
+            reload: 0.5,
+            ..Trigger::default()
+        };
+        trigger.tick_at(0.25, 1.8);
+        assert_eq!(trigger.reload, 0.25, "the fire cooldown at its own pace");
     }
 
     /// Fire `weapon` from `from` at `at` until a shot is rolled a hit —

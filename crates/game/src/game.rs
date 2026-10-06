@@ -1803,8 +1803,10 @@ impl Game {
             .collect();
         self.combat.set_own_cover_dodge(cover_odds);
         for who in 0..self.bims.len() {
+            // A reload under way runs at the skill's pace (a Rampage's).
+            let reload_rate = self.skill(who).reload;
             let bim = &mut self.bims[who];
-            bim.trigger.tick(dt);
+            bim.trigger.tick_at(dt, reload_rate);
             // How a fall back is walked is worked out afresh every step
             // (feature 84): `fall_back_aboard` sets it below for a bot
             // under the order, and the aim turns a sprint into a
@@ -7168,13 +7170,15 @@ impl Game {
         };
         let trigger = &bim.trigger;
         let fire = (trigger.reload.max(0.0), whole);
+        // A reload's seconds counted at the skill's pace (a Rampage's).
+        let rate = skill.reload.max(1e-3);
         let reload = (stats.magazine > 0).then(|| {
             let left = if trigger.loaded == weapon.kind.code() {
                 trigger.reloading.max(0.0)
             } else {
                 0.0
             };
-            (left, stats.reload_time)
+            (left / rate, stats.reload_time / rate)
         });
         Some((fire, reload))
     }

@@ -8970,7 +8970,8 @@ impl World {
     /// The soldier's half of [`World::skill_of`] (task 124), off its four
     /// ranks and nothing else; `Skill::NONE` for anybody else. **Weak
     /// Spot** is the crit chance on every weapon hit; **Rampage**, while it runs,
-    /// the fire rate up, the damage taken down and full aim on the move.
+    /// the fire rate up, the reload faster, the damage taken down and full
+    /// aim on the move.
     fn soldier_skill(&self, who: u32) -> bims::combat::Skill {
         let mut skill = bims::combat::Skill::NONE;
         if !self.is_soldier(who) {
@@ -8985,6 +8986,7 @@ impl World {
             let rank = self.rank_of(who, class::SLOT_R);
             skill.fire_rate *= class::by_rank(class::RAMPAGE_FIRE_RATE, rank).unwrap_or(1.0);
             skill.damage_taken *= class::by_rank(class::RAMPAGE_DAMAGE_TAKEN, rank).unwrap_or(1.0);
+            skill.reload *= class::RAMPAGE_RELOAD_SPEED;
             skill.walking = 1.0;
         }
         skill

@@ -1550,6 +1550,11 @@ fn rampage_fires_faster_takes_less_and_aims_on_the_move_for_its_seconds() {
         let s = world.skill_of(0);
         assert_eq!(s.fire_rate, before.fire_rate * rate, "rank {rank}");
         assert_eq!(s.damage_taken, taken, "rank {rank}");
+        assert_eq!(
+            s.reload,
+            before.reload * 1.8,
+            "rank {rank}: reloads 80% faster"
+        );
         assert_eq!(s.walking, 1.0, "full aim on the move");
         assert_eq!(world.aboard.room.skill_for_probe(0), s);
         // Refused while it runs, and on its cooldown after.
