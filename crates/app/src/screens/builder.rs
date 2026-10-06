@@ -975,6 +975,15 @@ fn frame(
         // — and everybody is told: the same Start on every machine.
         if online.is_online() {
             online.begin();
+            // The wave numbers too, though nobody moved a dial: left to
+            // each machine they are its own `scaling.ron`, and a game
+            // started away from the tree has none (the constants) — two
+            // machines laying different waves part at the first, and the
+            // guest is sent the whole world mid-fight. The host's file,
+            // dealt with the rest; it no longer moves this run.
+            if settings.difficulty.is_none() {
+                settings.difficulty = Some(crate::wavecfg::file_dials());
+            }
             let slots = online.deal();
             settings.players = slots.len().max(1) as u32;
             settings.slot = online.my_slot();
