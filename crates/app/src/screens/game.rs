@@ -276,6 +276,9 @@ pub struct GameScreen {
     /// A won fight's money flying onto the map's money (October 2026),
     /// while it does.
     payout: Option<super::fightwon::Payout>,
+    /// The machines down lately, flying as red dots into the top count
+    /// (October 2026, `super::killdots`).
+    kills: super::killdots::KillDots,
 }
 
 /// How long one of those numbers is in the air, and the shortest gap
@@ -1143,6 +1146,7 @@ impl GameScreen {
             world_map: super::worldmap::WorldMap::default(),
             fight: super::fightwon::FightTally::default(),
             payout: None,
+            kills: super::killdots::KillDots::default(),
         }
     }
 
@@ -1778,6 +1782,7 @@ fn frame(
                 _ => false,
             };
             screen.fight.note(&event, theirs);
+            screen.kills.note(&event);
             if theirs {
                 screen.log.push(crate::names::MANUFACTURER_DOWN.to_string());
             } else if let Some(line) = event_line(event) {
@@ -1823,6 +1828,8 @@ fn frame(
                 screen.blackout = BLACKOUT_HOLD;
             }
         }
+        // The machines down this frame set off for the top count.
+        screen.kills.follow(&game.world, now);
         // The experience the player's own Bim gained since last frame, a
         // line of the log gathered a second at a time by what it was for
         // (feature 107). The world says a level and not the points, so
@@ -3226,7 +3233,16 @@ fn frame(
         let cells = hud::portraits_of(world, local, game.spectate);
         let (faces, press) = hud::portraits(&ctx, area.min + egui::vec2(MARGIN, MARGIN), &cells);
         portrait_press = press;
-        let top = hud::top_frame(&ctx, area, faces.max.x, world, local, &threats, paused);
+        let top = hud::top_frame(
+            &ctx,
+            area,
+            faces.max.x,
+            world,
+            local,
+            &threats,
+            paused,
+            &mut screen.kills,
+        );
         let mut top_foot = top.max.y;
         if out {
             top_foot = hud::out_banner(
@@ -4238,6 +4254,17 @@ fn frame(
                 ((now - reward.born) / REWARD_SECONDS) as f32,
             );
         }
+        // And every machine down flying into the top count as a red dot,
+        // from where it fell.
+        screen.kills.paint(
+            &ctx,
+            |who| {
+                let (x, y) = ship::world_paint::resident_on_screen(game, who);
+                let p = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+                Some(egui::pos2(p.x, p.y))
+            },
+            now,
+        );
         // The charge bar over every tile being worked (feature 91): an
         // engineer laying a kit, or anybody putting a site together. It
         // stands on the tile rather than over the builder, because what

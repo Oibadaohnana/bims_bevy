@@ -768,9 +768,10 @@ pub struct AreaCount {
 }
 
 /// What the count at the top says (`droid_line`'s figures, without its
-/// words). `None` where nobody holds the place.
-pub fn counter(world: &world::World) -> Option<Counter> {
-    let standing = world.droids_standing();
+/// words). `None` where nobody holds the place. `flying` machines down
+/// are still counted standing until their dots land (`super::killdots`).
+pub fn counter(world: &world::World, flying: u32) -> Option<Counter> {
+    let standing = world.droids_standing() + flying;
     let up = |n: u32| Some((n.to_string(), theme::BAD));
     let counting = |due: f64| Some((crate::format::countdown(due), theme::CAUTION));
     let down = || Some(("0".to_string(), theme::MUTED));
@@ -918,7 +919,10 @@ const CORE_BAR_W: f32 = 180.0;
 /// waiting on the site, every warning up and what it means) is in the
 /// tooltip of the count. Never left of `clear`, which is the portraits'
 /// right edge. The rectangle it took; an empty one at the top centre
-/// with nothing to show.
+/// with nothing to show. The machines down lately fly into the count as
+/// red dots, which it says where it stands and which light it and shake
+/// it a little as each lands (`kills`).
+#[allow(clippy::too_many_arguments)]
 pub fn top_frame(
     ctx: &egui::Context,
     canvas: egui::Rect,
@@ -927,8 +931,11 @@ pub fn top_frame(
     local: u32,
     threats: &[Threat],
     paused: bool,
+    kills: &mut super::killdots::KillDots,
 ) -> egui::Rect {
-    let count = counter(world);
+    let now = ctx.input(|i| i.time);
+    let count = counter(world, kills.pending());
+    kills.aim_at(None);
     let centre = (canvas.min.x + canvas.max.x) / 2.0;
     if count.is_none() && !paused {
         return egui::Rect::from_min_size(
@@ -955,12 +962,20 @@ pub fn top_frame(
                             ui.spacing_mut().item_spacing.x = 12.0;
                             if let Some((big, colour)) = count.as_ref().and_then(|c| c.big.as_ref())
                             {
-                                ui.label(
-                                    egui::RichText::new(big)
-                                        .size(COUNT_SIZE)
-                                        .strong()
-                                        .color(*colour),
+                                // Brighter and shaken a little the moment
+                                // a dot lands.
+                                let (glow, shake) = kills.pulse(now);
+                                let colour =
+                                    colour.lerp_to_gamma(egui::Color32::WHITE, 0.35 * glow);
+                                let galley = ui.painter().layout_no_wrap(
+                                    big.clone(),
+                                    egui::FontId::proportional(COUNT_SIZE),
+                                    colour,
                                 );
+                                let (rect, _) =
+                                    ui.allocate_exact_size(galley.size(), egui::Sense::hover());
+                                ui.painter().galley(rect.min + shake, galley, colour);
+                                kills.aim_at(Some(rect));
                             }
                             if let Some((wave, waves)) = count.as_ref().and_then(|c| c.wave) {
                                 ui.label(

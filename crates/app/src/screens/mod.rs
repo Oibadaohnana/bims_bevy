@@ -9,6 +9,7 @@ pub mod fightwon;
 pub mod floormap;
 pub mod game;
 pub mod hud;
+pub mod killdots;
 pub mod loading;
 pub mod station;
 pub mod worldmap;
