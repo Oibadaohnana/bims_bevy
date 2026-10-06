@@ -274,6 +274,11 @@ pub struct GameScreen {
     /// (`super::fightwon`): the screen that comes up when the site is
     /// cleared.
     fight: super::fightwon::FightTally,
+    /// The `heart` command's class picker is up (October 2026): the
+    /// player's class is chosen at the trader under the Heart, and the
+    /// class picked waits here for the frame to hand it to the world.
+    pick_class: bool,
+    class_picked: Option<world::Class>,
     /// A won fight's money flying onto the map's money (October 2026),
     /// while it does.
     payout: Option<super::fightwon::Payout>,
@@ -1034,11 +1039,38 @@ fn open(
         }
     };
     let mut screen = GameScreen::fresh(slot, players);
+    // The `heart` command opened at the trader under the Heart: the class
+    // is picked first (October 2026).
+    screen.pick_class = *launch == Launch::Heart && crate::dev::heart_phase().is_none();
     screen.net.wire = online.wire();
     if retried.is_some() {
         screen.log.push(RETRY_DONE.into());
     }
     commands.insert_resource(screen);
+}
+
+/// The `heart` command's class picker (October 2026): a class a button,
+/// over everything, until one is picked.
+fn class_picker(ctx: &egui::Context, open: &mut bool, picked: &mut Option<world::Class>) {
+    egui::Window::new(HEART_CLASS_TITLE)
+        .collapsible(false)
+        .resizable(false)
+        .order(egui::Order::Foreground)
+        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+        .show(ctx, |ui| {
+            ui.label(egui::RichText::new(HEART_CLASS_NOTE).small());
+            ui.add_space(6.0);
+            for class in world::Class::ALL
+                .into_iter()
+                .filter(|&c| c != world::Class::None)
+            {
+                let b = egui::Button::new(class_name(class)).min_size(egui::vec2(220.0, 30.0));
+                if ui.add(b).on_hover_text(class_tip(class)).clicked() {
+                    *picked = Some(class);
+                    *open = false;
+                }
+            }
+        });
 }
 
 /// The map is the floor (October 2026, `world::floor`) in every run the
@@ -1152,6 +1184,8 @@ impl GameScreen {
             bars: crate::healthbars::HealthBars::default(),
             world_map: super::worldmap::WorldMap::default(),
             fight: super::fightwon::FightTally::default(),
+            pick_class: false,
+            class_picked: None,
             payout: None,
             kills: super::killdots::KillDots::default(),
         }
@@ -1225,6 +1259,13 @@ fn frame(
         return Ok(());
     }
     remember_mission(&mut mission_start, session, screen.net.is_clock());
+    // The `heart` command's class, picked last frame.
+    if let Some(class) = screen.class_picked.take()
+        && let Some(game) = session.game.as_mut()
+    {
+        game.world
+            .pick_class_for_probe(screen.net.slot, class, bims::combat::Tier::Three);
+    }
     // The log's clock first: a line said this frame is stamped with it.
     screen.log.tick(now);
 
@@ -3491,6 +3532,9 @@ fn frame(
     );
     eyed.line = on_line.line;
     online.say_choice(eyed);
+    if screen.pick_class {
+        class_picker(&ctx, &mut screen.pick_class, &mut screen.class_picked);
+    }
 
     // What the HUD asked for: the orders now, off the world as it stands,
     // and the windows once it is let go of.

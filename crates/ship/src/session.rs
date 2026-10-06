@@ -733,6 +733,8 @@ impl Session {
         let world = &mut game.world;
         world.set_wave_scaling(scaling);
         world.outfit_for_probe(bims::combat::Tier::Three);
+        // A shelf that never runs out: buy until the tier is three.
+        world.set_endless_shelf_for_probe(true);
         if let Some(n) = waves {
             world.set_droid_waves_for_probe(n);
         }

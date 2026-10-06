@@ -624,6 +624,10 @@ pub const DIFFICULTY_SAVED: &str = "Saved into scaling.ron.";
 pub fn difficulty_not_saved(why: &str) -> String {
     format!("Not saved: {why}")
 }
+/// The `heart` command's class picker (October 2026).
+pub const HEART_CLASS_TITLE: &str = "Choose your class";
+pub const HEART_CLASS_NOTE: &str =
+    "• Top level, every point to spend\n• Tier-3 kit, the shelf never runs out";
 /// What the run's first wave comes to, for the players in the lobby.
 pub fn first_wave_line(machines: u32, players: u32) -> String {
     let who = if players == 1 {

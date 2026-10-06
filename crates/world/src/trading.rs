@@ -339,7 +339,9 @@ impl World {
             events.push(refused(slot, Refusal::Unaffordable));
             return;
         }
-        self.run.traders[at].shelf[index as usize] = None;
+        if !self.endless_shelf {
+            self.run.traders[at].shelf[index as usize] = None;
+        }
         // Bought, every later shelf of the player's sells that kind — and
         // that kind alone — a tier past it (October 2026).
         let slot_at = slot as usize;
@@ -386,6 +388,13 @@ impl World {
             _ => {
                 self.holdings.put(slot, thing);
             }
+        }
+        // A shelf that never runs out (the `heart` command's) puts the
+        // kind up again at once, a tier past what was bought.
+        if self.endless_shelf {
+            let owner = self.run.traders[at].owner;
+            let shelf = self.shelf_for(owner);
+            self.run.traders[at].restock(shelf);
         }
         events.push(WorldEvent::ShelfBought {
             slot,
@@ -446,6 +455,9 @@ impl World {
     /// Whether player `slot` has bought the item of `kind` (its code) off
     /// its trader this visit: sold out until the next.
     pub fn item_sold(&self, slot: u32, kind: u32) -> bool {
+        if self.endless_shelf {
+            return false;
+        }
         self.trader_here(slot)
             .is_some_and(|t| t.items_sold.contains(&kind))
     }
@@ -499,7 +511,7 @@ impl World {
             events.push(refused(slot, Refusal::NotAtATrader));
             return;
         };
-        if self.run.traders[at].items_sold.contains(&kind) {
+        if !self.endless_shelf && self.run.traders[at].items_sold.contains(&kind) {
             events.push(refused(slot, Refusal::SoldOut));
             return;
         }

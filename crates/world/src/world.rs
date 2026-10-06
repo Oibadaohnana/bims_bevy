@@ -837,6 +837,12 @@ pub struct World {
     /// `machines_forced` is.
     #[cfg_attr(feature = "serde", serde(default))]
     area_defense_off: bool,
+    /// The `heart` command's word (October 2026): a trader's shelf never
+    /// runs out — a thing bought is on it again, the kind a tier up, and an
+    /// item may be bought or upgraded again and again in one visit. Saved
+    /// so a restart keeps it, and not hashed.
+    #[cfg_attr(feature = "serde", serde(default))]
+    endless_shelf: bool,
     /// Where the machines began (feature 92): the one star the crisis
     /// spreads out from, rolled once at [`World::start`]
     /// ([`droidplan::origin`]) at least [`data::DROID_ORIGIN_MIN_HOPS`]
@@ -1267,6 +1273,7 @@ impl World {
             droid_kinds_forced: None,
             machines_forced: false,
             area_defense_off: false,
+            endless_shelf: false,
             droid_origin,
             droid_hops,
             home_hops,
@@ -7400,6 +7407,30 @@ impl World {
     /// sets out with goes into, or comes out of, its pack: an engineer's
     /// kits, a soldier's rifle, pistol and grenades. A change from one
     /// class to another takes the old kit out and puts the new one in.
+    /// The `heart` command's class pick (October 2026): `slot`'s class
+    /// whatever has happened — the lock a berth left puts on it is not
+    /// asked — its kit changed over, the top level reached with every
+    /// point to spend, and the kit at `tier` again.
+    pub fn pick_class_for_probe(&mut self, slot: u32, class: Class, tier: Tier) {
+        if slot >= self.players() || slot as usize >= self.classes.len() {
+            return;
+        }
+        let was = self.classes[slot as usize];
+        self.classes[slot as usize] = class;
+        self.change_class_kit(slot as usize, was, class);
+        let top = class::LEVEL_XP[class::LEVELS as usize - 1];
+        let have = self.progress.get(slot as usize).map_or(0, |p| p.xp);
+        let mut events = Vec::new();
+        self.award(slot as usize, top.saturating_sub(have), &mut events);
+        self.outfit_for_probe(tier);
+    }
+
+    /// The `heart` command's shelf that never runs out
+    /// ([`World::endless_shelf`]).
+    pub fn set_endless_shelf_for_probe(&mut self, on: bool) {
+        self.endless_shelf = on;
+    }
+
     pub fn set_class(&mut self, slot: u32, class: Class) -> Result<(), Refusal> {
         if slot >= self.players() || slot as usize >= self.classes.len() {
             return Err(Refusal::NotAboard);
