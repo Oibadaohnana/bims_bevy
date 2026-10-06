@@ -63,8 +63,8 @@
 (
     enemies_per_player: 3,
     enemies_per_bot: 1.0,
-    area_0: (days: 5, growth_per_day: 0.5, waves: 1, bombers: 0, lancers: 0, guardians: 0, elites: 0, defenders: 2),
-    tier_1_area: (days: 14, growth_per_day: 0.5, waves: 1, bombers: 0, lancers: 0, guardians: 1, elites: 0, defenders: 4),
-    tier_2_area: (days: 9, growth_per_day: 0.5, waves: 2, bombers: 2, lancers: 1, guardians: 1, elites: 1, defenders: 6),
-    tier_3_area: (days: 3, growth_per_day: 0.5, waves: 2, bombers: 2, lancers: 2, guardians: 1, elites: 1, defenders: 8),
+    area_0: (days: 5, growth_per_day: 0.52, waves: 1, bombers: 0, lancers: 0, guardians: 0, elites: 0, defenders: 2),
+    tier_1_area: (days: 14, growth_per_day: 0.52, waves: 1, bombers: 0, lancers: 0, guardians: 1, elites: 0, defenders: 4),
+    tier_2_area: (days: 9, growth_per_day: 0.52, waves: 2, bombers: 2, lancers: 1, guardians: 1, elites: 1, defenders: 6),
+    tier_3_area: (days: 3, growth_per_day: 0.52, waves: 2, bombers: 2, lancers: 2, guardians: 1, elites: 1, defenders: 8),
 )
