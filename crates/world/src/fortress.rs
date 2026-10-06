@@ -269,9 +269,10 @@ impl World {
             return;
         };
         let now = self.run.mission_steps;
-        // Every conduit shot down since the last step brings its Guardians
-        // in by the airlocks, on top of whatever is still standing: one for
-        // the first, two for the second, and so on (October 2026).
+        // Every conduit shot down since the last step brings a wave and its
+        // Guardians in by the airlocks, on top of whatever is still
+        // standing: one Guardian for the first, two for the second, and so
+        // on (October 2026).
         let down = self.residents.as_ref().map_or(0, |r| {
             r.aboard
                 .room
@@ -283,7 +284,7 @@ impl World {
         let mut links_down = fight.links_down;
         while links_down < down {
             links_down += 1;
-            self.conduit_guardians(id, links_down, events);
+            self.conduit_wave(id, links_down, events);
         }
         let mut phase = fight.phase;
         let mut next_build = fight.next_build;
@@ -333,13 +334,18 @@ impl World {
         self.tell_the_heart(phase);
     }
 
-    /// The Guardians for the `link`-th conduit shot down (October 2026):
-    /// [`heart::guardians_for_link`] of them at tier three — one for the
-    /// first, two for the second, and so on — in by the next airlock in
-    /// turn and looking for the crew, like a reinforcement, **added** to
-    /// the deck, never clearing it, and counted as a wave of the station's
-    /// (`Infestation::wave`). The fortress has no other waves.
-    fn conduit_guardians(&mut self, id: u32, link: u32, events: &mut Vec<WorldEvent>) {
+    /// The wave and the Guardians for the `link`-th conduit shot down
+    /// (October 2026, the player's: "for the heart everytime you destroy a
+    /// link a wave should spawn"): a wave of the day's size and kinds
+    /// ([`World::droid_wave_size`], [`World::wave_kinds_for`] — the
+    /// tier-three area's Bombers and Lancers on top), every machine at
+    /// tier three, and [`heart::guardians_for_link`] Guardians with it —
+    /// one for the first, two for the second, and so on — all in by the
+    /// next airlock in turn and looking for the crew, like a
+    /// reinforcement, **added** to the deck, never clearing it, and
+    /// counted as a wave of the station's (`Infestation::wave`). The
+    /// fortress has no waves by the clock.
+    fn conduit_wave(&mut self, id: u32, link: u32, events: &mut Vec<WorldEvent>) {
         let Some(station) = self.station(id).cloned() else {
             return;
         };
@@ -349,31 +355,16 @@ impl World {
         }) else {
             return;
         };
-        let n = heart::guardians_for_link(link);
-        let Some((spots, facing)) = self.arrival_spots(&station, n, wave) else {
+        let mut kinds = self.wave_kinds_for(self.droid_wave_size(), wave);
+        let guardians = heart::guardians_for_link(link);
+        kinds.extend(std::iter::repeat_n(DroidKind::Guardian, guardians as usize));
+        let Some((spots, facing)) = self.arrival_spots(&station, kinds.len() as u32, wave) else {
             return;
         };
-        let arriving: Vec<Droid> = spots
-            .iter()
-            .enumerate()
-            .map(|(i, &at)| {
-                let mut d = Droid::new(
-                    DroidKind::Guardian,
-                    Tier::Three,
-                    i,
-                    wave,
-                    at,
-                    facing,
-                    station.map_seed ^ 0x_6A2D ^ (i as u64) << 8 ^ u64::from(wave),
-                );
-                self.toughen_by_relics(&mut d);
-                // Staggered planning, as `build_wave` staggers a wave's.
-                d.plan_wait = bims::game::PLAN_EVERY * (i as f32) / (n.max(1) as f32);
-                d.breach_wait = d.plan_wait;
-                d.seeking = true;
-                d
-            })
-            .collect();
+        let mut arriving = self.build_wave(kinds, wave, &spots, facing, station.map_seed ^ 0x_6A2D);
+        for d in &mut arriving {
+            d.seeking = true;
+        }
         if let Some(residents) = &mut self.residents {
             residents
                 .aboard

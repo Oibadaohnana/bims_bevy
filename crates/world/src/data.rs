@@ -260,7 +260,8 @@ pub const TIER_3_AREA: crate::droid::Area = crate::droid::Area {
 /// (October 2026; the player's words: "first 1 guardian, then 2 all the
 /// way up to 5 when the last link is destroyed"): this many times the
 /// conduit's place in the order they fell — the first one, the second
-/// two. The fortress has no waves besides (`heart::guardians_for_link`).
+/// two — beside the day's wave every conduit brings (`World::conduit_wave`,
+/// `heart::guardians_for_link`). No wave comes by the clock.
 pub const HEART_GUARDIANS_PER_LINK: u32 = 1;
 /// How long after the last machine of a wave is destroyed the next one
 /// arrives, in steps of the **mission clock** (feature 103) — fifteen

@@ -4891,17 +4891,23 @@ and the rules; `fortress.rs` (a child of `world`, like `mission.rs` and
   wave lays nothing but the Heart's machines (`settle_droids`) and
   `droid_waves` brings none by the clock at a site with a `heart` — an
   older save's `waves_left` too; `data::HEART_WAVES` and
-  `World::heart_wave_count` went. (`heart_step`, `conduit_guardians`):
+  `World::heart_wave_count` went. (`heart_step`, `conduit_wave`):
   the k-th conduit a wreck past `HeartFight::links_down` (saved, hashed,
-  serde default) is `heart::guardians_for_link(k)` Guardians
-  (`data::HEART_GUARDIANS_PER_LINK` × k) at tier three in by the next
-  airlock in turn (`arrival_spots`), looking for the crew like a reinforcement —
+  serde default) is **a wave** — `droid_wave_size` of the day's kinds
+  (`wave_kinds_for`, the tier-three area's Bombers and Lancers on top),
+  put up by `build_wave`, every machine tier three — **and**
+  `heart::guardians_for_link(k)` Guardians
+  (`data::HEART_GUARDIANS_PER_LINK` × k) with it, all in by the next
+  airlock in turn (`arrival_spots`), looking for the crew like a
+  reinforcement (October 2026, the player's: "for the heart everytime
+  you destroy a link a wave should spawn"; for a while it was the
+  Guardians alone) —
   **added** to the deck, never clearing it, whatever still stands —
   counted on `Infestation::wave` (the waves still to come by the clock,
   `waves_left`, untouched) and said as `DroidReinforcements`. A conduit
   laid a wreck (a room built afresh past the seal) and the probe's
   `set_heart_phase_for_probe` count as answered.
-  `every_conduit_shot_down_brings_its_guardians`. **`SAVE_VERSION` 70,
+  `every_conduit_shot_down_brings_a_wave_and_its_guardians`. **`SAVE_VERSION` 70,
   `wire::PROTOCOL` 72; the Guardians `wire::PROTOCOL` 132.**
 - **Waves come in by every airlock but the crew's in turn**
   (`droid::arrival_airlock_at`), and the lander is drawn at the one they

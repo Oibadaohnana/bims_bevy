@@ -247,12 +247,13 @@ fn the_core_takes_nothing_while_a_conduit_stands() {
 }
 
 /// **No wave stands in the fortress, and every conduit shot down brings
-/// its Guardians** in by the airlocks, on top of whatever still stands —
-/// one for the first, two for the second and three for the third (two
-/// downed in one step bring both their lots), none for a conduit already
-/// answered — and no wave comes by the clock, however long it is quiet.
+/// a wave and its Guardians** in by the airlocks, on top of whatever
+/// still stands — the day's wave each time, with one Guardian for the
+/// first, two for the second and three for the third (two downed in one
+/// step bring both their lots), none for a conduit already answered —
+/// and no wave comes by the clock, however long it is quiet.
 #[test]
-fn every_conduit_shot_down_brings_its_guardians() {
+fn every_conduit_shot_down_brings_a_wave_and_its_guardians() {
     let mut world = at_the_heart(1, 2);
     laid(&mut world);
     let machines = |world: &mut World| {
@@ -280,7 +281,12 @@ fn every_conduit_shot_down_brings_its_guardians() {
         "they are said"
     );
     assert_eq!(world.droid_wave_standing(), Some((wave + 1, 0)));
-    assert_eq!(machines(&mut world), vec![DroidKind::Guardian]);
+    let guardians =
+        |kinds: &[DroidKind]| kinds.iter().filter(|&&k| k == DroidKind::Guardian).count();
+    let came = machines(&mut world);
+    assert_eq!(guardians(&came), 1, "one Guardian for the first");
+    let a_wave = came.len() - 1;
+    assert!(a_wave >= 1, "and a wave with it: {came:?}");
     assert_eq!(world.heart_fight().unwrap().links_down, 1);
     let events = world.step(&[]);
     assert!(
@@ -295,13 +301,13 @@ fn every_conduit_shot_down_brings_its_guardians() {
     assert_eq!(world.droid_wave_standing(), Some((wave + 3, 0)));
     assert_eq!(world.heart_fight().unwrap().links_down, 3);
     let came = machines(&mut world);
-    assert_eq!(came.len(), 1 + 2 + 3, "two and then three more came");
-    assert!(came.iter().all(|&k| k == DroidKind::Guardian));
+    assert_eq!(guardians(&came), 1 + 2 + 3, "two and then three more came");
+    assert_eq!(came.len(), 1 + 2 + 3 + 3 * a_wave, "each with its wave");
     let room = room(&mut world);
     assert!(
         (0..room.droid_count() as usize)
             .filter_map(|i| room.droid(i))
-            .filter(|d| d.kind == DroidKind::Guardian)
+            .filter(|d| !d.kind.is_structure())
             .all(|d| d.tier == bims::combat::Tier::Three && d.seeking),
         "at tier three, looking for the crew"
     );

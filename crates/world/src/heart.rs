@@ -213,9 +213,9 @@ pub struct HeartFight {
     /// seed, kind and place are read off, so every client builds alike.
     pub built: u32,
     /// How many conduits have been shot down and answered
-    /// (`World::heart_step`): every conduit down past this brings its
-    /// Guardians in by the airlocks ([`guardians_for_link`]), on top of
-    /// whatever stands.
+    /// (`World::heart_step`): every conduit down past this brings a wave
+    /// and its Guardians in by the airlocks ([`guardians_for_link`]), on
+    /// top of whatever stands.
     #[cfg_attr(feature = "serde", serde(default))]
     pub links_down: u32,
 }

@@ -6416,7 +6416,8 @@ impl World {
         // The Machine Heart's own go on the deck first (feature 108), so
         // they keep the front of the list through every wave after — and
         // in its fortress they are the whole deck: no wave stands there,
-        // its Guardians come for its conduits shot down (October 2026).
+        // a wave and its Guardians come for each conduit shot down
+        // (October 2026, `World::conduit_wave`).
         let heart = self.heart_machines_to_lay(&station);
         if let Some(residents) = &mut self.residents {
             residents
