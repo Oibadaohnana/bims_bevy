@@ -859,9 +859,10 @@ fn the_wave_at_a_defence_is_the_wave_with_a_machine_for_each_defender() {
 /// **The defenders keep pace with the machines**: each is armed at the
 /// tier the run day deals the enemies (`World::defender_tiers`, the
 /// machines' own shares) — a hired hand's kit lifted to it — so at the
-/// first day's tier one they carry exactly what they always did, and with
-/// every tier timing at nought every gun and every armour worn is tier
-/// three.
+/// first day's tier one they carry exactly what they always did; in the
+/// tier-two zone every one carries a tier-two gun and wears tier-two
+/// armour, the kit's one-in-two roll for armour or not (October 2026), and
+/// with every tier timing at nought the same at tier three.
 #[test]
 fn the_defenders_are_armed_at_the_day_s_tier() {
     use bims::combat::{Gear, Tier};
@@ -889,27 +890,32 @@ fn the_defenders_are_armed_at_the_day_s_tier() {
             "{who}"
         );
     }
-    // The same site with every tier timing at nought, the room opened
-    // again under the new dials before the defence begins (a defence
-    // running keeps its room).
-    let mut world = basic();
-    world.set_wave_scaling(crate::droid::WaveScaling {
-        tier2_days: 0,
-        tier3_days: 0,
-        ..crate::droid::WaveScaling::DEFAULT
-    });
-    world.set_quiet_sites_for_probe(true);
-    world.set_quiet_sites_for_probe(false);
-    world.step(&[]);
-    let lifted = defenders(&world);
-    assert_eq!(lifted.len(), first.len());
-    for ((who, before), (_, after)) in first.iter().zip(&lifted) {
-        let weapon = after.weapon.expect("armed");
-        assert_eq!(weapon.kind, before.weapon.unwrap().kind, "{who}'s gun");
-        assert_eq!(weapon.tier, Tier::Three, "{who}'s gun");
-        assert_eq!(after.armour.is_some(), before.armour.is_some(), "{who}");
-        if let Some(piece) = after.armour {
-            assert_eq!(piece.tier, Tier::Three, "{who}'s armour");
+    // The same site in the tier-two zone and then the tier-three one, the
+    // room opened again under the new dials before the defence begins (a
+    // defence running keeps its room).
+    assert!(
+        first.iter().any(|(_, gear)| gear.armour.is_none()),
+        "a tier-one defender may go unarmoured, so the test shows the lift"
+    );
+    for (tier3_days, tier) in [(1_000, Tier::Two), (0, Tier::Three)] {
+        let mut world = basic();
+        world.set_wave_scaling(crate::droid::WaveScaling {
+            tier2_days: 0,
+            tier3_days,
+            ..crate::droid::WaveScaling::DEFAULT
+        });
+        world.set_quiet_sites_for_probe(true);
+        world.set_quiet_sites_for_probe(false);
+        world.step(&[]);
+        assert_eq!(world.zone_tier(), tier);
+        let lifted = defenders(&world);
+        assert_eq!(lifted.len(), first.len());
+        for ((who, before), (_, after)) in first.iter().zip(&lifted) {
+            let weapon = after.weapon.expect("armed");
+            assert_eq!(weapon.kind, before.weapon.unwrap().kind, "{who}'s gun");
+            assert_eq!(weapon.tier, tier.max(weapon.kind.min_tier()), "{who}'s gun");
+            let piece = after.armour.expect("armoured from tier two");
+            assert_eq!(piece.tier, tier, "{who}'s armour");
         }
     }
 }

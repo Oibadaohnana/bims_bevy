@@ -1051,9 +1051,13 @@ impl core::fmt::Debug for Residents {
 /// tier — the day's share of the enemies' tiers, dealt the defenders
 /// the same way (`World::defender_tiers`). Never below what the roll made
 /// it (a minigun is tier two at the least), and at tier one the kit
-/// exactly.
+/// exactly. From tier two a defender always wears armour at the tier
+/// (October 2026): the kit's one-in-two roll for it is tier one's alone.
 pub fn defender_gear(seed: u64, piece_id: u32, tier: Tier) -> Gear {
     let mut gear = Gear::armed_for(seed, piece_id);
+    if tier >= Tier::Two && gear.armour.is_none() {
+        gear.armour = Some(Piece::new(piece_id, bims::combat::ArmourKind::Armour, tier));
+    }
     if let Some(weapon) = gear.weapon.as_mut()
         && tier > weapon.tier
     {

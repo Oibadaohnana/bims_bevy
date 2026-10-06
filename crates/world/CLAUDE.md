@@ -6825,6 +6825,12 @@ place of** it for a run) is eight dials, every one read off
   any armour it wears lifted to the tier, never lowered (a minigun stays
   two), and at tier one the kit exactly. The tiers are
   read when the room opens; a running defence keeps its room.
+  **From tier two a defender is always armoured** (October 2026, the
+  player's: "friendly defenders in tier 2 should always spawn with tier 2
+  armor and weapon"): `defender_tiers` never deals below
+  `World::zone_tier` (the floor's zone off `tier2_days`/`tier3_days`),
+  and `defender_gear` at tier two or three puts on armour at the tier
+  where the kit's one-in-two roll left none (tier one keeps the roll).
   `the_defenders_are_armed_at_the_day_s_tier` (`tests_defense.rs`);
   `wire::PROTOCOL` 93.
 - **a site's tier** said on the map, the chart and in the checksum is

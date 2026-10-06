@@ -5724,9 +5724,17 @@ impl World {
     /// The tier of each of `n` **defenders** a site fields, in their
     /// order: the enemies' own shares of the run day
     /// ([`World::machine_tiers`]) — the friendly side keeps pace with the
-    /// machines it holds off — and the probes' dial where it is set.
+    /// machines it holds off — and the probes' dial where it is set. Never
+    /// below the floor's zone ([`World::zone_tier`], October 2026, the
+    /// player's: "friendly defenders in tier 2 should always spawn with
+    /// tier 2 armor and weapon"): from the scaling's `tier2_days` every one
+    /// is tier two at the least, from `tier3_days` tier three.
     pub fn defender_tiers(&self, n: u32) -> Vec<Tier> {
+        let zone = self.zone_tier();
         self.machine_tiers(n)
+            .into_iter()
+            .map(|tier| tier.max(zone))
+            .collect()
     }
 
     /// The tier of the gear each of `n` Manufacturers carries, in their
