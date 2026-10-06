@@ -92,7 +92,7 @@ impl Tuning for WaveScaling {
     const UNTUNED: Self = WaveScaling::DEFAULT;
     fn describe(&self) -> String {
         format!(
-            "{}/player +{} every {} days, {}/bot, a wave more every {} days, tiers by day {}/{}/{}, a bomber per {} and a lancer per {}",
+            "{}/player +{} every {} days, {}/bot, a wave more every {} days, tiers by day {}/{}/{}, a bomber per {} and a lancer per {}, elite guardians {}/{} a player and bombers {}/{}",
             self.enemies_per_player,
             self.day_scaling,
             self.scaling_days,
@@ -102,7 +102,11 @@ impl Tuning for WaveScaling {
             self.tier2_days,
             self.tier3_days,
             self.bomber_every,
-            self.lancer_every
+            self.lancer_every,
+            self.tier2_guardians,
+            self.tier3_guardians,
+            self.tier2_elites,
+            self.tier3_elites
         )
     }
 }
@@ -313,8 +317,12 @@ fn with_difficulty(text: &str, d: WaveScaling) -> Option<String> {
         ("tier3_days", d.tier3_days.to_string()),
         ("bomber_every", d.bomber_every.to_string()),
         ("lancer_every", d.lancer_every.to_string()),
+        ("tier2_guardians", d.tier2_guardians.to_string()),
+        ("tier3_guardians", d.tier3_guardians.to_string()),
+        ("tier2_elites", d.tier2_elites.to_string()),
+        ("tier3_elites", d.tier3_elites.to_string()),
     ];
-    let mut done = [false; 10];
+    let mut done = [false; 14];
     let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
     for line in &mut lines {
         let code = line.split("//").next().unwrap_or("");
@@ -431,6 +439,10 @@ mod tests {
             tier3_days: 50,
             bomber_every: 5,
             lancer_every: 9,
+            tier2_guardians: 2,
+            tier3_guardians: 3,
+            tier2_elites: 0,
+            tier3_elites: 2,
         };
         let text = include_str!("../../../scaling.ron");
         let new = with_difficulty(text, d).unwrap();
@@ -440,7 +452,7 @@ mod tests {
             .zip(new.lines())
             .filter(|(a, b)| a != b)
             .count();
-        assert!(changed <= 10, "{changed} lines changed");
+        assert!(changed <= 14, "{changed} lines changed");
         assert_eq!(text.lines().count(), new.lines().count());
         // A comment after the number stays, and a field left out is put in.
         let new = with_difficulty("(\n    enemies_per_bot: 1.0, // one\n)\n", d).unwrap();

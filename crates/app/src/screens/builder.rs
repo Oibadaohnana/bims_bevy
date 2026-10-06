@@ -225,7 +225,7 @@ impl Net {
         let now = SettingsWire::of(settings);
         if again || self.pushed != Some(now) {
             self.pushed = Some(now);
-            online.send(To::All, &Packet::Settings(now));
+            online.send(To::All, &Packet::Settings(Box::new(now)));
         }
     }
 }
@@ -992,7 +992,7 @@ fn frame(
             online.send(
                 To::All,
                 &Packet::Start {
-                    settings: SettingsWire::of(settings),
+                    settings: Box::new(SettingsWire::of(settings)),
                     slots,
                     names,
                     hair,
@@ -1430,6 +1430,19 @@ fn difficulty_rows(
             for (name, note, value) in [
                 (BOMBER_EVERY, bomber_note.as_str(), &mut d.bomber_every),
                 (LANCER_EVERY, lancer_note.as_str(), &mut d.lancer_every),
+                // An elite fight's in the tier-two and tier-three zones.
+                (
+                    TIER2_GUARDIANS,
+                    ELITE_GUARDIANS_NOTE,
+                    &mut d.tier2_guardians,
+                ),
+                (
+                    TIER3_GUARDIANS,
+                    ELITE_GUARDIANS_NOTE,
+                    &mut d.tier3_guardians,
+                ),
+                (TIER2_ELITES, ELITE_BOMBERS_NOTE, &mut d.tier2_elites),
+                (TIER3_ELITES, ELITE_BOMBERS_NOTE, &mut d.tier3_elites),
             ] {
                 count_row(ui, name, note, value, DIFFICULTY_MOST, editable);
             }

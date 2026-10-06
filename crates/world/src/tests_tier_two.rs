@@ -170,3 +170,54 @@ fn a_bomber_s_bomb_and_a_lancer_s_slug_cross_the_seam_and_land_on_the_crew() {
         );
     }
 }
+
+/// An elite fight's dials (October 2026): in the tier-two and tier-three
+/// zones its Guardian wave holds `tier2_guardians` / `tier3_guardians`
+/// Guardians a player and `tier2_elites` / `tier3_elites` Bombers on top
+/// of the wave's own; the tier-one zone keeps one Guardian a tier and no
+/// more Bombers.
+#[test]
+fn an_elite_s_guardians_go_by_the_players_and_its_bombers_by_the_dial() {
+    for (tier, guardians, elites) in [
+        (Tier::One, 4, 3),
+        (Tier::Two, 2, 3),
+        (Tier::Two, 1, 0),
+        (Tier::Three, 3, 1),
+    ] {
+        let (mut world, station) = held_arena(Some(tier), 12);
+        world.set_elite_for_probe(station);
+        let mut scaling = world.scaling();
+        scaling.tier2_guardians = guardians;
+        scaling.tier3_guardians = guardians;
+        scaling.tier2_elites = elites;
+        scaling.tier3_elites = elites;
+        world.set_wave_scaling(scaling);
+        first_wave(&mut world, station);
+        let players = world.players();
+        assert_eq!(players, 1);
+        let (own, _) = if tier >= Tier::Two {
+            world.scaling().tier_two_extras(12)
+        } else {
+            (0, 0)
+        };
+        let first = world.wave_kinds_for(12, 1);
+        assert_eq!(count(&first, DroidKind::Guardian), 0, "{tier:?}: wave one");
+        assert_eq!(count(&first, DroidKind::Bomber), own, "{tier:?}: wave one");
+        let second = world.wave_kinds_for(12, data::ELITE_GUARDIAN_WAVE);
+        let (want_guardians, want_bombers) = if tier >= Tier::Two {
+            (guardians * players, own + elites)
+        } else {
+            (crate::elite::guardians_at(world.droid_tier()), 0)
+        };
+        assert_eq!(
+            count(&second, DroidKind::Guardian),
+            want_guardians,
+            "{tier:?} {guardians}: {second:?}"
+        );
+        assert_eq!(
+            count(&second, DroidKind::Bomber),
+            want_bombers,
+            "{tier:?} {elites}: {second:?}"
+        );
+    }
+}

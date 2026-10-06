@@ -6206,10 +6206,17 @@ impl World {
     /// The kinds of a wave of `n`, its `wave`-th: the probes' forced kinds,
     /// else [`bims::droid::wave_kinds`] with, from the floor's tier-two zone
     /// on ([`World::zone_tier`]), the Bombers and the Lancers on top of it
-    /// (task 157, [`droidplan::WaveScaling::tier_two_extras`]) — and at an
-    /// elite its Guardians put in (one a tier of the site's, `droid_tier`,
-    /// what the map says) and, from the tier-two zone on, its Conductor
-    /// ([`crate::elite::with_conductor`]).
+    /// (task 157, [`droidplan::WaveScaling::tier_two_extras`]) — and at the
+    /// system's elite its Guardians put in — in the tier-one zone one a
+    /// tier of the site's (`droid_tier`, what the map says), from the
+    /// tier-two zone on the scaling's `tier2_guardians` / `tier3_guardians`
+    /// for each player ([`droidplan::WaveScaling::elite_guardians`]) —
+    /// and, from the tier-two zone on, its Conductor
+    /// ([`crate::elite::with_conductor`]) and `tier2_elites` /
+    /// `tier3_elites` Bombers on top ([`crate::elite::with_bombers`]).
+    /// **An Area defend has none of the elite's** (October 2026, the
+    /// player's: "in area defend no guardians or bombers only the waves"),
+    /// though it is an elite fight for its relics and its pay.
     pub(crate) fn wave_kinds_for(&self, n: u32, wave: u32) -> Vec<bims::droid::DroidKind> {
         use bims::droid::DroidKind;
         let zone = self.zone_tier();
@@ -6223,11 +6230,16 @@ impl World {
             kinds
         });
         let here = self.residents.as_ref().map(|r| r.station);
-        if !here.is_some_and(|id| self.is_elite_fight(id)) {
+        if !here.is_some_and(|id| self.is_elite_here(id)) {
             return kinds;
         }
-        let kinds = crate::elite::with_guardian(kinds, wave, self.droid_tier());
-        crate::elite::with_conductor(kinds, wave, zone)
+        let scaling = self.scaling();
+        let guardians = scaling
+            .elite_guardians(zone, self.players())
+            .unwrap_or_else(|| crate::elite::guardians_at(self.droid_tier()));
+        let kinds = crate::elite::with_guardian(kinds, wave, guardians);
+        let kinds = crate::elite::with_conductor(kinds, wave, zone);
+        crate::elite::with_bombers(kinds, wave, scaling.elite_bombers(zone))
     }
 
     /// The machines a wave is, built: `kinds` ([`World::wave_kinds_for`]),
@@ -9570,12 +9582,11 @@ impl World {
         };
         // Weak Spot on a soldier and every Executioner carried (October
         // 2026): the biggest multiple of them.
-        self.crit_of(by as u32)
-            .map_or(0.0, |(_, crit)| {
-                // An Overcharger's damage is the weapon's own, so the crit
-                // is a multiple of it too (October 2026).
-                crate::soldier::crit_bonus(hit.flat * self.item_damage_factor(by as u32), crit)
-            })
+        self.crit_of(by as u32).map_or(0.0, |(_, crit)| {
+            // An Overcharger's damage is the weapon's own, so the crit
+            // is a multiple of it too (October 2026).
+            crate::soldier::crit_bonus(hit.flat * self.item_damage_factor(by as u32), crit)
+        })
     }
 
     // --- the medic: a ranked kit (task 130; reworked by task 153) ----------

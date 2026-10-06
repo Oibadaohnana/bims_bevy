@@ -199,12 +199,20 @@ fn an_elite_is_the_machines_two_waves_a_guardian_in_the_second_and_relics() {
     assert!(world.relic_choice().is_some());
 }
 
+/// In the tier-two and tier-three zones an elite's second wave holds the
+/// scaling's Guardians a player (October 2026; two a player here) and its
+/// elites' Bombers on top — it was two Guardians at tier two and three at
+/// tier three before.
 #[test]
-fn an_elite_s_second_wave_has_two_guardians_at_tier_two_and_three_at_tier_three() {
-    for (tier, want) in [(Tier::Two, 2), (Tier::Three, 3)] {
+fn an_elite_s_second_wave_has_the_scaling_s_guardians_a_player() {
+    for (tier, want) in [(Tier::Two, 2), (Tier::Three, 2)] {
         let mut world = open_crewed_world(combat_ship(), REFERENCE_MONEY, 1, COMBAT_CREW);
         armed(&mut world);
         world.set_droid_tier_for_probe(Some(tier));
+        let mut scaling = world.scaling();
+        scaling.tier2_guardians = 2;
+        scaling.tier3_guardians = 2;
+        world.set_wave_scaling(scaling);
         let station = world.elite_dock_for_probe().expect("an elite in reach");
         world.set_droid_reinforce_minutes_for_probe(1.0);
         wave_up(&mut world);
@@ -218,8 +226,9 @@ fn an_elite_s_second_wave_has_two_guardians_at_tier_two_and_three_at_tier_three(
             }
         }
         let guardians = second.iter().filter(|&&k| k == DroidKind::Guardian).count();
-        assert!(
-            guardians >= want,
+        assert_eq!(
+            guardians,
+            want * world.players() as usize,
             "{tier:?}: {guardians} Guardians in {second:?}"
         );
     }

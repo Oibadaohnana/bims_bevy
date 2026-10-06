@@ -10,9 +10,13 @@
 //! defence.
 //!
 //! **The fight**: at least [`data::ELITE_WAVES`] waves, and in wave
-//! [`data::ELITE_GUARDIAN_WAVE`] a Guardian a tier — one at tier one, two
-//! at tier two, three at tier three ([`data::ELITE_GUARDIANS`],
-//! [`with_guardian`]). **The reward**: only an elite drops relics — the
+//! [`data::ELITE_GUARDIAN_WAVE`] its Guardians ([`with_guardian`]): in the
+//! floor's tier-one zone a Guardian a tier — one at tier one, two at tier
+//! two, three at tier three ([`data::ELITE_GUARDIANS`]); in the tier-two
+//! and tier-three zones the scaling's `tier2_guardians` / `tier3_guardians`
+//! for each player (October 2026), with `tier2_elites` / `tier3_elites`
+//! Bombers on top ([`with_bombers`]) and a Conductor ([`with_conductor`]).
+//! **The reward**: only an elite drops relics — the
 //! reward screen on its clear and a cache on its research desk; every
 //! other fight drops none (`World::relics_on_leaving`, `World::infest`).
 
@@ -36,19 +40,26 @@ pub fn holds(galaxy_seed: u64, home: u32, star: u32) -> bool {
     star != home && rolled(galaxy_seed, star)
 }
 
+/// The Guardians an elite's Guardian wave holds in a tier-one zone, by
+/// the site's `tier`: [`data::ELITE_GUARDIANS`].
+pub fn guardians_at(tier: Tier) -> u32 {
+    data::ELITE_GUARDIANS[tier.code() as usize - 1]
+}
+
 /// A wave's machines at an elite: in wave [`data::ELITE_GUARDIAN_WAVE`] at
-/// least [`data::ELITE_GUARDIANS`] Guardians for `tier` (one, two or
-/// three), each one the tier did not give in a Trooper's place (the last
+/// least `want` Guardians ([`guardians_at`] in a tier-one zone, the
+/// scaling's per player in the others), each one not there already in a
+/// Trooper's place (the last
 /// one's, so the other Troopers' arms are dealt as before) — or the last
 /// machine's but a Guardian where there is no Trooper — and never more
 /// than the wave has machines. After the Wardens. Any other wave as it is —
 /// and a plain wave has no Guardian ([`bims::droid::wave_kinds`]), so these
 /// are the only Guardians a run meets.
-pub fn with_guardian(mut kinds: Vec<DroidKind>, wave: u32, tier: Tier) -> Vec<DroidKind> {
+pub fn with_guardian(mut kinds: Vec<DroidKind>, wave: u32, want: u32) -> Vec<DroidKind> {
     if wave != data::ELITE_GUARDIAN_WAVE {
         return kinds;
     }
-    let want = data::ELITE_GUARDIANS[tier.code() as usize - 1] as usize;
+    let want = want as usize;
     while kinds.iter().filter(|&&k| k == DroidKind::Guardian).count() < want {
         let Some(at) = kinds
             .iter()
@@ -63,6 +74,18 @@ pub fn with_guardian(mut kinds: Vec<DroidKind>, wave: u32, tier: Tier) -> Vec<Dr
             .take_while(|&&k| k == DroidKind::Warden)
             .count();
         kinds.insert(at, DroidKind::Guardian);
+    }
+    kinds
+}
+
+/// An elite's **Bombers** besides its Guardians (October 2026, the
+/// player's: "If the other elite parameter is set to 1 then one bomber
+/// spawns"): `bombers` of them on top of wave
+/// [`data::ELITE_GUARDIAN_WAVE`], at its end with the wave's own; any
+/// other wave as it is.
+pub fn with_bombers(mut kinds: Vec<DroidKind>, wave: u32, bombers: u32) -> Vec<DroidKind> {
+    if wave == data::ELITE_GUARDIAN_WAVE {
+        kinds.extend(std::iter::repeat_n(DroidKind::Bomber, bombers as usize));
     }
     kinds
 }
@@ -104,7 +127,7 @@ mod tests {
     fn a_tier_two_elite_s_guardian_wave_has_a_conductor_in_a_trooper_s_place() {
         for n in [3u32, 6, 12] {
             let plain = bims::droid::wave_kinds(n);
-            let guarded = with_guardian(plain.clone(), 2, Tier::Two);
+            let guarded = with_guardian(plain.clone(), 2, guardians_at(Tier::Two));
             let kinds = with_conductor(guarded.clone(), 2, Tier::Two);
             assert_eq!(kinds.len(), guarded.len(), "a wave of {n}");
             assert_eq!(
@@ -144,6 +167,7 @@ mod tests {
         for (tier, want) in [(Tier::One, 1), (Tier::Two, 2), (Tier::Three, 3)] {
             for n in 1..=16u32 {
                 let plain = bims::droid::wave_kinds(n);
+                let tier = guardians_at(tier);
                 assert_eq!(with_guardian(plain.clone(), 1, tier), plain, "wave one");
                 assert_eq!(with_guardian(plain.clone(), 3, tier), plain);
                 let second = with_guardian(plain.clone(), 2, tier);
@@ -174,6 +198,18 @@ mod tests {
         // A wave with Guardians enough already (a forced one) is left alone.
         let mut big = bims::droid::wave_kinds(32);
         big[0] = DroidKind::Guardian;
-        assert_eq!(with_guardian(big.clone(), 2, Tier::One), big);
+        assert_eq!(with_guardian(big.clone(), 2, 1), big);
+    }
+
+    #[test]
+    fn the_elite_bombers_come_on_top_of_the_guardian_wave_alone() {
+        let plain = bims::droid::wave_kinds(8);
+        let bombers = |k: &[DroidKind]| k.iter().filter(|&&k| k == DroidKind::Bomber).count();
+        for n in 0..=3u32 {
+            let second = with_bombers(plain.clone(), 2, n);
+            assert_eq!(second.len(), plain.len() + n as usize);
+            assert_eq!(bombers(&second), n as usize);
+            assert_eq!(with_bombers(plain.clone(), 1, n), plain, "wave one");
+        }
     }
 }

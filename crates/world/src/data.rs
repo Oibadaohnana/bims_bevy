@@ -225,6 +225,18 @@ pub const TIER3_DAYS: u32 = 40;
 /// least one of each; nought is none.
 pub const BOMBER_EVERY: u32 = 6;
 pub const LANCER_EVERY: u32 = 8;
+/// An elite fight's Guardians in the floor's tier-two zone (October 2026,
+/// the player's: "Guardians spawn one per player in Tier 2 and 3
+/// areas"): this many for each player Bim in its Guardian wave
+/// ([`ELITE_GUARDIAN_WAVE`]), and [`TIER3_GUARDIANS`] in tier three's.
+/// A tier-one zone keeps [`ELITE_GUARDIANS`].
+pub const TIER2_GUARDIANS: u32 = 1;
+pub const TIER3_GUARDIANS: u32 = 1;
+/// And its elites besides the Guardians: this many Bombers on top of the
+/// Guardian wave in the tier-two zone, [`TIER3_ELITES`] in tier three's —
+/// beside the Conductor and the wave's own Bombers ([`BOMBER_EVERY`]).
+pub const TIER2_ELITES: u32 = 1;
+pub const TIER3_ELITES: u32 = 1;
 /// How many Guardians the Machine Heart sends for each conduit shot down
 /// (October 2026; the player's words: "first 1 guardian, then 2 all the
 /// way up to 5 when the last link is destroyed"): this many times the
@@ -670,7 +682,9 @@ pub const ELITE_WAVES: u32 = 2;
 pub const ELITE_GUARDIAN_WAVE: u32 = 2;
 /// How many Guardians an elite's [`ELITE_GUARDIAN_WAVE`] holds at least,
 /// by the wave's tier (one, two, three): one at tier one, two at tier
-/// two, three at tier three (`crate::elite::with_guardian`).
+/// two, three at tier three (`crate::elite::with_guardian`) — in the
+/// floor's tier-one zone; the zones above take [`TIER2_GUARDIANS`] and
+/// [`TIER3_GUARDIANS`] for each player.
 pub const ELITE_GUARDIANS: [u32; 3] = [1, 2, 3];
 /// And at least this many traders within [`TRADER_NEAR_HOPS`] lanes of the
 /// crew's own star, their own system counted: somewhere to buy a gun

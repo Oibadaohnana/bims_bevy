@@ -197,6 +197,17 @@ pub struct WaveScaling {
     pub bomber_every: u32,
     /// And a Lancer the same.
     pub lancer_every: u32,
+    /// An elite fight's Guardians in the tier-two zone: this many for each
+    /// player Bim, in its Guardian wave ([`WaveScaling::elite_guardians`]).
+    pub tier2_guardians: u32,
+    /// The same in the tier-three zone.
+    pub tier3_guardians: u32,
+    /// An elite fight's elites besides the Guardians in the tier-two zone:
+    /// this many Bombers on top of its Guardian wave
+    /// ([`WaveScaling::elite_bombers`]).
+    pub tier2_elites: u32,
+    /// The same in the tier-three zone.
+    pub tier3_elites: u32,
 }
 
 impl WaveScaling {
@@ -212,7 +223,35 @@ impl WaveScaling {
         tier3_days: data::TIER3_DAYS,
         bomber_every: data::BOMBER_EVERY,
         lancer_every: data::LANCER_EVERY,
+        tier2_guardians: data::TIER2_GUARDIANS,
+        tier3_guardians: data::TIER3_GUARDIANS,
+        tier2_elites: data::TIER2_ELITES,
+        tier3_elites: data::TIER3_ELITES,
     };
+
+    /// How many Guardians an elite fight's Guardian wave holds in the
+    /// floor's `zone` for `players` player Bims: `tier2_guardians` or
+    /// `tier3_guardians` each; `None` in the tier-one zone, which keeps
+    /// [`data::ELITE_GUARDIANS`] by the site's tier.
+    pub fn elite_guardians(&self, zone: Tier, players: u32) -> Option<u32> {
+        let each = match zone {
+            Tier::One => return None,
+            Tier::Two => self.tier2_guardians,
+            Tier::Three => self.tier3_guardians,
+        };
+        Some(each.saturating_mul(players))
+    }
+
+    /// How many Bombers come on top of an elite fight's Guardian wave in
+    /// the floor's `zone`: `tier2_elites` or `tier3_elites`, none in the
+    /// tier-one zone.
+    pub fn elite_bombers(&self, zone: Tier) -> u32 {
+        match zone {
+            Tier::One => 0,
+            Tier::Two => self.tier2_elites,
+            Tier::Three => self.tier3_elites,
+        }
+    }
 
     /// How many Bombers and Lancers come on top of a wave of `n` from the
     /// floor's tier-two rows on (task 157): `n / bomber_every` and
@@ -427,6 +466,10 @@ mod tests {
             tier3_days: 40,
             bomber_every: 6,
             lancer_every: 8,
+            tier2_guardians: 1,
+            tier3_guardians: 1,
+            tier2_elites: 1,
+            tier3_elites: 1,
         }
     }
 

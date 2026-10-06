@@ -460,6 +460,30 @@ fn an_area_defend_starts_five_seconds_in_and_pays_an_elite_s_relics() {
     );
 }
 
+/// **An Area defend is only its waves** (October 2026, the player's: "in
+/// area defend no guardians or bombers only the waves"): an elite fight for
+/// its relics and pay, but no Guardian, no Conductor and no elite's
+/// Bombers in its second wave — only the tier-two zone's own Bombers and
+/// Lancers on top.
+#[test]
+fn an_area_defend_s_waves_have_no_elite_in_them() {
+    let Some((mut world, id)) = an_area_defend(Some(8)) else {
+        return;
+    };
+    world.set_droid_tier_for_probe(Some(bims::combat::Tier::Two));
+    assert!(world.is_elite_fight(id));
+    let (landed, _) = until(&mut world, 600, |w| w.droids_standing() > 0);
+    assert!(landed, "the first wave never landed");
+    let (bombers, lancers) = world.scaling().tier_two_extras(8);
+    let second = world.wave_kinds_for(8, data::ELITE_GUARDIAN_WAVE);
+    let count = |kind| second.iter().filter(|&&k| k == kind).count() as u32;
+    use bims::droid::DroidKind;
+    assert_eq!(count(DroidKind::Guardian), 0, "{second:?}");
+    assert_eq!(count(DroidKind::Conductor), 0, "{second:?}");
+    assert_eq!(count(DroidKind::Bomber), bombers, "{second:?}");
+    assert_eq!(count(DroidKind::Lancer), lancers, "{second:?}");
+}
+
 /// Standing in the ring mends: [`data::AREA_HEAL_PERCENT`] of the bar a
 /// second to the crew — players and bots alike — and to the site's
 /// defenders in it, and nothing to anybody outside it.

@@ -6106,6 +6106,18 @@ part of what a system offers).
   after the Wardens, never more than the wave's machines) — and those are the only Guardians a run meets, a plain
   wave having none (`wave_kinds(n)`, October 2026). `wire::PROTOCOL` 113,
   121 for the plain waves going without and the Guardian's grenade.
+  **In the floor's tier-two and tier-three zones** (`zone_tier`, October
+  2026) the count is the scaling's instead (`scaling.ron`,
+  `WaveScaling::elite_guardians`): `tier2_guardians` / `tier3_guardians`
+  for each player Bim (bots not counted, default one), and
+  `tier2_elites` / `tier3_elites` Bombers on top of that wave
+  (`elite::with_bombers`, `WaveScaling::elite_bombers`, default one)
+  beside its Conductor and the wave's own `bomber_every` ones; the
+  tier-one zone keeps `ELITE_GUARDIANS`. All of it is `wave_kinds_for`'s
+  and asks `is_elite_here` — **an Area defend, an elite fight for its
+  relics and pay (`is_elite_fight`), has no Guardian, Conductor or elite
+  Bomber**, only its waves (the player's: "in area defend no guardians or
+  bombers only the waves"). `SAVE_VERSION` 120 for the four dials.
 - **Only an elite drops relics**: `relics_on_leaving` offers the reward
   only at an elite, and `infest` rolls a relic cache only there (a site of
   the Manufacturers' has none). Traders still sell theirs.

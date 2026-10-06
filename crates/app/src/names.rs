@@ -601,6 +601,14 @@ pub fn wave_days_note(days: u32) -> String {
 }
 pub const BOMBER_EVERY: &str = "Bombers";
 pub const LANCER_EVERY: &str = "Lancers";
+/// An elite fight's dials in the tier-two and tier-three zones (October
+/// 2026): its Guardians a player, and its Bombers besides.
+pub const TIER2_GUARDIANS: &str = "Tier 2 Guardians";
+pub const TIER3_GUARDIANS: &str = "Tier 3 Guardians";
+pub const ELITE_GUARDIANS_NOTE: &str = "Per player, in an elite fight's Guardian wave";
+pub const TIER2_ELITES: &str = "Tier 2 elites";
+pub const TIER3_ELITES: &str = "Tier 3 elites";
+pub const ELITE_BOMBERS_NOTE: &str = "Bombers on top of an elite fight's Guardian wave";
 /// A tier-two machine's dial's note (task 157): one on top of a wave for
 /// every so many of it, from the map's tier-two rows on.
 pub fn tier_two_extra_note(kind: &str, every: u32) -> String {

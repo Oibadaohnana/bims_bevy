@@ -506,15 +506,16 @@ pub const PING_SECONDS: f64 = 3.0;
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Packet {
     /// The host's settings, to everybody: on every change, and again
-    /// whenever somebody joins.
-    Settings(SettingsWire),
+    /// whenever somebody joins. Boxed, as the difficulty's dials make it
+    /// the largest by far (the wire's bytes are the same).
+    Settings(Box<SettingsWire>),
     /// A guest pointing at a star: a ring on everybody's map.
     Suggest { star: u32 },
     /// The host pressed Start: the settings the game opens with, and the
     /// crew in slot order — slot *i* is `slots[i]`'s Bim, called
     /// `names[i]` (empty for the app's own name).
     Start {
-        settings: SettingsWire,
+        settings: Box<SettingsWire>,
         slots: Vec<PeerId>,
         names: Vec<String>,
         hair: Vec<(Hair, Shade)>,
