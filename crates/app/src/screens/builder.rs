@@ -1536,6 +1536,17 @@ fn choice_row<T: PartialEq + Copy>(
         for (label, sub, v) in options {
             let on = *value == *v;
             let text = format!("{label}\n{sub}");
+            // A sum among the options (Money per Bim) in the money's gold.
+            let text: egui::WidgetText = if sub.contains('€') {
+                theme::with_money(
+                    &text,
+                    egui::TextStyle::Button.resolve(ui.style()),
+                    ui.visuals().widgets.inactive.text_color(),
+                )
+                .into()
+            } else {
+                text.into()
+            };
             let response = ui.add_enabled(editable, {
                 let b = egui::Button::new(text).min_size(egui::vec2(120.0, 40.0));
                 if on { b.fill(theme::RAISED_ON) } else { b }

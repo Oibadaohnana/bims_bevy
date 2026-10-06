@@ -440,17 +440,17 @@ pub fn map_column(
                         ui.label(
                             egui::RichText::new(euros(world.share_of(local)))
                                 .strong()
-                                .color(theme::ACCENT),
+                                .color(theme::MONEY),
                         );
                         ui.end_row();
                     });
                 buyback_queue(ui, world, name);
                 if world.run.is_out(local) {
-                    ui.label(
-                        egui::RichText::new(out_line(world.rewards().buyback))
-                            .small()
-                            .color(theme::CAUTION),
-                    );
+                    ui.label(theme::with_money(
+                        &out_line(world.rewards().buyback),
+                        egui::TextStyle::Small.resolve(ui.style()),
+                        theme::CAUTION,
+                    ));
                 }
                 ui.separator();
                 // The list's order (task 135): by system, or by distance.
@@ -615,7 +615,7 @@ fn buyback_queue(ui: &mut egui::Ui, world: &World, name: &dyn Fn(u32) -> String)
                     left -= cost;
                 }
                 ui.label(name(fallen.slot));
-                ui.label(euros(cost));
+                ui.label(egui::RichText::new(euros(cost)).color(theme::MONEY));
                 ui.label(
                     egui::RichText::new(if covered {
                         BUYBACK_COVERED
@@ -1011,11 +1011,16 @@ pub fn departure_window(
                             })
                             .color(theme::BAD),
                         );
-                        ui.label(if who < players {
+                        let words = if who < players {
                             buyback_cost(world.rewards().buyback)
                         } else {
                             BOT_GONE_WORD.to_owned()
-                        });
+                        };
+                        ui.label(theme::with_money(
+                            &words,
+                            egui::TextStyle::Body.resolve(ui.style()),
+                            ui.visuals().text_color(),
+                        ));
                         ui.end_row();
                     }
                 });
@@ -2289,7 +2294,11 @@ fn line_item(ui: &mut egui::Ui, wallet: economy::Money, line: Line) -> bool {
     let price_galley = painter.layout_no_wrap(
         euros(line.price),
         egui::FontId::monospace(14.0),
-        if affordable { theme::INK } else { theme::WARN },
+        if affordable {
+            theme::MONEY
+        } else {
+            theme::WARN
+        },
     );
     let price_left = button_rect.left() - 10.0 - price_galley.size().x;
     painter.galley(
@@ -2401,7 +2410,7 @@ fn wallet_label(ui: &mut egui::Ui, world: &World, local: u32, size: f32) {
             .monospace()
             .strong()
             .size(size)
-            .color(theme::REWARD_MONEY),
+            .color(theme::MONEY),
     );
     ui.label(
         egui::RichText::new(TRADER_BALANCE.to_uppercase())

@@ -21,6 +21,36 @@ pub const RAISED_ON: egui::Color32 = egui::Color32::from_rgb(0x50, 0x56, 0x5d);
 pub const LINE: egui::Color32 = egui::Color32::from_rgb(0x3a, 0x3d, 0x42);
 pub const YOURS: egui::Color32 = ACCENT;
 pub const THEIRS: egui::Color32 = INK;
+/// Every sum of money on every page: the gold of an enemy's pay
+/// ([`REWARD_MONEY`]), so money reads as money wherever it stands. A
+/// sum inside a sentence is lit by [`with_money`].
+pub const MONEY: egui::Color32 = REWARD_MONEY;
+/// The money's gold lit up (a won fight's payout landing on the sum).
+pub const MONEY_LIT: egui::Color32 = egui::Color32::from_rgb(0xff, 0xf2, 0xb0);
+
+/// A line of words with every sum in it (`format::euros`: the euro sign
+/// and its digits) in [`MONEY`] and the rest in `colour`.
+pub fn with_money(text: &str, font: egui::FontId, colour: egui::Color32) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::default();
+    let format = |color| egui::TextFormat {
+        font_id: font.clone(),
+        color,
+        ..Default::default()
+    };
+    let mut rest = text;
+    while let Some(start) = rest.find('€') {
+        let (before, from) = rest.split_at(start);
+        let sum = '€'.len_utf8()
+            + from['€'.len_utf8()..]
+                .find(|c: char| !(c.is_ascii_digit() || c == '\u{a0}'))
+                .unwrap_or(from.len() - '€'.len_utf8());
+        job.append(before, 0.0, format(colour));
+        job.append(&from[..sum], 0.0, format(MONEY));
+        rest = &from[sum..];
+    }
+    job.append(rest, 0.0, format(colour));
+    job
+}
 /// The attack banner and the armed pointer that puts one down (feature
 /// 84): the enemy's own red, since what both mean is a fight, and one
 /// no other mark on the deck wears.
@@ -1359,4 +1389,41 @@ pub fn reinforcement_mark(
         [egui::pos2(at.x, y + w * 0.8), egui::pos2(at.x + w, y)],
         stroke,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_sum_in_a_sentence_is_lit_in_the_money_s_gold() {
+        let text = format!(
+            "buyback {} · pool {}.",
+            crate::format::euros(1250),
+            crate::format::euros(80)
+        );
+        let job = with_money(&text, egui::FontId::proportional(12.0), INK);
+        let parts: Vec<(&str, egui::Color32)> = job
+            .sections
+            .iter()
+            .map(|s| {
+                (
+                    &job.text[s.byte_range.start.0..s.byte_range.end.0],
+                    s.format.color,
+                )
+            })
+            .filter(|(t, _)| !t.is_empty())
+            .collect();
+        assert_eq!(
+            parts,
+            vec![
+                ("buyback ", INK),
+                ("€1\u{a0}250", MONEY),
+                (" · pool ", INK),
+                ("€80", MONEY),
+                (".", INK),
+            ]
+        );
+        assert_eq!(job.text, text, "every word kept");
+    }
 }

@@ -2498,7 +2498,7 @@ fn armory_stock(ui: &mut egui::Ui, view: &ArmoryView, asked: &mut Vec<GearOrder>
     let open = view.columns.iter().any(|c| c.may_change);
     ui.horizontal(|ui| {
         theme::heading(ui, ARMORY_STOCK);
-        ui.label(egui::RichText::new(crate::format::euros(view.money)).color(theme::MUTED));
+        ui.label(egui::RichText::new(crate::format::euros(view.money)).color(theme::MONEY));
     });
     let frame = egui::Frame::new()
         .inner_margin(egui::Margin::same(6))

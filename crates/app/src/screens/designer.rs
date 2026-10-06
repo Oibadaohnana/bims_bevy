@@ -970,11 +970,11 @@ fn frame(
                 let left = session.remaining();
                 let pool = session.editor.budget.pool;
                 let short = session.editor.tool.def().price > left;
-                ui.label(egui::RichText::new(format!("/ {}", euros(pool))).color(theme::MUTED));
+                ui.label(egui::RichText::new(format!("/ {}", euros(pool))).color(theme::MONEY));
                 ui.label(egui::RichText::new(euros(left)).strong().color(if short {
                     theme::WARN
                 } else {
-                    theme::INK
+                    theme::MONEY
                 }));
                 ui.label(egui::RichText::new("Money").color(theme::MUTED));
             });
@@ -1304,7 +1304,7 @@ fn frame(
                     } else {
                         theme::WARN
                     }));
-                    ui.label(egui::RichText::new(euros(tool.def().price)).color(theme::MUTED));
+                    ui.label(egui::RichText::new(euros(tool.def().price)).color(theme::MONEY));
                     ui.label(egui::RichText::new(tile).color(theme::MUTED));
                 });
             });
@@ -1779,11 +1779,11 @@ pub fn trade_rows(
                 // can buy at it.
                 let (ask, bid) = priced(session, id, tier);
                 ui.label(egui::RichText::new(ask).color(if sold {
-                    theme::INK
+                    theme::MONEY
                 } else {
-                    theme::MUTED
+                    theme::MONEY.gamma_multiply(0.55)
                 }));
-                ui.label(egui::RichText::new(bid).color(color));
+                ui.label(egui::RichText::new(bid).color(theme::MONEY));
                 ui.label(egui::RichText::new(held.to_string()).color(if held > 0 {
                     theme::ACCENT
                 } else {
@@ -1863,11 +1863,7 @@ pub fn trade_rows(
                             each.saturating_mul(line.unsigned_abs() as Money),
                         ))
                         .small()
-                        .color(if line > 0 {
-                            theme::ACCENT
-                        } else {
-                            theme::CAUTION
-                        }),
+                        .color(theme::MONEY),
                     );
                 }
                 ui.end_row();
@@ -1879,30 +1875,36 @@ pub fn trade_rows(
     let (bought, cost, sold, earned) = cart.totals(session);
     let short = cart.short(session);
     if bought > 0 {
-        ui.label(
-            egui::RichText::new(format!("Buying {bought} for {}", euros(cost)))
-                .small()
-                .color(theme::MUTED),
-        );
+        ui.label(theme::with_money(
+            &format!("Buying {bought} for {}", euros(cost)),
+            egui::TextStyle::Small.resolve(ui.style()),
+            theme::MUTED,
+        ));
     }
     if sold > 0 {
-        ui.label(
-            egui::RichText::new(format!("Selling {sold} for {}", euros(earned)))
-                .small()
-                .color(theme::MUTED),
-        );
+        ui.label(theme::with_money(
+            &format!("Selling {sold} for {}", euros(earned)),
+            egui::TextStyle::Small.resolve(ui.style()),
+            theme::MUTED,
+        ));
     }
     let money = session.remaining();
     ui.horizontal(|ui| {
         if cart.is_empty() {
             ui.label(egui::RichText::new(CART_EMPTY).color(theme::MUTED));
         } else if cost >= earned {
-            ui.label(egui::RichText::new(format!("{YOU_PAY} {}", euros(cost - earned))).strong());
-        } else {
+            ui.label(egui::RichText::new(YOU_PAY).strong());
             ui.label(
-                egui::RichText::new(format!("{YOU_EARN} {}", euros(earned - cost)))
+                egui::RichText::new(euros(cost - earned))
                     .strong()
-                    .color(theme::ACCENT),
+                    .color(theme::MONEY),
+            );
+        } else {
+            ui.label(egui::RichText::new(YOU_EARN).strong().color(theme::ACCENT));
+            ui.label(
+                egui::RichText::new(euros(earned - cost))
+                    .strong()
+                    .color(theme::MONEY),
             );
         }
     });
@@ -1913,7 +1915,7 @@ pub fn trade_rows(
             if matches!(short, Some(Short::Money(_))) {
                 theme::WARN
             } else {
-                theme::INK
+                theme::MONEY
             },
         ));
     });
@@ -1951,11 +1953,11 @@ pub fn trade_rows(
     }
     match short {
         Some(Short::Money(by)) => {
-            ui.label(
-                egui::RichText::new(format!("{SHORT_BY} {}.", euros(by)))
-                    .small()
-                    .color(theme::WARN),
-            );
+            ui.label(theme::with_money(
+                &format!("{SHORT_BY} {}.", euros(by)),
+                egui::TextStyle::Small.resolve(ui.style()),
+                theme::WARN,
+            ));
         }
         Some(Short::Room(class, by)) => {
             // The lockers count cells, a thing's footprint each; the rest

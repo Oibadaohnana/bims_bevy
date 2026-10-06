@@ -458,14 +458,16 @@ pub fn log_area(
                         .corner_radius(3.0)
                         .inner_margin(egui::Margin::symmetric(6, 2))
                         .show(ui, |ui| {
-                            ui.add(
-                                egui::Label::new(
-                                    egui::RichText::new(words)
-                                        .small()
-                                        .color(theme::INK.gamma_multiply(alpha)),
-                                )
-                                .wrap(),
+                            // Any sum in the line in the money's gold.
+                            let mut job = theme::with_money(
+                                &words,
+                                egui::TextStyle::Small.resolve(ui.style()),
+                                theme::INK,
                             );
+                            for section in &mut job.sections {
+                                section.format.color = section.format.color.gamma_multiply(alpha);
+                            }
+                            ui.add(egui::Label::new(job).wrap());
                         });
                 }
             });
@@ -998,13 +1000,14 @@ pub fn top_frame(
                     ui.label(
                         egui::RichText::new(euros(world.share_of(local)))
                             .strong()
-                            .color(theme::ACCENT),
+                            .color(theme::MONEY),
                     );
                     if world.run.pending_bounty > 0 {
-                        ui.label(
-                            egui::RichText::new(on_clear_line(world.run.pending_bounty))
-                                .color(theme::MUTED),
-                        );
+                        ui.label(theme::with_money(
+                            &on_clear_line(world.run.pending_bounty),
+                            egui::TextStyle::Body.resolve(ui.style()),
+                            theme::MUTED,
+                        ));
                     }
                 });
                 ui.label(
@@ -1040,7 +1043,13 @@ pub fn out_banner(ctx: &egui::Context, centre: f32, top: f32, pool: u64, cost: u
                 })
                 .response
                 .interact(egui::Sense::hover())
-                .on_hover_text(out_banner_line(cost, pool));
+                .on_hover_ui(|ui| {
+                    ui.label(theme::with_money(
+                        &out_banner_line(cost, pool),
+                        egui::TextStyle::Body.resolve(ui.style()),
+                        ui.visuals().text_color(),
+                    ));
+                });
         })
         .response
         .rect
@@ -1226,7 +1235,7 @@ pub fn hero_panel(
                             egui::RichText::new(euros(hero.money))
                                 .size(15.0)
                                 .strong()
-                                .color(theme::ACCENT),
+                                .color(theme::MONEY),
                         )
                         .on_hover_text(MAP_MONEY_TIP);
                     });

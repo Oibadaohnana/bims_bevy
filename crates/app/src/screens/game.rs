@@ -3188,8 +3188,8 @@ fn frame(
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new(MAP_MONEY).color(theme::MUTED));
                         // While a won fight's money flies in, the number
-                        // counts up by each coin landing, lit yellow as
-                        // one does.
+                        // counts up by each coin landing, its gold lit
+                        // brighter as one does.
                         let (owed, glow) = screen
                             .payout
                             .as_ref()
@@ -3200,7 +3200,7 @@ fn frame(
                             ))
                             .strong()
                             .size(16.0 + 2.0 * glow)
-                            .color(theme::ACCENT.lerp_to_gamma(theme::REWARD_MONEY, glow)),
+                            .color(theme::MONEY.lerp_to_gamma(theme::MONEY_LIT, glow)),
                         );
                     })
                     .response

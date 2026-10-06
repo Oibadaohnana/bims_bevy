@@ -253,7 +253,7 @@ pub fn fight_won_window(
                     tile_w,
                     &euros(tally.bounty),
                     FIGHT_WON_BOUNTY,
-                    theme::ACCENT,
+                    theme::MONEY,
                 );
                 tally.from = Some(bounty.center());
             });
@@ -328,7 +328,9 @@ pub fn fight_won_window(
             line(
                 ui,
                 FIGHT_WON_POOL,
-                egui::RichText::new(euros(world.share_of(local))).strong(),
+                egui::RichText::new(euros(world.share_of(local)))
+                    .strong()
+                    .color(theme::MONEY),
             );
             if tally.joined > 0 {
                 line(
