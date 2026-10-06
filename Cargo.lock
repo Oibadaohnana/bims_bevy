@@ -194,6 +194,7 @@ dependencies = [
  "economy",
  "flight",
  "lobby",
+ "miniz_oxide 0.8.9",
  "physics",
  "ron",
  "rustls",

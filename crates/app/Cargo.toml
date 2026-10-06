@@ -55,6 +55,10 @@ serde = { version = "1", features = ["derive"] }
 ron = "0.12"
 tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+# A world sent whole (`Packet::World`) is deflated on the wire: four
+# megabytes of save text are some three hundred kilobytes. Already in the
+# tree under Bevy's png, so nothing new is fetched.
+miniz_oxide = "0.8"
 
 [dev-dependencies]
 # The relay's rooms, with no socket: the lockstep test in `net.rs` passes

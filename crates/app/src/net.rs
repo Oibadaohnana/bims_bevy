@@ -607,7 +607,37 @@ pub enum Packet {
     /// `Resync`, to everybody after the host loads a game. A guest
     /// **replaces** its world with it — as its own slot — and applies
     /// the `Steps` and `Applied` that come after it to the new one.
-    World { save: String, at: u64 },
+    /// Deflated as it crosses ([`packed`]).
+    World {
+        #[serde(with = "packed")]
+        save: String,
+        at: u64,
+    },
+}
+
+/// A world's save text as [`Packet::World`] carries it: deflated, fast.
+/// The text is megabytes of RON and squeezes to a fourteenth, and it
+/// crosses mid-fight (a resync) and at every load, restart and retry —
+/// seconds of a home line's upload as it was, a quarter of one now. The
+/// relay's [`wire::MAX_PAYLOAD`] is on what crosses, so a save may grow
+/// well past it. Read back with a ceiling, so a bad packet cannot ask
+/// for the machine's memory.
+mod packed {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    /// How far a save may inflate: far past any world there has been.
+    const MOST: usize = 512 * 1024 * 1024;
+
+    pub fn serialize<S: Serializer>(text: &str, to: S) -> Result<S::Ok, S::Error> {
+        miniz_oxide::deflate::compress_to_vec(text.as_bytes(), 1).serialize(to)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(from: D) -> Result<String, D::Error> {
+        let bytes = Vec::<u8>::deserialize(from)?;
+        let text = miniz_oxide::inflate::decompress_to_vec_with_limit(&bytes, MOST)
+            .map_err(|e| serde::de::Error::custom(format!("{e:?}")))?;
+        String::from_utf8(text).map_err(serde::de::Error::custom)
+    }
 }
 
 /// A handle the seams post with: the socket's sender and which end this
@@ -1273,6 +1303,31 @@ mod tests {
     use server::hub::{Hub, Outbound};
     use ship::{Preset, Session};
     use shipdesign::parts::PartKind;
+
+    /// A world sent whole crosses deflated and comes back the same text.
+    #[test]
+    fn a_world_crosses_deflated_and_comes_back_whole() {
+        let session = Session::combat(world::data::DEFAULT_SEED, 1200.0, 800.0);
+        let save = session.save().expect("a world to write");
+        let packet = Packet::World {
+            save: save.clone(),
+            at: 7,
+        };
+        let bytes = encode(&packet).unwrap();
+        assert!(
+            bytes.len() * 5 < save.len(),
+            "{} of {}",
+            bytes.len(),
+            save.len()
+        );
+        match decode::<Packet>(&bytes).unwrap() {
+            Packet::World { save: back, at } => {
+                assert_eq!(at, 7);
+                assert!(back == save, "the text changed on the way");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
     use std::sync::mpsc::Receiver;
     use wire::PROTOCOL;
 
