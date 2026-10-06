@@ -37,7 +37,7 @@
 (
     site_xp: 60,
     site_xp_growth_percent: 12,
-    site_money: 850,
+    site_money: 935,
     site_money_growth_percent: 17,
     defense_bounty_percent: 100,
     bot_bounty_percent: 100,

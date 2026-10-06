@@ -239,17 +239,17 @@ fn the_republic_pays_once_for_every_machine_taken_down() {
     assert_eq!(world.money, money + want);
 }
 
-/// A site's money (October 2026): €850 on the first day, seventeen per
-/// cent more every day, fitted to what the tier bounties paid a lone
-/// player fighting every row (€836 a site on day one, €79 000 on day
-/// thirty).
+/// A site's money (October 2026): €935 on the first day, seventeen per
+/// cent more every day — €850 fitted to what the tier bounties paid a
+/// lone player fighting every row (€836 a site on day one, €79 000 on
+/// day thirty), then a tenth more.
 #[test]
 fn a_site_s_money_grows_by_the_day() {
     let r = crate::rewards::Rewards::DEFAULT;
     assert_eq!(r.site_money_on(1), data::SITE_MONEY);
-    assert_eq!(r.site_money_on(10), 3_492);
-    assert_eq!(r.site_money_on(20), 16_786);
-    assert_eq!(r.site_money_on(30), 80_687);
+    assert_eq!(r.site_money_on(10), 3_841);
+    assert_eq!(r.site_money_on(20), 18_464);
+    assert_eq!(r.site_money_on(30), 88_756);
     assert!((1..40).all(|d| r.site_money_on(d + 1) > r.site_money_on(d)));
 }
 

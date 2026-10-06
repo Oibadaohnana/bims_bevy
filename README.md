@@ -161,9 +161,9 @@ there is no helm to stand at and no trip to sit through.
   minute after the landing, the class cooldowns.
 - **The bounty waits for the place to be cleared.** The Republic pays
   for every machine destroyed — a site's **money budget** shared over
-  its enemies, as its experience is: €850 a player on the first day,
-  seventeen per cent more every day (€3 490 on day ten, €16 790 on day
-  twenty, €80 690 on day thirty), half as much again at an elite, a
+  its enemies, as its experience is: €935 a player on the first day,
+  seventeen per cent more every day (€3 840 on day ten, €18 460 on day
+  twenty, €88 760 on day thirty), half as much again at an elite, a
   29% again for the bonus wave, a Husk a tenth less and a Warden a
   tenth more — but
   it is **pending**, "+€ n on clear" along the top, until the place is

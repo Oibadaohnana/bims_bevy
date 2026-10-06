@@ -449,11 +449,12 @@ pub const DEFENDERS_MAX: u32 = 8;
 /// crew that never fights never gets rich. It was a bounty an enemy by its
 /// tier until then (500, 1 500, 4 500, then 425, 1 275, 3 825); the budget
 /// is fitted to what those paid a lone player fighting every row:
-/// €836 a site on day one, €79 000 on day thirty.
-pub const SITE_MONEY: Money = 850;
+/// €836 a site on day one, €79 000 on day thirty. Then a tenth more
+/// (the player, October 2026: "give 10% more money"): 850 to 935.
+pub const SITE_MONEY: Money = 935;
 /// How much more a site pays every day after, in per cent, compounded
-/// (`Rewards::site_money_growth_percent`): €850 on day one, €3 490 on day
-/// ten, €16 790 on day twenty, €80 690 on day thirty.
+/// (`Rewards::site_money_growth_percent`): €935 on day one, €3 840 on day
+/// ten, €18 460 on day twenty, €88 760 on day thirty.
 pub const SITE_MONEY_GROWTH_PERCENT: u32 = 17;
 /// How much of an enemy's share a **defence** pays, in per cent. Task
 /// 136 made it nothing — the survivors were the reward — and the player

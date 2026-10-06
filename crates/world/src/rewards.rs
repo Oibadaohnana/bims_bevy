@@ -136,8 +136,8 @@ mod tests {
     fn the_default_is_the_constants_and_a_dial_moves_it() {
         let d = Rewards::DEFAULT;
         assert_eq!(d.site_money_on(1), data::SITE_MONEY);
-        assert_eq!(d.site_money_on(10), 3_492);
-        assert_eq!(d.site_money_on(30), 80_687);
+        assert_eq!(d.site_money_on(10), 3_841);
+        assert_eq!(d.site_money_on(30), 88_756);
         assert_eq!(d.site_xp_on(31), 1_797);
         assert_eq!(d.shelf_price(1_234), 1_234);
         let tuned = Rewards {
