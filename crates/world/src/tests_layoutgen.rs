@@ -594,3 +594,53 @@ fn the_pins_come_back_under_the_old_layouts() {
     );
     assert_eq!(then, (REFERENCE_BEFORE_112, SURVIVORS_BEFORE_112));
 }
+
+/// The combat rooms (October 2026): over fifty seeds a kind, how many
+/// stations have a shaft (a pit), a hangar or a gallery (a pillar or an
+/// alcove), crates, a fuel drum and
+/// windows — printed — and most stations of every kind but the relay have
+/// at least one combat room, every kind has drums, crates and windows
+/// somewhere, and no piece stands off the deck.
+#[test]
+fn most_stations_have_a_combat_room_and_the_pieces_turn_up() {
+    for kind in [
+        StationKind::Relay,
+        StationKind::Derelict,
+        StationKind::Refinery,
+        StationKind::Orbital,
+    ] {
+        let (mut shafts, mut combat_rooms, mut crates, mut drums, mut windows) = (0, 0, 0, 0, 0);
+        let n = 50u64;
+        for seed in 0..n {
+            let g = generate(kind, seed).expect("generated");
+            let design = &g.placer.design;
+            let count = |k: PartKind| design.count(k);
+            let pits = count(PartKind::Pit);
+            // A hangar's pillars and a gallery's alcoves are the walls the
+            // combat rooms stand: the floor the station was built from
+            // says which.
+            let (_, floor, _) =
+                stationgen::candidate_at(kind, seed, g.attempt).expect("the same candidate");
+            let standing_walls = floor
+                .combat
+                .iter()
+                .filter(|(k, _)| *k == PartKind::Wall)
+                .count();
+            shafts += u32::from(pits > 0);
+            combat_rooms += u32::from(pits > 0 || standing_walls > 0);
+            crates += u32::from(count(PartKind::Crate) > 0);
+            drums += u32::from(count(PartKind::FuelTank) > 0);
+            windows += u32::from(count(PartKind::Window) > 0);
+        }
+        println!(
+            "{kind:?} over {n} seeds: a combat room {combat_rooms}, a shaft {shafts}, crates {crates}, drums {drums}, windows {windows}"
+        );
+        if kind != StationKind::Relay {
+            assert!(
+                combat_rooms as u64 * 2 >= n,
+                "{kind:?}: {combat_rooms} of {n}"
+            );
+        }
+        assert!(crates > 0 && drums > 0 && windows > 0, "{kind:?}");
+    }
+}

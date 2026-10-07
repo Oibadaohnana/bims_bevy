@@ -129,6 +129,12 @@ pub use floorplan::FloorMark;
 #[path = "site_xp.rs"]
 mod site_xp;
 
+// The ways in a wave takes, and the crew welding them shut (October
+// 2026). A child for the same reason.
+#[path = "entry.rs"]
+mod entry;
+pub use entry::{EntryLook, WELD_CODE};
+
 /// What a player can ask the world to do.
 ///
 /// Every one of them carries the slot that sent it, because every one of them
@@ -271,6 +277,14 @@ pub enum Command {
     /// rank nought of E and `NoSatchels` with none lying there. A satchel
     /// is thrown with [`Command::ThrowAt`] and `satchel` set.
     Detonate {
+        slot: u32,
+    },
+    /// That player's own Bim welds shut the nearest way in of the site
+    /// within [`entry::WELD_REACH`] tiles that is not welded yet (October
+    /// 2026): an airlock the machines' waves come aboard by, or a town's
+    /// gate. The walk and the work are the room's; a hit drops it. Refused
+    /// `OutOfReach` (not fit to act, or not in a mission) and `NoWayInNear`.
+    Weld {
         slot: u32,
     },
     /// Take one of that player's own engineer's mines or Healing Sentries
@@ -1622,8 +1636,14 @@ impl World {
         }
         //    And the kits laid, each a deployable put down.
         for (who, at, kind) in self.aboard.room.take_deployed() {
-            self.finish_deploy(who, at, kind, &mut events);
+            if kind == WELD_CODE {
+                self.finish_weld(who, at, &mut events);
+            } else {
+                self.finish_deploy(who, at, kind, &mut events);
+            }
         }
+        //    And the welds a wave burnt through, said.
+        self.say_burns(&mut events);
 
         // 8. The run (feature 103): the bounty paid the step the site is
         //    cleared, and the departure check — which, answered, is the
@@ -1653,6 +1673,7 @@ impl World {
             | Command::Deploy { slot, .. }
             | Command::Sentry { slot, .. }
             | Command::Detonate { slot }
+            | Command::Weld { slot }
             | Command::PackUp { slot, .. }
             | Command::StunShot { slot, .. }
             | Command::Throw { slot, .. }
@@ -1852,6 +1873,14 @@ impl World {
             }
             Command::Detonate { .. } => match self.detonate(slot) {
                 Ok(count) => events.push(WorldEvent::SatchelsBlown { who: slot, count }),
+                Err(why) => events.push(refused(slot, why)),
+            },
+            Command::Weld { .. } => match self.weld(slot) {
+                Ok(entry) => events.push(WorldEvent::Welding {
+                    who: slot,
+                    entry,
+                    done: false,
+                }),
                 Err(why) => events.push(refused(slot, why)),
             },
             Command::PackUp { id, .. } => self.pack_up(slot, id, events),
@@ -2502,11 +2531,75 @@ impl World {
                 }),
             }
         }
+        // The crates and the fuel drums the same way, in the same record:
+        // one object a tile, so a tile is a lamp's or a prop's, never both.
+        for i in self.aboard.room.take_prop_changes() {
+            let Some(prop) = self.aboard.room.props().get(i).copied() else {
+                continue;
+            };
+            let (which, tile) = Self::lamp_key(&self.aboard, None, station, prop.at);
+            match self
+                .lamps
+                .iter_mut()
+                .find(|d| d.station == which && d.tile == tile)
+            {
+                Some(d) => d.health = prop.health,
+                None => self.lamps.push(LampDamage {
+                    station: which,
+                    tile,
+                    health: prop.health,
+                }),
+            }
+        }
         if let Some(residents) = &mut self.residents {
             // Bolts do not fly there: nothing to remember, only to drain.
             residents.aboard.room.take_lamp_changes();
+            residents.aboard.room.take_prop_changes();
         }
         self.restore_lamps();
+    }
+
+    /// The crate or the fuel drum of `aboard` at `tile` of a design, as
+    /// [`World::lamp_index`] finds a lamp.
+    fn prop_index(aboard: &Aboard, foreign: bool, tile: (u32, u32)) -> Option<usize> {
+        let t = shipdesign::TILE as f64;
+        let middle = dvec2((tile.0 as f64 + 0.5) * t, (tile.1 as f64 + 0.5) * t);
+        let p = aboard.room_of(foreign, middle)?;
+        aboard
+            .room
+            .prop_at(bims::math::vec2(p.x as f32, p.y as f32))
+    }
+
+    /// A crate or a fuel drum as it is to be drawn: what it has left of
+    /// a whole one, nought broken — read off whichever room has it, as
+    /// [`World::lamp_look`] reads a lamp, else off the record; whole for
+    /// one nobody has touched.
+    pub fn prop_look(&self, station: Option<u32>, tile: (u32, u32)) -> f32 {
+        let docked = self.ship.state.alongside();
+        let live = match station {
+            None => Self::prop_index(&self.aboard, false, tile)
+                .and_then(|i| self.aboard.room.props().get(i).copied()),
+            Some(id) if self.aboard.is_joined() && docked == Some(id) => {
+                Self::prop_index(&self.aboard, true, tile)
+                    .and_then(|i| self.aboard.room.props().get(i).copied())
+            }
+            Some(id) => self
+                .residents
+                .as_ref()
+                .filter(|r| r.station == id)
+                .and_then(|r| {
+                    Self::prop_index(&r.aboard, false, tile)
+                        .and_then(|i| r.aboard.room.props().get(i).copied())
+                }),
+        };
+        if let Some(prop) = live {
+            return prop.health / bims::sight::Prop::whole(prop.tank);
+        }
+        self.lamps
+            .iter()
+            .find(|d| d.station == station && d.tile == tile)
+            .map(|d| if d.health <= 0.0 { 0.0 } else { 1.0 })
+            .unwrap_or(1.0)
     }
 
     /// Every lamp remembered damaged, set so on the rooms it hangs in.
@@ -2520,10 +2613,12 @@ impl World {
                 Some(id) if self.aboard.is_joined() && docked == Some(id) => Some(true),
                 Some(_) => None,
             };
-            if let Some(foreign) = mine
-                && let Some(i) = Self::lamp_index(&self.aboard, foreign, d.tile)
-            {
-                self.aboard.room.set_lamp_health(i, d.health);
+            if let Some(foreign) = mine {
+                if let Some(i) = Self::lamp_index(&self.aboard, foreign, d.tile) {
+                    self.aboard.room.set_lamp_health(i, d.health);
+                } else if let Some(i) = Self::prop_index(&self.aboard, foreign, d.tile) {
+                    self.aboard.room.set_prop_health(i, d.health);
+                }
             }
             // The residents' room: the station's own, and the ship's while
             // it is on their deck.
@@ -2533,10 +2628,12 @@ impl World {
                     Some(id) if id == residents.station => Some(false),
                     Some(_) => None,
                 };
-                if let Some(foreign) = theirs
-                    && let Some(i) = Self::lamp_index(&residents.aboard, foreign, d.tile)
-                {
-                    residents.aboard.room.set_lamp_health(i, d.health);
+                if let Some(foreign) = theirs {
+                    if let Some(i) = Self::lamp_index(&residents.aboard, foreign, d.tile) {
+                        residents.aboard.room.set_lamp_health(i, d.health);
+                    } else if let Some(i) = Self::prop_index(&residents.aboard, foreign, d.tile) {
+                        residents.aboard.room.set_prop_health(i, d.health);
+                    }
                 }
             }
         }
@@ -5991,10 +6088,7 @@ impl World {
     /// setup picked one, the tuning file's dials otherwise — as the run's
     /// ascension plays it (`ascension::scale`).
     pub fn scaling(&self) -> droidplan::WaveScaling {
-        crate::ascension::scale(
-            self.ascension,
-            self.difficulty.unwrap_or(self.wave_scaling),
-        )
+        crate::ascension::scale(self.ascension, self.difficulty.unwrap_or(self.wave_scaling))
     }
 
     /// Set the run's ascension (the game setup's pick, dealt at Start),
@@ -6118,12 +6212,13 @@ impl World {
         if crate::surface::surface_body(station).is_some() {
             // A lander on the plain beyond the gate its wave walked in
             // by: the town's gates in turn (feature 112).
-            let gate = crate::surface::gate_for_wave(&site.gates, wave)?;
+            let gate = self.arrival_gate(site, wave)?;
             let out = data::DROID_LANDER_TILES * shipdesign::TILE as f64;
             let (at, outward) = gate.beyond(out);
             return Some((at, outward, true));
         }
-        let port = droidplan::arrival_airlock_at(design, station, wave)?;
+        let _ = design;
+        let port = self.arrival_port(site, wave)?;
         let (fx, fy) = port.face();
         Some((
             dvec2(fx, fy),
@@ -6369,15 +6464,14 @@ impl World {
     ) -> Option<(Vec<bims::math::Vec2>, f32)> {
         let residents = self.residents.as_ref()?;
         let (at, facing) = if crate::surface::surface_body(station.id).is_some() {
-            let gate = crate::surface::gate_for_wave(&station.gates, wave)?;
+            let gate = self.arrival_gate(station, wave)?;
             let (spot, face) = (gate.spot(), gate.inward());
             (
                 (spot.x, spot.y),
                 bims::math::vec2(face.0 as f32, face.1 as f32).angle(),
             )
         } else {
-            let Some(port) = droidplan::arrival_airlock_at(&station.design, station.id, wave)
-            else {
+            let Some(port) = self.arrival_port(station, wave) else {
                 return None;
             };
             let spot = droidplan::inside_of(&port, data::ASHORE_TILES);

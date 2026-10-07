@@ -8479,3 +8479,78 @@ floor again when the floor is on.
 closing one. The app's setup picks up to it (`profile::ascension_open`)
 and starts on it. `tests_ascension.rs` and `ascension::tests` are the
 rule. **`SAVE_VERSION` 122.**
+
+## Combat rooms, crates and drums, and the ways in welded (October 2026)
+
+The player's words: "Currently it is just a big map with nothing but
+doors that open and cover. I want maps that make combat interesting" —
+three things, the map's vocabulary, the rooms built from it, and where
+the waves come in.
+
+- **Five parts** (`shipdesign`, codes 44–48): `Railing`, `Window`, `Pit`
+  — walked round, seen and shot across — `Crate` (cover like the
+  sandbags, walked round) and `FuelTank` (a drum). None is a tool
+  (`names::NOT_A_TOOL`). The room keeps what a fight did to a crate or a
+  drum (`bims::sight::Prop`, `crates/game/CLAUDE.md`); the world
+  remembers it **in the lamps' record** (`World::lamps`, a
+  `LampDamage` by station and tile — one object a tile, so a tile is a
+  lamp's or a prop's), drained in `sync_lamps` off
+  `Game::take_prop_changes` and put back on both rooms by
+  `restore_lamps` (`prop_index`, `set_prop_health`), so the save, the
+  system's memory and the checksum carry it with no new field.
+  `World::prop_look(station, tile)` is the painter's share.
+- **The combat rooms** (`stationgen`): a room left over once the
+  quarters, mess, research, heads, lab, rec and a store are dealt is a
+  **hangar** (pillars 2×2 every `PILLAR_STEP` three in from the walls,
+  a crate pair in every other square between four, a drum or two
+  against a pillar; `HANGAR_MIN` 8×8), a **shaft** (a walkway two wide
+  round the walls, a railing, the pit, and a catwalk two wide across it
+  railed both sides where the long way is twelve or more; `SHAFT_MIN`)
+  or a **gallery** (alcoves — a stub of wall one or two deep from a
+  long wall every `ALCOVE_STEP` by turns — and a crate pair in the lane
+  where it is wide; `GALLERY_LONG` 12, `GALLERY_ACROSS` 5–8) five times
+  in six where it fits one, else a store (`deal`, `room_pieces`). The
+  pieces go on `Floor::combat` — laid in `furnish_placer` right after
+  the sandbags, before any fixture or lamp — and the **trial
+  furnishing stands them too**, so no door is chosen into an alcove.
+  A **corridor's** cover line is crates one time in three, and a
+  corridor four wide or more has a drum or two against a wall half the
+  time (`cover`, which returns the bags and the pieces). **Windows**:
+  a combat room one time in two and any other one in `WINDOW_ODDS` (5)
+  has a `Window` for every tile of its ring with its deck inside and
+  corridor deck outside, bar the corners and the doors
+  (`windows_of`; `floor_of` leaves those tiles out of the walls). Over
+  fifty seeds a kind (`most_stations_have_a_combat_room_and_the_pieces_turn_up`):
+  a combat room in 17 relays, 26 derelicts, 37 refineries, 36
+  orbitals; windows in 40–48; none fell back; the swept walkability
+  contract green. The tally's corridor deck counts a combat room's
+  deck (it was every room but the stores and the roles).
+- **The ways in** (`entry.rs`, a child of `world`): a station's
+  airlocks but the port in the waves' turn (`droid::arrival_airlock_at`'s
+  order) or a town's gates, each by its index (an airlock's among
+  `droid::airlocks`, a gate's among `Station::gates`); none at the
+  Heart. `Command::Weld { slot }` (`keys::Action::Weld`, **V**) —
+  `can_weld`: `OutOfReach` (not fit, no mission) and
+  `Refusal::NoWayInNear` (136) — welds the nearest unwelded one whose
+  weld tile (a tile inside its doorway) is within `WELD_REACH` (1.75)
+  tiles: the room's deploy errand with `WELD_CODE` (100), `WELD_MINUTES`
+  (4) or `ENGINEER_WELD_MINUTES` (2); `World::step` hands that code to
+  `finish_weld` rather than `finish_deploy`. `Run::welded` (saved;
+  hashed where any) is cleared at a mission's start and end.
+  **A wave** (`turn_of`): the way in its turn names, or the next
+  unwelded after it; every one welded, the turn's own, **burnt
+  through** — `lay_wave` calls `burn_through` first, the weld goes and
+  `WorldEvent::WeldBurnt` (169) is said (`say_burns`, after the
+  deploys). `arrival_port`/`arrival_gate` are what `arrival_spots` and
+  `droid_ship` read now. `WorldEvent::Welding { who, entry, done }`
+  (168). `World::entries()` is the app's: every way in on the crew's
+  deck and in the site's units, welded, and which the next wave takes;
+  `world_paint::ways_in` draws a hazard bar, the next one red with
+  chevrons, a weld plated with a glowing seam.
+  `tests_droid::a_welded_airlock_is_skipped_and_every_one_welded_is_burnt_through`,
+  `a_bim_welds_the_way_in_beside_it`.
+
+Meant to alter play: every generated station is another building, so
+`REFERENCE_CHECKSUM`, `SURVIVORS` and the ship's `PINNED`/`PICTURES`
+move where a run meets one; no `GENERATOR_VERSION` (the galaxy is
+untouched). **`SAVE_VERSION` 123.**

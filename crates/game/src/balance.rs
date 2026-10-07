@@ -730,6 +730,18 @@ pub const BOMB_ROLL: f32 = 0.6;
 pub const BOMB_RADIUS: f32 = 2.25;
 pub const BOMB_DAMAGE: f32 = 40.0;
 pub const BOMB_COOLDOWN: f32 = 6.0;
+/// A fuel drum bursting (a station's combat rooms, `shipdesign::FuelTank`):
+/// [`TANK_BLAST_RADIUS`] tiles wide with [`TANK_BLAST_DAMAGE`] at the
+/// centre on the machines, half at the edge like a grenade, and
+/// [`TANK_BLAST_CREW_SHARE`] of that on the crew and the sentries — a
+/// Bomber's bomb's worth — so a drum is a trap to spring on the machines
+/// and a hazard to stand by, not a death. Placeholders.
+pub const TANK_BLAST_RADIUS: f32 = 2.75;
+pub const TANK_BLAST_DAMAGE: f32 = 110.0;
+pub const TANK_BLAST_CREW_SHARE: f32 = 0.4;
+/// How long after a burst reaches it the next drum goes up: a chain is
+/// seen going drum by drum.
+pub const TANK_CHAIN_DELAY: f32 = 0.18;
 pub const BOMB_FIRST: f32 = 1.5;
 /// Where a Bomber stands: it walks in to about [`BOMBER_STAND`] tiles of
 /// its mark — its pistol's reach cut to that for the stand it picks — and

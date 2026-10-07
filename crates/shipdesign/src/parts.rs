@@ -250,12 +250,34 @@ pub enum PartKind {
     /// A tile of water — a lake, a river, a pool, or ice: walked round
     /// and seen over.
     Water = 43,
+    /// A rail at waist height: walked round, seen and shot across. What
+    /// edges a pit and a catwalk in a station's combat rooms
+    /// (`world::stationgen`), so a fight goes across a gap nobody can
+    /// cross on foot.
+    Railing = 44,
+    /// A pane of armoured glass in a partition: a wall to the feet and
+    /// nothing to the eyes or to a bolt. A room with windows onto its
+    /// corridor is a room the corridor is fought from.
+    Window = 45,
+    /// A tile of shaft — a drop to the deck below: walked round, seen and
+    /// shot across. A body never falls in; it is a hole in the floor the
+    /// fight goes over.
+    Pit = 46,
+    /// A cargo crate: walked round and seen over, and **cover** like the
+    /// sandbags ([`is_cover`]) — until it is shot to pieces
+    /// (the room's `Sight` keeps what is left of it, `bims::sight::Prop`).
+    Crate = 47,
+    /// A drum of fuel: walked round and seen over, and a bolt that meets
+    /// it holes it — shot enough (`bims::sight::TANK_HEALTH`) it bursts and
+    /// hurts everything near, crew and machines alike, and sets off any
+    /// other drum the blast reaches (the room's `Game::burst`).
+    FuelTank = 48,
 }
 
 impl PartKind {
     /// Every kind, in discriminant order. `ALL[k as usize] == k`, which
     /// [`PartKind::def`] relies on and [`defs_are_sound`] checks.
-    pub const ALL: [PartKind; 44] = [
+    pub const ALL: [PartKind; 49] = [
         PartKind::Floor,
         PartKind::Wall,
         PartKind::Door,
@@ -300,6 +322,11 @@ impl PartKind {
         PartKind::Shrub,
         PartKind::Boulder,
         PartKind::Water,
+        PartKind::Railing,
+        PartKind::Window,
+        PartKind::Pit,
+        PartKind::Crate,
+        PartKind::FuelTank,
     ];
 
     /// The number that crosses the wasm boundary. No strings do.
@@ -493,7 +520,14 @@ impl PartDef {
             // over; a tree and a boulder are not.
             | PartKind::Field
             | PartKind::Shrub
-            | PartKind::Water => false,
+            | PartKind::Water
+            // A station's combat pieces: a rail, a pane, a shaft, a crate
+            // and a drum are all fought across.
+            | PartKind::Railing
+            | PartKind::Window
+            | PartKind::Pit
+            | PartKind::Crate
+            | PartKind::FuelTank => false,
             _ => self.blocks_movement,
         }
     }
@@ -505,7 +539,7 @@ impl PartDef {
 /// told about how a part is approached — [`crate::validate`] already insists
 /// every one of them is floor a body can stand on and that they can all reach
 /// each other, so a design that passes here is one the crew can work.
-pub static PARTS: [PartDef; 44] = [
+pub static PARTS: [PartDef; 49] = [
     PartDef {
         kind: PartKind::Floor,
         footprint: (1, 1),
@@ -1218,6 +1252,81 @@ pub static PARTS: [PartDef; 44] = [
         thrust: 0.0,
         torque_thrust: 0.0,
     },
+    PartDef {
+        kind: PartKind::Railing,
+        footprint: (1, 1),
+        layer: Layer::Object,
+        // Walked round, seen and shot across.
+        blocks_movement: true,
+        requires: Some(Layer::Floor),
+        use_spots: &[],
+        price: 100,
+        shields: false,
+        capacity: None,
+        mass: 4.0,
+        thrust: 0.0,
+        torque_thrust: 0.0,
+    },
+    PartDef {
+        kind: PartKind::Window,
+        footprint: (1, 1),
+        layer: Layer::Object,
+        // Walked round, seen and shot through.
+        blocks_movement: true,
+        requires: Some(Layer::Floor),
+        use_spots: &[],
+        price: 150,
+        shields: false,
+        capacity: None,
+        mass: 6.0,
+        thrust: 0.0,
+        torque_thrust: 0.0,
+    },
+    PartDef {
+        kind: PartKind::Pit,
+        footprint: (1, 1),
+        layer: Layer::Object,
+        // Walked round, seen and shot across.
+        blocks_movement: true,
+        requires: Some(Layer::Floor),
+        use_spots: &[],
+        price: 100,
+        shields: false,
+        capacity: None,
+        mass: 1.0,
+        thrust: 0.0,
+        torque_thrust: 0.0,
+    },
+    PartDef {
+        kind: PartKind::Crate,
+        footprint: (1, 1),
+        layer: Layer::Object,
+        // Walked round and seen over; cover while it stands.
+        blocks_movement: true,
+        requires: Some(Layer::Floor),
+        use_spots: &[],
+        price: 100,
+        shields: false,
+        capacity: None,
+        mass: 8.0,
+        thrust: 0.0,
+        torque_thrust: 0.0,
+    },
+    PartDef {
+        kind: PartKind::FuelTank,
+        footprint: (1, 1),
+        layer: Layer::Object,
+        // Walked round and seen over; it bursts.
+        blocks_movement: true,
+        requires: Some(Layer::Floor),
+        use_spots: &[],
+        price: 150,
+        shields: false,
+        capacity: None,
+        mass: 8.0,
+        thrust: 0.0,
+        torque_thrust: 0.0,
+    },
 ];
 
 /// What a comfort does: how much it **lifts the surroundings** — the
@@ -1325,7 +1434,7 @@ pub fn wall_light_back(rotation: Rotation) -> (i32, i32) {
 /// behind it ducks under a shot from the far side — the room's
 /// `Sight::covered` is the rule and this is what it is built from.
 pub fn is_cover(kind: PartKind) -> bool {
-    matches!(kind, PartKind::Sandbags)
+    matches!(kind, PartKind::Sandbags | PartKind::Crate)
 }
 
 /// Whether a part is one of the two cut across its tile. What the painters

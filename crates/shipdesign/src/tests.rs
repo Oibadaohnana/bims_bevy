@@ -308,16 +308,29 @@ fn what_a_body_can_walk_through() {
     ] {
         assert!(kind.def().blocks_movement, "{kind:?} should block");
     }
-    // Sandbags are the one part that is low cover: walked over, seen
-    // over, and nothing else is.
+    // Sandbags and a crate are the low cover, and nothing else is: the
+    // bags walked over, the crate walked round, both seen over.
     for kind in PartKind::ALL {
         assert_eq!(
             crate::parts::is_cover(kind),
-            kind == PartKind::Sandbags,
+            matches!(kind, PartKind::Sandbags | PartKind::Crate),
             "{kind:?}"
         );
     }
     assert!(!PartKind::Sandbags.def().blocks_sight(), "seen over");
+    assert!(!PartKind::Crate.def().blocks_sight(), "seen over");
+    // The combat pieces block a walk and nothing a line of sight or a
+    // bolt meets.
+    for kind in [
+        PartKind::Railing,
+        PartKind::Window,
+        PartKind::Pit,
+        PartKind::Crate,
+        PartKind::FuelTank,
+    ] {
+        assert!(kind.def().blocks_movement, "{kind:?} should block a walk");
+        assert!(!kind.def().blocks_sight(), "{kind:?} should be seen across");
+    }
 }
 
 /// The two corner pieces are walls in every rule and a triangle only in the
@@ -1926,7 +1939,7 @@ fn an_axis_with_nothing_pushing_accelerates_at_nothing_and_two_engines_add_up() 
 fn a_part_weighs_what_its_recipe_weighed() {
     // kind, and what its recipe came to at metal 8, components 2 and an
     // emitter 16 — the masses those three had on the day they went.
-    let pinned: [(PartKind, f64); 44] = [
+    let pinned: [(PartKind, f64); 49] = [
         (PartKind::Floor, 8.0),
         (PartKind::Wall, 16.0),
         (PartKind::Door, 20.0),
@@ -1971,6 +1984,11 @@ fn a_part_weighs_what_its_recipe_weighed() {
         (PartKind::Shrub, 8.0),
         (PartKind::Boulder, 8.0),
         (PartKind::Water, 8.0),
+        (PartKind::Railing, 4.0),
+        (PartKind::Window, 6.0),
+        (PartKind::Pit, 1.0),
+        (PartKind::Crate, 8.0),
+        (PartKind::FuelTank, 8.0),
     ];
     assert_eq!(pinned.len(), PartKind::ALL.len(), "a part went unpinned");
     for (kind, mass) in pinned {

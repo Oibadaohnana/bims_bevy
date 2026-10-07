@@ -235,6 +235,11 @@ pub struct Layout {
     /// to a walk or a line of sight, but a body close behind ducks a shot
     /// from across it. `Sight::covered` is the rule.
     pub cover: Vec<Rect>,
+    /// The crates and the fuel drums, each its tile and whether it is a
+    /// drum: what a fight breaks (`Sight::set_props`). A crate is in
+    /// `cover` as well.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub props: Vec<(Rect, bool)>,
     /// The lights — every wall light and standing light, `shipdesign::light_tiles`
     /// — each where it is and how far it reaches. A designed deck with none
     /// is dark, and `Sight` says what that costs.
@@ -576,6 +581,7 @@ impl Room {
             sight.set_range(Some(crate::terrain::VIEW as f32 * TILE));
         }
         sight.set_cover(&layout.cover);
+        sight.set_props(&layout.props);
         sight.set_tall(&layout.tall);
         sight.set_lights(&layout.lights);
         let bays = bays_of(&layout);
@@ -701,6 +707,7 @@ impl Room {
         self.sight = Sight::new(layout.bounds, interior, TILE, &layout.opaque, &fogged);
         self.sight.set_range(range);
         self.sight.set_cover(&layout.cover);
+        self.sight.set_props(&layout.props);
         self.sight.set_tall(&layout.tall);
         self.sight.set_lights(&layout.lights);
         self.sight.set_daylight(daylight);

@@ -811,6 +811,14 @@ pub(crate) struct Floor {
     /// A town's gates in its wall, in the order its waves take them
     /// (feature 112). Empty on a station.
     pub(crate) gates: Vec<crate::surface::Gate>,
+    /// What a generated station's combat rooms stand on their decks — the
+    /// hangar's pillars, crates and fuel drums, the shaft's pit and
+    /// railings, the gallery's alcoves, a corridor's drums and crates — and
+    /// the windows a room has in place of its walls onto a corridor
+    /// (`stationgen`). Laid right after the walls, doors and sandbags,
+    /// before any fixture or lamp. Empty on every drawn plan and a town.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub(crate) combat: Vec<(PartKind, (u32, u32))>,
 }
 
 /// A wall round `room` — every tile of its ring that is deck; the skin
@@ -980,6 +988,7 @@ fn hub(side: u32, bunk_columns: u32) -> Floor {
         mess_columns: 1,
         wild: None,
         clear: Vec::new(),
+        combat: Vec::new(),
         gates: Vec::new(),
     }
 }
@@ -1215,6 +1224,7 @@ fn pod(side: u32) -> Floor {
         mess_columns: 1,
         wild: None,
         clear: Vec::new(),
+        combat: Vec::new(),
         gates: Vec::new(),
     }
 }
@@ -1332,6 +1342,7 @@ fn cross(side: u32) -> Floor {
         mess_columns: 1,
         wild: None,
         clear: Vec::new(),
+        combat: Vec::new(),
         gates: Vec::new(),
     }
 }
@@ -1454,6 +1465,7 @@ fn spine(side: u32) -> Floor {
         mess_columns: 1,
         wild: None,
         clear: Vec::new(),
+        combat: Vec::new(),
         gates: Vec::new(),
     }
 }
@@ -1589,6 +1601,7 @@ fn ring(side: u32) -> Floor {
         mess_columns: 1,
         wild: None,
         clear: Vec::new(),
+        combat: Vec::new(),
         gates: Vec::new(),
     }
 }
@@ -1701,6 +1714,7 @@ fn comb(side: u32) -> Floor {
         mess_columns: 1,
         wild: None,
         clear: Vec::new(),
+        combat: Vec::new(),
         gates: Vec::new(),
     }
 }
@@ -2077,6 +2091,12 @@ pub(crate) fn furnish_placer(side: u32, floor: Floor, map_seed: u64) -> Placer {
     // Cover: low, walked and seen over, ducked behind (`bims::sight`).
     for &at in &floor.cover {
         placer.put(PartKind::Sandbags, at, Rotation::R0);
+    }
+
+    // The combat rooms' pieces and the windows, before anything else is
+    // stood on a deck.
+    for &(kind, at) in &floor.combat {
+        placer.put(kind, at, Rotation::R0);
     }
 
     // The mess: the galley along the north wall from the corner, worked

@@ -122,6 +122,11 @@ pub fn part_in(list: &mut DrawList, part: &PlacedPart, biome: Option<Biome>) -> 
         PartKind::Armoury => armoury(list, part),
         PartKind::TradingDesk => trading_desk(list, part),
         PartKind::Sandbags => sandbags(list, part),
+        PartKind::Railing => railing(list, part),
+        PartKind::Window => window(list, part),
+        PartKind::Pit => pit(list, part),
+        PartKind::Crate => cargo_crate(list, part),
+        PartKind::FuelTank => fuel_drum(list, part),
         PartKind::ResearchDesk => research_desk(list, part),
         PartKind::Hyperdrive => hyperdrive(list, part),
         PartKind::WallLight => wall_light(list, part),
@@ -1647,6 +1652,268 @@ pub(crate) fn sandbags(list: &mut DrawList, part: &PlacedPart) {
         0.0,
         SACK_DARK,
     );
+}
+
+// --- a station's combat rooms (October 2026) ---------------------------------------
+
+const RAIL: Color = Color::rgb(0.70, 0.74, 0.78);
+const RAIL_DARK: Color = Color::rgb(0.26, 0.29, 0.33);
+const GLASS: Color = Color::rgba(0.58, 0.82, 0.95, 0.30);
+const GLASS_FRAME: Color = Color::rgb(0.34, 0.40, 0.46);
+const GLASS_GLINT: Color = Color::rgba(0.92, 0.97, 1.0, 0.55);
+const DROP: Color = Color::rgb(0.0, 0.0, 0.005);
+const DROP_EDGE: Color = Color::rgb(0.05, 0.08, 0.12);
+const PLY: Color = Color::rgb(0.60, 0.46, 0.27);
+const PLY_DARK: Color = Color::rgb(0.40, 0.29, 0.16);
+const DRUM: Color = Color::rgb(0.74, 0.24, 0.14);
+const DRUM_DARK: Color = Color::rgb(0.45, 0.13, 0.08);
+const DRUM_LID: Color = Color::rgb(0.86, 0.72, 0.20);
+const SCORCH: Color = Color::rgba(0.05, 0.04, 0.03, 0.85);
+const WRECK: Color = Color::rgb(0.25, 0.16, 0.12);
+
+/// A railing: a rail at waist height round the tile's edge on posts —
+/// a run of them reads as a rail along the gap they fence.
+fn railing(list: &mut DrawList, part: &PlacedPart) {
+    let (local, across, along) = Local::of(part);
+    let (w, h) = (across - 10.0, along - 10.0);
+    local.push(list, KIND_RECT, 0.0, 0.0, w, h, 3.0, 5.0, RAIL_DARK);
+    local.push(list, KIND_RECT, 0.0, 0.0, w - 2.0, h - 2.0, 3.0, 2.5, RAIL);
+    for (u, v) in [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)] {
+        local.push(
+            list,
+            KIND_ELLIPSE,
+            u * w / 2.0,
+            v * h / 2.0,
+            6.0,
+            6.0,
+            0.0,
+            0.0,
+            RAIL,
+        );
+    }
+}
+
+/// A railing on the deck among others (`world_paint::hull_tiles`): a post
+/// in the middle and the rail run on to every side `joins` names — up,
+/// right, down, left in the grid — so a ring of them is one rail round
+/// the drop. A railing alone is [`railing`]'s.
+pub fn railing_joined(list: &mut DrawList, part: &PlacedPart, joins: [bool; 4]) {
+    if !joins.iter().any(|&j| j) {
+        railing(list, part);
+        return;
+    }
+    let (cx, cy) = middle(part.origin.0, part.origin.1);
+    let half = TILE as f32 * 0.5;
+    for (dark, width) in [(true, 9.0), (false, 4.0)] {
+        let colour = if dark { RAIL_DARK } else { RAIL };
+        for (k, (dx, dy)) in [(0.0, -1.0), (1.0, 0.0), (0.0, 1.0), (-1.0, 0.0)]
+            .into_iter()
+            .enumerate()
+        {
+            if joins[k] {
+                list.line(cx, cy, cx + dx * half, cy + dy * half, width, colour);
+            }
+        }
+    }
+    list.push(KIND_ELLIPSE, cx, cy, 10.0, 10.0, 0.0, 0.0, 0.0, RAIL_DARK);
+    list.push(KIND_ELLIPSE, cx, cy, 6.0, 6.0, 0.0, 0.0, 0.0, RAIL);
+}
+
+/// A window: a pane of glass in a frame filling the tile, a glint across
+/// it. Seen through; a run of them is a glass wall.
+fn window(list: &mut DrawList, part: &PlacedPart) {
+    let (local, across, along) = Local::of(part);
+    local.push(list, KIND_RECT, 0.0, 0.0, across, along, 0.0, 0.0, GLASS);
+    local.push(
+        list,
+        KIND_RECT,
+        0.0,
+        0.0,
+        across - 3.0,
+        along - 3.0,
+        0.0,
+        3.0,
+        GLASS_FRAME,
+    );
+    let (x0, y0) = local.at(-across * 0.3, across * 0.2);
+    let (x1, y1) = local.at(-across * 0.05, -across * 0.25);
+    list.line(x0, y0, x1, y1, 2.0, GLASS_GLINT);
+}
+
+/// A tile of shaft: the drop, black, a faint cold glow far down. Drawn a
+/// hair translucent so the objects' wear texture leaves it plain
+/// (`DrawList::textured_from`): the drop is no surface.
+fn pit(list: &mut DrawList, part: &PlacedPart) {
+    let (local, across, along) = Local::of(part);
+    local.push(
+        list,
+        KIND_RECT,
+        0.0,
+        0.0,
+        across + 1.0,
+        along + 1.0,
+        0.0,
+        0.0,
+        DROP.alpha(0.98),
+    );
+    local.push(
+        list,
+        KIND_RECT,
+        0.0,
+        0.0,
+        across * 0.5,
+        along * 0.5,
+        across * 0.25,
+        0.0,
+        DROP_EDGE.alpha(0.5),
+    );
+}
+
+/// A cargo crate: plywood, planked, braced corner to corner.
+fn cargo_crate(list: &mut DrawList, part: &PlacedPart) {
+    let (local, across, along) = Local::of(part);
+    let (w, h) = (across - 8.0, along - 8.0);
+    local.push(list, KIND_RECT, 0.0, 0.0, w, h, 3.0, 0.0, PLY_DARK);
+    local.push(list, KIND_RECT, 0.0, 0.0, w - 4.0, h - 4.0, 2.0, 0.0, PLY);
+    for k in [-1.0, 1.0] {
+        local.push(
+            list,
+            KIND_RECT,
+            0.0,
+            k * h / 6.0,
+            w - 4.0,
+            1.5,
+            0.0,
+            0.0,
+            PLY_DARK,
+        );
+    }
+    let (x0, y0) = local.at(-w / 2.0 + 3.0, -h / 2.0 + 3.0);
+    let (x1, y1) = local.at(w / 2.0 - 3.0, h / 2.0 - 3.0);
+    list.line(x0, y0, x1, y1, 2.5, PLY_DARK);
+}
+
+/// A drum of fuel seen from above: a red can, its rim, a yellow cap.
+fn fuel_drum(list: &mut DrawList, part: &PlacedPart) {
+    let (local, across, _) = Local::of(part);
+    let d = across - 12.0;
+    local.push(list, KIND_ELLIPSE, 0.0, 0.0, d, d, 0.0, 0.0, DRUM_DARK);
+    local.push(
+        list,
+        KIND_ELLIPSE,
+        0.0,
+        0.0,
+        d - 5.0,
+        d - 5.0,
+        0.0,
+        0.0,
+        DRUM,
+    );
+    local.push(
+        list,
+        KIND_ELLIPSE,
+        0.0,
+        0.0,
+        d * 0.5,
+        d * 0.5,
+        0.0,
+        2.0,
+        DRUM_DARK,
+    );
+    local.push(
+        list,
+        KIND_ELLIPSE,
+        d * 0.18,
+        -d * 0.18,
+        d * 0.2,
+        d * 0.2,
+        0.0,
+        0.0,
+        DRUM_LID,
+    );
+}
+
+/// A crate or a drum as the fight has left it, over its picture: nothing
+/// while it is whole (`share` one); a crate splintered and a drum cracked
+/// as it is shot (a darker wash for what is gone); at nothing a crate's
+/// planks scattered and a drum a scorch with a torn can in it.
+pub fn prop_face(list: &mut DrawList, part: &PlacedPart, share: f32) {
+    let (local, across, along) = Local::of(part);
+    if share >= 1.0 {
+        return;
+    }
+    if share > 0.0 {
+        let gone = (1.0 - share).clamp(0.0, 1.0);
+        let (x0, y0) = local.at(-across * 0.25, -along * 0.15);
+        let (x1, y1) = local.at(across * 0.05, along * 0.2);
+        let (x2, y2) = local.at(across * 0.25, -along * 0.05);
+        list.line(x0, y0, x1, y1, 1.5, SCORCH.alpha(0.4 + 0.5 * gone));
+        if gone > 0.5 {
+            list.line(x1, y1, x2, y2, 1.5, SCORCH.alpha(0.4 + 0.5 * gone));
+        }
+        return;
+    }
+    match part.kind {
+        PartKind::FuelTank => {
+            // Over the whole tile and a little past: the burst blackened it.
+            local.push(
+                list,
+                KIND_ELLIPSE,
+                0.0,
+                0.0,
+                across * 1.3,
+                along * 1.3,
+                0.0,
+                0.0,
+                SCORCH,
+            );
+            local.push(
+                list,
+                KIND_ELLIPSE,
+                0.0,
+                0.0,
+                across * 0.45,
+                along * 0.45,
+                0.0,
+                0.0,
+                WRECK,
+            );
+            local.push(
+                list,
+                KIND_ELLIPSE,
+                0.0,
+                0.0,
+                across * 0.28,
+                along * 0.28,
+                0.0,
+                0.0,
+                DROP,
+            );
+        }
+        _ => {
+            // The crate's planks over the deck, a dark patch under them.
+            local.push(
+                list,
+                KIND_RECT,
+                0.0,
+                0.0,
+                across - 6.0,
+                along - 6.0,
+                4.0,
+                0.0,
+                SCORCH.alpha(0.5),
+            );
+            for (u, v, a) in [
+                (-0.2f32, -0.15f32, 0.4f32),
+                (0.15, 0.1, -0.6),
+                (-0.05, 0.25, 1.2),
+            ] {
+                let (x0, y0) = local.at(u * across - a.cos() * 9.0, v * along - a.sin() * 9.0);
+                let (x1, y1) = local.at(u * across + a.cos() * 9.0, v * along + a.sin() * 9.0);
+                list.line(x0, y0, x1, y1, 4.0, PLY);
+            }
+        }
+    }
 }
 
 // --- an Area defend's FOB (October 2026) ------------------------------------------

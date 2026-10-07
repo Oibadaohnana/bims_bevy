@@ -79,7 +79,7 @@ pub fn resident_name(station: u32, who: u32) -> String {
 
 /// What each part is called. Indexed by the `PartKind` discriminant in
 /// `crates/shipdesign/src/parts.rs`.
-pub const PART_NAMES: [&str; 44] = [
+pub const PART_NAMES: [&str; 49] = [
     "Deck plating",
     "Wall",
     "Door",
@@ -124,6 +124,11 @@ pub const PART_NAMES: [&str; 44] = [
     "Shrub",
     "Boulder",
     "Water",
+    "Railing",
+    "Window",
+    "Shaft",
+    "Crate",
+    "Fuel drum",
 ];
 
 pub fn part_name(kind: PartKind) -> &'static str {
@@ -229,6 +234,13 @@ pub const NOT_A_TOOL: &[u32] = &[
     PartKind::Shrub as u32,
     PartKind::Boulder as u32,
     PartKind::Water as u32,
+    // A station's combat rooms' pieces (October 2026): laid by the
+    // generator, built by nobody.
+    PartKind::Railing as u32,
+    PartKind::Window as u32,
+    PartKind::Pit as u32,
+    PartKind::Crate as u32,
+    PartKind::FuelTank as u32,
 ];
 
 /// What a station sells, indexed by `physics::ResourceId`'s code — blank
@@ -468,6 +480,7 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NotSellable => "the laser pistol is not for sale",
         Refusal::OutOfItemRange => "they are too far off for that",
         Refusal::NoBonusWave => "a bonus wave is chosen in the ready check, at a fight",
+        Refusal::NoWayInNear => "no way in to weld here — stand at an airlock or a gate",
         Refusal::BonusWaveHeld => "Overtime keeps the bonus wave on",
     }
 }
@@ -1275,6 +1288,10 @@ pub fn throw_refused(why: world::Refusal) -> String {
 pub fn detonate_refused(why: world::Refusal) -> String {
     format!("Nothing to set off: {}.", refusal(why))
 }
+/// And for a weld refused (October 2026).
+pub fn weld_refused(why: world::Refusal) -> String {
+    format!("Cannot weld: {}.", refusal(why))
+}
 /// And for a Stun Shot refused (October 2026).
 pub fn stun_shot_refused(why: world::Refusal) -> String {
     format!("Cannot fire a Stun Shot: {}.", refusal(why))
@@ -1847,6 +1864,22 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             player_name(slot),
             crate::format::euros(money)
         ),
+        WorldEvent::Welding {
+            who: w,
+            done: false,
+            ..
+        } => format!("{} is welding a way in shut.", who(w)),
+        WorldEvent::Welding {
+            who: w, done: true, ..
+        } => {
+            format!(
+                "{} welded a way in shut. The waves come in elsewhere.",
+                who(w)
+            )
+        }
+        WorldEvent::WeldBurnt { .. } => {
+            "The machines burnt through a weld: every way in was shut.".into()
+        }
         WorldEvent::PlayerGone { slot } => format!("{} has left the game.", player_name(slot)),
         WorldEvent::Readied { slot, yes: true } => format!("{} is ready.", player_name(slot)),
         WorldEvent::Readied { slot, yes: false } => {
@@ -4174,6 +4207,7 @@ mod tests {
             Refusal::NotForSale,
             Refusal::NotSellable,
             Refusal::OutOfItemRange,
+            Refusal::NoWayInNear,
         ] {
             assert!(!refusal(why).is_empty());
         }

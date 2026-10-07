@@ -144,8 +144,10 @@ pub fn layout_of_on(design: &ShipDesign, plane: Option<&Plane>) -> Layout {
     // And what stops a line of sight: the same tiles, and the parts that
     // do, below. A door is not here — see `doors`.
     let mut opaque: Vec<Rect> = Vec::new();
-    // And the low cover a body ducks behind: the sandbags.
+    // And the low cover a body ducks behind: the sandbags and the crates.
     let mut cover: Vec<Rect> = Vec::new();
+    // The crates and the fuel drums, which a fight breaks (`Sight::set_props`).
+    let mut props: Vec<(Rect, bool)> = Vec::new();
     // And which of the opaque parts are furniture rather than wall — the
     // shelves, the cabinets, a table — that the light picture shades
     // behind softly rather than blacking out. See `Sight::set_tall`.
@@ -265,6 +267,9 @@ pub fn layout_of_on(design: &ShipDesign, plane: Option<&Plane>) -> Layout {
         }
         if shipdesign::is_cover(part.kind) {
             cover.push(part_rect(part));
+        }
+        if matches!(part.kind, PartKind::Crate | PartKind::FuelTank) {
+            props.push((part_rect(part), part.kind == PartKind::FuelTank));
         }
         if let Some(tiles) = shipdesign::light_tiles(part.kind) {
             // A wall light shines from the wall it hangs on: its source is
@@ -484,6 +489,7 @@ pub fn layout_of_on(design: &ShipDesign, plane: Option<&Plane>) -> Layout {
         opaque,
         tall,
         cover,
+        props,
         lights,
         more,
         extras,

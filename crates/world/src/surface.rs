@@ -1167,6 +1167,7 @@ pub(crate) fn template_floor(side: u32, biome: Biome, population: u32, seed: u64
         mess_columns: columns,
         wild: Some(biome),
         clear: town.clear,
+        combat: Vec::new(),
         gates: vec![
             Gate {
                 wall: Wall::North,

@@ -239,6 +239,12 @@ pub enum WorldEvent {
     /// *War Chest* (October 2026): a site cleared paid player `slot`
     /// `money` of the money it kept.
     WarChest { slot: u32, money: economy::Money },
+    /// Crew member `who` began welding way in `entry` shut (October 2026,
+    /// `World::weld`), or — `done` — finished it.
+    Welding { who: u32, entry: u32, done: bool },
+    /// A wave burnt through welded way in `entry`: every way in was
+    /// welded, and the turn named this one (October 2026).
+    WeldBurnt { entry: u32 },
     /// The host said that player has left the game.
     PlayerGone { slot: u32 },
     /// Relics are on offer to the crew (feature 106): `count` of them, off
@@ -650,6 +656,10 @@ pub enum Refusal {
     /// The bonus wave taken back while the crew hold *Overtime* (October
     /// 2026): every site that can have one has it.
     BonusWaveHeld = 135,
+    /// A weld asked for with no way in of the site's within reach of the
+    /// Bim, none left unwelded, or at a site that has none to weld — the
+    /// Machine Heart's (October 2026, `World::weld`).
+    NoWayInNear = 136,
 }
 
 impl Refusal {
@@ -742,6 +752,8 @@ impl WorldEvent {
             // 165 was a bonus wave called after the clear cleared.
             WorldEvent::CleanSweep { .. } => 166,
             WorldEvent::WarChest { .. } => 167,
+            WorldEvent::Welding { .. } => 168,
+            WorldEvent::WeldBurnt { .. } => 169,
             WorldEvent::PlayerGone { .. } => 106,
             WorldEvent::RelicsOffered { .. } => 107,
             WorldEvent::RelicProposed { .. } => 108,
@@ -891,6 +903,12 @@ impl WorldEvent {
             WorldEvent::WarChest { slot, money } => {
                 (slot as i64).saturating_add((money as i64).saturating_mul(100))
             }
+            // The crew member in the units, the way in in the hundreds, and
+            // a weld done in the hundred thousands.
+            WorldEvent::Welding { who, entry, done } => {
+                (who as i64) + 100 * (entry as i64) + 100_000 * i64::from(done)
+            }
+            WorldEvent::WeldBurnt { entry } => entry as i64,
             // The kind in the hundreds, the player in the units.
             WorldEvent::ItemUsed { who, kind } => (who as i64) + 100 * (kind as i64),
             // The buyer in the units, the kind in the tens, the tier in the

@@ -5540,3 +5540,35 @@ it even with no war while there is anybody left (`has_prey_left`). An
 objective (an Area defend's ring) still comes first. Nothing else knows
 more than it did. `a_husk_that_downs_its_prey_hunts_the_next` pins it;
 `SAVE_VERSION` 119. Meant to alter play.
+
+## Crates and fuel drums (October 2026)
+
+A station's combat rooms stand `shipdesign::Crate` and `FuelTank` parts
+(`crates/world/CLAUDE.md`). The layout lists them (`Layout::props`,
+`aboard.rs`), and `Sight::set_props` keeps a `sight::Prop` each — its
+tile, whether it is a drum, what it has left (`CRATE_HEALTH` 120,
+`TANK_HEALTH` 40) — built whole with the room like the lamps; the world
+puts back what a fight did (`set_prop_health`) and is told what changed
+(`take_prop_changes`). Nothing about the walk ever changes: a broken one
+stands where it stood.
+
+- **A crate is cover** (`shipdesign::is_cover`) until it is shot to
+  nothing: the bolts a body dodged behind it (`Combat::cover_hits`, which
+  the world used to drain and forget) come off it in `tick_combat`, and a
+  burst in reach takes its damage off it; broken, `mark_cover` leaves its
+  tile out.
+- **A drum stops a bolt** that passes within `TANK_RADIUS` (18) of it,
+  either side's, the way a lamp does (`Combat::step`'s `tank`, cleared
+  wherever `lamp` is; `line_of_fire` counts it) — `Combat::tank_hits`,
+  with the crew member who fired it. Holed to nothing it
+  **bursts**: `Combat::burst_tank` lays a `Grenade { barrel: true }`
+  (`balance::TANK_BLAST_RADIUS` 2.75 tiles, `TANK_BLAST_DAMAGE` 110), and
+  `Game::burst` hurts everybody: the targets as hits by whoever holed it
+  (`NOBODY` for a machine's bolt), this room's own and the sentries at
+  `TANK_BLAST_CREW_SHARE` (0.4) and nobody's. **Every burst** — a
+  grenade, a bomb, a mine, a satchel, a drum — but a town's unseen copy
+  takes its damage off the crates and drums in reach, and a drum it
+  breaks goes up `TANK_CHAIN_DELAY` after it: a chain. A drum about to go
+  is not drawn as a grenade (`barrel`).
+- `Game::set_props_for_probe` stands them in a bare room;
+  `a_drum_set_off_bursts_on_everybody_and_sets_off_the_next` is the rule.

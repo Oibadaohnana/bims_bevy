@@ -159,6 +159,9 @@ pub enum Order {
     /// The engineer's remote trigger: every satchel of his set off —
     /// `Command::Detonate`, the G key (task 154; Space until October 2026).
     Detonate,
+    /// The way in the player's Bim stands at welded shut —
+    /// `Command::Weld`, the V key (October 2026).
+    Weld,
     /// A mine or a Healing Sentry taken back up, the charge back —
     /// `Command::PackUp`.
     PackUp(u32),
@@ -534,6 +537,7 @@ impl Net {
                         Order::Deploy { kind, x, y } => Command::Deploy { slot, kind, x, y },
                         Order::Sentry { x, y } => Command::Sentry { slot, tile: (x, y) },
                         Order::Detonate => Command::Detonate { slot },
+                        Order::Weld => Command::Weld { slot },
                         Order::PackUp(id) => Command::PackUp { slot, id },
                         Order::StunShot { x, y } => Command::StunShot { slot, x, y },
                         Order::Throw { x, y } => Command::Throw { slot, x, y },

@@ -118,6 +118,11 @@ pub enum Action {
     /// the ultimate took G and the revive went to T, which the reload
     /// had left.
     Revive,
+    /// **Weld** (October 2026): the Bim you steer welds shut the way in
+    /// it stands at — an airlock or a town's gate the machines' waves
+    /// come by — so the next wave comes in by another; every one welded,
+    /// a wave burns through. On V.
+    Weld,
     /// **The medkit** (task 138; one key since October 2026): the medkit
     /// into the hands of the Bim you steer — it holds its fire, and a
     /// right-click on a downed crewmate revives them — or, with it in hand
@@ -179,7 +184,7 @@ impl Action {
         Action::Item6,
     ];
 
-    pub const ALL: [Action; 31] = [
+    pub const ALL: [Action; 32] = [
         Action::Map,
         Action::Propose,
         Action::NorthUp,
@@ -201,6 +206,7 @@ impl Action {
         Action::Retreat,
         Action::Carry,
         Action::Revive,
+        Action::Weld,
         Action::Medkit,
         Action::Item1,
         Action::Item2,
@@ -256,6 +262,7 @@ impl Action {
             // went to B.
             Action::Carry => Key::B,
             Action::Revive => Key::T,
+            Action::Weld => Key::V,
             Action::Medkit => Key::H,
             Action::Item1 => Key::Num1,
             Action::Item2 => Key::Num2,
@@ -293,6 +300,7 @@ impl Action {
             Action::Retreat => "retreat",
             Action::Carry => "carry",
             Action::Revive => "revive",
+            Action::Weld => "weld",
             Action::Medkit => "medkit",
             Action::Item1 => "item-1",
             Action::Item2 => "item-2",
@@ -355,6 +363,9 @@ impl Action {
             }
             Action::Revive => {
                 "Hold it standing close to a downed crewmate and the Bim you steer gets them back up — the nearest of them. Let go before they are up and it stops. A bar over them shows how far it has got. A right-click on a downed crewmate walks over and revives them too."
+            }
+            Action::Weld => {
+                "Weld shut the way in the Bim you steer stands at: an airlock or a gate the machines come aboard by. A few seconds of work, half that for an engineer. The next wave comes in by another; with every one welded, a wave burns through the one whose turn it is. The way the next wave comes is marked red."
             }
             Action::Medkit => {
                 "Take the medkit in hand: the Bim you steer holds its fire, and a right-click on a downed crewmate walks over and revives them. Their countdown stands while the hands are on them. Pressed again, the weapon is back in hand."

@@ -423,6 +423,17 @@ pub struct Run {
     /// the ready check, none at every mission's start.
     #[cfg_attr(feature = "serde", serde(default))]
     pub bonus: BonusWave,
+    /// The ways in this mission's site has welded shut (October 2026,
+    /// `World::weld`): each an airlock's index among the design's
+    /// airlocks or a gate's among the town's. A wave skips one welded and
+    /// comes in by the next in turn; with every one welded it burns
+    /// through the one its turn names. None at every mission's start.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub welded: Vec<u32>,
+    /// The welds a wave burnt through this step, for the step to say
+    /// (`World::say_burns`); empty between steps.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub burnt: Vec<u32>,
 }
 
 impl Run {
@@ -465,6 +476,8 @@ impl Run {
             clean_xp: Vec::new(),
             clean_spoiled: false,
             bonus: BonusWave::None,
+            welded: Vec::new(),
+            burnt: Vec::new(),
         }
     }
 

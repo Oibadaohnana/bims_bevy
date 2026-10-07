@@ -797,6 +797,7 @@ impl World {
         self.run.clean_xp.clear();
         self.run.clean_spoiled = false;
         self.run.bonus = run::BonusWave::None;
+        self.run.welded.clear();
         self.run.pending_bounty = 0;
         self.run.proposal = None;
         self.run.returning = vec![false; players as usize];
@@ -1671,8 +1672,10 @@ impl World {
     /// apart, nothing moving, until the crew have chosen where next.
     pub(super) fn leave_mission(&mut self, events: &mut Vec<WorldEvent>) {
         let station = self.ship.state.alongside().or(self.run.site);
-        // A mission left is not waiting for anybody's *Ready*.
+        // A mission left is not waiting for anybody's *Ready*, and its
+        // welds stay with the site.
         self.run.briefing = false;
+        self.run.welded.clear();
         // The commanders' reinforcements off the crew first, alive or not
         // (task 129): nothing of theirs is left behind, paid for or kept.
         self.send_reinforcements_home();

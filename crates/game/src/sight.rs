@@ -122,6 +122,49 @@ pub const LAMP_FAILING: f32 = 0.2;
 /// glass, near enough. A bolt aimed down the middle of a gangway misses
 /// the lamps on its walls; one that goes wide may not.
 pub const LAMP_RADIUS: f32 = 10.0;
+/// How near a bolt has to pass a fuel drum to hole it, in room units:
+/// most of a tile's width, so a bolt down the middle of a gangway past a
+/// drum on its wall flies on and one aimed at a body beside it may not.
+pub const TANK_RADIUS: f32 = 18.0;
+
+/// What a crate takes before it is matchwood and no cover: the damage of
+/// the bolts it stopped and the bursts that reached it.
+pub const CRATE_HEALTH: f32 = 120.0;
+/// What a fuel drum takes before it bursts.
+pub const TANK_HEALTH: f32 = 40.0;
+
+/// A crate or a fuel drum of the room's layout (`shipdesign::Crate`,
+/// `FuelTank`) as the fight has left it: where it stands, its tile's
+/// rectangle, which it is, and what it has left. A crate is low cover
+/// until it is shot to nothing (the bolts it stopped,
+/// `Combat::cover_hits`, and the bursts that reach it), and then its
+/// tile is no cover at all; a drum takes the bolts that pass within
+/// [`TANK_RADIUS`] and at nothing **bursts** (`Game::burst`). What is
+/// broken stays where it stood, walked round as before: the walk never
+/// changes, only the cover and the drum. The world remembers the
+/// damage by tile (`World::props`), as it does a lamp's.
+#[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Prop {
+    pub at: Vec2,
+    pub rect: Rect,
+    /// A fuel drum, else a crate.
+    pub tank: bool,
+    pub health: f32,
+}
+
+impl Prop {
+    /// What a whole one of its kind has.
+    pub fn whole(tank: bool) -> f32 {
+        if tank { TANK_HEALTH } else { CRATE_HEALTH }
+    }
+
+    /// Shot to nothing: a crate no cover, a drum burst.
+    pub fn is_broken(&self) -> bool {
+        self.health <= 0.0
+    }
+}
+
 /// How long a lamp flickers for after a hit, and for one of its failing
 /// flickers, in seconds at 1x.
 const LAMP_HIT_FLICKER: f32 = 0.6;
@@ -305,6 +348,12 @@ pub struct Sight {
     /// Which lamps' health changed since a host last asked
     /// (`take_lamp_changes`).
     lamp_changes: Vec<usize>,
+    /// The crates and the fuel drums, and which of them changed since a
+    /// host last asked (`take_prop_changes`). See [`Prop`].
+    #[cfg_attr(feature = "serde", serde(default))]
+    props: Vec<Prop>,
+    #[cfg_attr(feature = "serde", serde(default))]
+    prop_changes: Vec<usize>,
     /// The lamps' own clock, for the flicker's dice.
     lamp_seconds: f32,
     /// Never handed lights at all: lit throughout. See [`Light`].
@@ -414,6 +463,8 @@ impl Sight {
             lights: Vec::new(),
             lamps: Vec::new(),
             lamp_changes: Vec::new(),
+            props: Vec::new(),
+            prop_changes: Vec::new(),
             lamp_seconds: 0.0,
             lit_everywhere: true,
             daylight: None,
@@ -869,6 +920,76 @@ impl Sight {
         std::mem::take(&mut self.lamp_changes)
     }
 
+    /// The layout's crates and fuel drums, `(the tile's rectangle, a
+    /// drum)`, every one whole: once a layout, like the lights. What a
+    /// fight did to one is the world's to put back (`set_prop_health`).
+    pub fn set_props(&mut self, props: &[(Rect, bool)]) {
+        self.props = props
+            .iter()
+            .map(|&(rect, tank)| Prop {
+                at: rect.center(),
+                rect,
+                tank,
+                health: Prop::whole(tank),
+            })
+            .collect();
+        self.prop_changes.clear();
+        self.mark_cover();
+    }
+
+    /// The crates and the drums, index for index with the layout's.
+    pub fn props(&self) -> &[Prop] {
+        &self.props
+    }
+
+    /// The crate or the drum on a tile, with its index.
+    pub fn prop_on(&self, tile: (i32, i32)) -> Option<usize> {
+        self.props.iter().position(|p| self.tile_of(p.at) == tile)
+    }
+
+    /// Prop `i` takes `damage`: true when this is what broke it — a
+    /// crate's tile no longer cover, a drum to burst.
+    pub fn damage_prop(&mut self, i: usize, damage: f32) -> bool {
+        let Some(prop) = self.props.get_mut(i) else {
+            return false;
+        };
+        if prop.is_broken() || damage <= 0.0 {
+            return false;
+        }
+        prop.health = (prop.health - damage).max(0.0);
+        self.prop_changes.push(i);
+        if self.props[i].is_broken() {
+            if !self.props[i].tank {
+                self.mark_cover();
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Prop `i` as the world remembers it, set outright: at the room's
+    /// building, or from the other room a fight is mirrored in.
+    pub fn set_prop_health(&mut self, i: usize, health: f32) {
+        let Some(prop) = self.props.get_mut(i) else {
+            return;
+        };
+        if prop.health == health {
+            return;
+        }
+        let was = prop.is_broken();
+        prop.health = health.max(0.0);
+        if prop.is_broken() != was && !prop.tank {
+            self.mark_cover();
+        }
+    }
+
+    /// Which props' health changed since this was last asked, oldest
+    /// first: the world's cue to remember it.
+    pub fn take_prop_changes(&mut self) -> Vec<usize> {
+        std::mem::take(&mut self.prop_changes)
+    }
+
     /// Lamp `i` went dark, or came back: nothing shown or all of it, its
     /// light off the tile mask or on it, its share of the field taken
     /// out or put back over its reach, and every eye marched again,
@@ -1063,9 +1184,16 @@ impl Sight {
         for c in fixed.iter_mut() {
             c.cover = false;
         }
+        // A crate shot to nothing is no cover: its tile is left out.
         let rects: Vec<Rect> = self
             .layout_cover
             .iter()
+            .filter(|r| {
+                !self
+                    .props
+                    .iter()
+                    .any(|p| !p.tank && p.is_broken() && p.rect == **r)
+            })
             .chain(self.laid_cover.iter())
             .copied()
             .collect();

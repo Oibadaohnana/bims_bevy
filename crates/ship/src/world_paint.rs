@@ -786,6 +786,77 @@ fn lamp_faces(list: &mut DrawList, game: &Game, design: &ShipDesign, station: Op
     }
 }
 
+/// The crates and the fuel drums as the fight left them, over the
+/// station's picture (`World::prop_look`, `fittings::prop_face`): a whole
+/// one draws nothing here.
+fn prop_faces(list: &mut DrawList, game: &Game, design: &ShipDesign, station: u32) {
+    for part in &design.parts {
+        if !matches!(part.kind, PartKind::Crate | PartKind::FuelTank) {
+            continue;
+        }
+        let share = game.world.prop_look(Some(station), part.origin);
+        if share < 1.0 {
+            crate::fittings::prop_face(list, part, share);
+        }
+    }
+}
+
+/// The amber of a way in the waves may take, the red of the one the next
+/// wave takes, and a weld's hot orange (October 2026).
+const WAY_IN: Color = Color::rgba(0.95, 0.70, 0.20, 0.55);
+const WAY_IN_NEXT: Color = Color::rgb(1.0, 0.25, 0.18);
+const WELD_SEAM: Color = Color::rgb(1.0, 0.62, 0.22);
+const WELD_PLATE: Color = Color::rgb(0.32, 0.30, 0.30);
+
+/// The site's ways in (October 2026, `World::entries`), in the station's
+/// own frame: a hazard bar across each doorway, the next wave's in red
+/// with chevrons pulsing inward, and a welded one plated over with a
+/// glowing seam.
+fn ways_in(list: &mut DrawList, game: &Game, station: u32) {
+    if game.world.ship.state.alongside() != Some(station) {
+        return;
+    }
+    let t = TILE as f32;
+    let pulse = (game.frame as f32 * 0.12).sin() * 0.5 + 0.5;
+    for e in game.world.entries() {
+        let (x, y) = (e.site_at.x as f32, e.site_at.y as f32);
+        let (ox, oy) = (e.site_out.x as f32, e.site_out.y as f32);
+        // Across the doorway: the axis at right angles to the way out.
+        let (ax, ay) = (-oy, ox);
+        let half = e.width * t * 0.5;
+        let bar = |list: &mut DrawList, inset: f32, thick: f32, c: Color| {
+            let (cx, cy) = (x - ox * inset, y - oy * inset);
+            list.line(
+                cx - ax * half,
+                cy - ay * half,
+                cx + ax * half,
+                cy + ay * half,
+                thick,
+                c,
+            );
+        };
+        if e.welded {
+            bar(list, t * 0.5, t * 0.55, WELD_PLATE);
+            bar(list, t * 0.5, 3.0, WELD_SEAM.glowing(1.2 + 0.4 * pulse));
+            continue;
+        }
+        let colour = if e.next { WAY_IN_NEXT } else { WAY_IN };
+        bar(list, t * 0.9, 5.0, colour);
+        if e.next {
+            // Two chevrons pointing in, pulsing.
+            for k in 0..2 {
+                let inset = t * (1.6 + k as f32 * 0.7 + 0.3 * pulse);
+                let (cx, cy) = (x - ox * inset, y - oy * inset);
+                let (bx, by) = (cx + ox * t * 0.35, cy + oy * t * 0.35);
+                let wing = t * 0.45;
+                let c = WAY_IN_NEXT.alpha(0.5 + 0.4 * pulse);
+                list.line(bx - ax * wing, by - ay * wing, cx, cy, 4.0, c);
+                list.line(bx + ax * wing, by + ay * wing, cx, cy, 4.0, c);
+            }
+        }
+    }
+}
+
 /// The box round a part's tiles, in design units: `(x0, y0, x1, y1)`.
 fn part_box(kind: PartKind, origin: (u32, u32), rotation: Rotation) -> (f32, f32, f32, f32) {
     let t = TILE as f32;
@@ -1349,6 +1420,18 @@ fn hull_tiles(
             if layer == Layer::Object && hull::part(list, part, grid, firing, open_airlock) {
                 continue;
             }
+            // A railing joins the railings beside it into one rail.
+            if part.kind == PartKind::Railing {
+                let (x, y) = (part.origin.0 as i32, part.origin.1 as i32);
+                let railing = |dx: i32, dy: i32| {
+                    design
+                        .part(grid.get(Layer::Object, (x + dx, y + dy)))
+                        .is_some_and(|p| p.kind == PartKind::Railing)
+                };
+                let joins = [railing(0, -1), railing(1, 0), railing(0, 1), railing(-1, 0)];
+                crate::fittings::railing_joined(list, part, joins);
+                continue;
+            }
             if crate::fittings::part_in(list, part, biome) {
                 continue;
             }
@@ -1843,6 +1926,8 @@ fn stations(
         let lights_timed = bims::timing::scope(bims::timing::Part::StationLights);
         hull::lights(&mut picture, &station.design, grid, game.frame);
         lamp_faces(&mut picture, game, &station.design, Some(station.id));
+        prop_faces(&mut picture, game, &station.design, station.id);
+        ways_in(&mut picture, game, station.id);
         // The machines' ship, tied up at the far airlock, or their
         // lander down on the plain beyond a gate (feature 83). Drawn in
         // the station's own frame, so it turns with the station; it is a

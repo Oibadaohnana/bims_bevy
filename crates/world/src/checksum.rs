@@ -745,6 +745,14 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat(0x_424F_4E55);
         hash.eat(u64::from(run.bonus.code()));
     }
+    // The welded ways in: eaten only where any is.
+    if !run.welded.is_empty() {
+        hash.eat(0x_5745_4C44);
+        hash.eat(run.welded.len() as u64);
+        for &entry in &run.welded {
+            hash.eat(u64::from(entry));
+        }
+    }
     if !run.clean_xp.is_empty() || run.clean_spoiled {
         hash.eat(0x_434C_4541);
         hash.eat(u64::from(run.clean_spoiled));

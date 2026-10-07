@@ -1291,3 +1291,126 @@ fn an_enemy_s_station_is_dark_one_visit_in_five() {
     assert!(town.land_for_probe());
     assert!(!town.residents.as_ref().unwrap().dark);
 }
+
+/// The ways in (October 2026): the next wave's airlock is marked, a weld
+/// turns it to the next unwelded one in turn, and with every one welded
+/// the wave burns through the one its turn names — said once, and that
+/// weld gone.
+#[test]
+fn a_welded_airlock_is_skipped_and_every_one_welded_is_burnt_through() {
+    let (mut world, station) = held_arena();
+    world.set_droid_waves_for_probe(4);
+    open_the_room(&mut world);
+    let ways = world.entries();
+    assert!(ways.len() >= 2, "the arena has more than one way in");
+    let next = |world: &World| {
+        let marked: Vec<u32> = world
+            .entries()
+            .iter()
+            .filter(|e| e.next)
+            .map(|e| e.index)
+            .collect();
+        assert_eq!(marked.len(), 1, "one way in is the next wave's");
+        marked[0]
+    };
+    let first = next(&world);
+    // Welded, the next wave comes in by another.
+    world.weld_for_probe(first);
+    let second = next(&world);
+    assert_ne!(second, first);
+    assert!(world.entries().iter().any(|e| e.index == first && e.welded));
+    // Every one welded: the turn's own again, to be burnt through.
+    for e in world.entries() {
+        world.weld_for_probe(e.index);
+    }
+    assert_eq!(next(&world), first, "every one welded, the turn's own");
+    // The wave lands there, burning the weld.
+    wreck_them_all(&mut world);
+    let mut burnt = Vec::new();
+    for _ in 0..400 {
+        for e in world.step(&[]) {
+            if let WorldEvent::WeldBurnt { entry } = e {
+                burnt.push(entry);
+            }
+        }
+        if world.infestation(station).unwrap().wave == 2 && world.droids_standing() > 0 {
+            break;
+        }
+    }
+    assert_eq!(burnt, vec![first], "burnt through once, the turn's own");
+    assert!(
+        world
+            .entries()
+            .iter()
+            .all(|e| e.welded != (e.index == first)),
+        "that weld gone and the rest standing"
+    );
+}
+
+/// A player's Bim welds the way in beside it: the command walks it there
+/// and works it, and the weld is said begun and done; a weld asked with
+/// none in reach is refused.
+#[test]
+fn a_bim_welds_the_way_in_beside_it() {
+    let (mut world, _station) = held_arena();
+    // Waves enough that wrecking them never clears the site, which would
+    // freeze the deck under the work.
+    world.set_droid_waves_for_probe(1000);
+    open_the_room(&mut world);
+    // Far from every way in: refused.
+    let ways = world.entries();
+    let target = ways[0];
+    assert_eq!(
+        world.can_weld(0),
+        Err(crate::event::Refusal::NoWayInNear),
+        "the crew stand by the port, far from every other way in"
+    );
+    let refused = world.step(&[crate::world::Command::Weld { slot: 0 }]);
+    assert!(refused.iter().any(|e| matches!(
+        e,
+        WorldEvent::Refused {
+            slot: 0,
+            why: crate::event::Refusal::NoWayInNear
+        }
+    )));
+    // Stood at its doorway: welded.
+    let t = shipdesign::TILE as f32;
+    let at = target.at - target.outward * (2.0 * t);
+    world.aboard.room.stand_at(0, at);
+    let (index, _) = world.can_weld(0).expect("a way in within reach");
+    assert_eq!(index, target.index);
+    let mut done = false;
+    let begun = world.step(&[crate::world::Command::Weld { slot: 0 }]);
+    assert!(begun.iter().any(|e| matches!(
+        e,
+        WorldEvent::Welding {
+            who: 0,
+            done: false,
+            ..
+        }
+    )));
+    for _ in 0..1200 {
+        // Nothing to shoot it: the machines are wrecked as they land.
+        wreck_them_all(&mut world);
+        if world.step(&[]).iter().any(|e| {
+            matches!(
+                e,
+                WorldEvent::Welding {
+                    who: 0,
+                    done: true,
+                    ..
+                }
+            )
+        }) {
+            done = true;
+            break;
+        }
+    }
+    assert!(done, "the weld was finished");
+    assert!(
+        world
+            .entries()
+            .iter()
+            .any(|e| e.index == target.index && e.welded)
+    );
+}

@@ -130,7 +130,7 @@ use crate::math::{Rect, Vec2, vec2};
 use crate::nav::Nav;
 use crate::rng::Rng;
 use crate::room::TILE;
-use crate::sight::{LAMP_RADIUS, Sight};
+use crate::sight::{LAMP_RADIUS, Sight, TANK_RADIUS};
 
 /// How near a bolt has to pass a body's middle to hit it, in room units:
 /// the body's own half-width, near enough.
@@ -1162,7 +1162,18 @@ pub struct Grenade {
     /// strike call's has `from` at `at` and only spins.
     #[cfg_attr(feature = "serde", serde(default))]
     pub bomb: bool,
+    /// A **fuel drum** bursting (`Game::burst_tank`): on this room's own
+    /// bodies — whoever stood by it — on the targets, the sentries and
+    /// the laid bags, and on the crates and the drums in reach, which is
+    /// how one drum sets off the next. Its hits on a target are `by`'s,
+    /// the one whose bolt holed it, where `by` is not [`NOBODY`]; on a
+    /// body they are nobody's.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub barrel: bool,
 }
+
+/// `Grenade::by` on a drum nobody of this room holed.
+pub const NOBODY: usize = usize::MAX;
 
 impl Grenade {
     /// Where it is now: along the throw for the first
@@ -2222,6 +2233,11 @@ pub struct Combat {
     /// the world takes it off a laid deployable's health
     /// (`Game::take_cover_hits`); a sandbag *part* shrugs it off.
     cover_hits: Vec<((i32, i32), f32)>,
+    /// Every bolt a fuel drum stopped since the game last asked: the
+    /// drum (`Sight::props`), the damage, and the crew member who fired
+    /// it, if one did. Either side's.
+    #[cfg_attr(feature = "serde", serde(default))]
+    tank_hits: Vec<(usize, f32, Option<usize>)>,
     /// Every bolt and blow a target's shield stopped since the world
     /// last asked: the target's index and the damage it carried there,
     /// unarmoured (the bolt's curve at the distance flown, its own
@@ -2311,6 +2327,7 @@ impl Combat {
             shots: Vec::new(),
             lamp_hits: Vec::new(),
             cover_hits: Vec::new(),
+            tank_hits: Vec::new(),
             plate_hits: Vec::new(),
             cues: Vec::new(),
             // A fresh room has been quiet for ever.
@@ -2556,6 +2573,11 @@ impl Combat {
         std::mem::take(&mut self.cover_hits)
     }
 
+    /// The bolts a fuel drum stopped since last asked. See `tank_hits`.
+    pub fn take_tank_hits(&mut self) -> Vec<(usize, f32, Option<usize>)> {
+        std::mem::take(&mut self.tank_hits)
+    }
+
     /// Every bolt and blow a shield stopped since the last call: the
     /// target and the damage. See `plate_hits`.
     pub fn take_plate_hits(&mut self) -> Vec<(usize, f32)> {
@@ -2604,6 +2626,7 @@ impl Combat {
             hostile: false,
             unseen: false,
             bomb: false,
+            barrel: false,
         });
         self.cues.push(Cued {
             cue: Cue::Throw,
@@ -2644,6 +2667,7 @@ impl Combat {
             hostile: false,
             unseen: false,
             bomb: false,
+            barrel: false,
         });
         let hue = shot_hue(&self.hues, false, Some(by));
         self.fx
@@ -2689,6 +2713,35 @@ impl Combat {
             hostile: false,
             unseen: false,
             bomb: false,
+            barrel: false,
+        });
+    }
+
+    /// A fuel drum bursting at `at`: on the next tick, or `delay`
+    /// seconds on for one a burst set off (a chain goes drum by drum),
+    /// [`balance::TANK_BLAST_RADIUS`] tiles wide with
+    /// [`balance::TANK_BLAST_DAMAGE`] at the centre, on everybody
+    /// (`Game::burst`). `by` is the crew member whose bolt holed it, or
+    /// [`NOBODY`].
+    pub fn burst_tank(&mut self, by: usize, at: Vec2, delay: f32) {
+        self.lull = 0.0;
+        self.grenades.push(Grenade {
+            by,
+            from: at,
+            at,
+            left: delay,
+            fuse: delay,
+            radius: balance::TANK_BLAST_RADIUS * TILE,
+            damage: balance::TANK_BLAST_DAMAGE,
+            stun: 0.0,
+            expose: false,
+            shot: false,
+            laid: false,
+            satchel: false,
+            hostile: false,
+            unseen: false,
+            bomb: false,
+            barrel: true,
         });
     }
 
@@ -2737,6 +2790,7 @@ impl Combat {
             hostile: true,
             unseen,
             bomb: false,
+            barrel: false,
         });
     }
 
@@ -2787,6 +2841,7 @@ impl Combat {
             hostile: true,
             unseen,
             bomb: true,
+            barrel: false,
         });
         if !unseen {
             self.cues.push(Cued {
@@ -2912,7 +2967,7 @@ impl Combat {
             );
         }
         for g in &self.grenades {
-            if !g.shot && !g.unseen && g.fuse - g.left >= g.flight() {
+            if !g.shot && !g.unseen && !g.barrel && g.fuse - g.left >= g.flight() {
                 self.fx.fuse(g.at);
             }
         }
@@ -3691,6 +3746,7 @@ impl Combat {
         let mut heard: Vec<Cued> = Vec::new();
         let mut broken: Vec<(usize, f32)> = Vec::new();
         let mut bagged: Vec<((i32, i32), f32)> = Vec::new();
+        let mut tanked: Vec<(usize, f32, Option<usize>)> = Vec::new();
         let mut plated: Vec<(usize, f32)> = Vec::new();
         // What each Riot Shield still takes this step, and what it
         // stopped, and the bolts it bounced (task 155) — flown from the
@@ -3729,6 +3785,21 @@ impl Combat {
                     lamp = Some(i);
                 }
             }
+            // A fuel drum on the way holes the same way (a bolt either
+            // side fired), and a burst one is a wreck nobody minds.
+            let mut tank: Option<usize> = None;
+            for (i, p) in sight.props().iter().enumerate() {
+                if !p.tank || p.is_broken() {
+                    continue;
+                }
+                if let Some(t) = along(from, to, p.at, TANK_RADIUS)
+                    && stop.is_none_or(|(s, _)| t < s)
+                {
+                    stop = Some((t, None));
+                    lamp = None;
+                    tank = Some(i);
+                }
+            }
             let looking_for: &[Option<(Vec2, bool, f32)>] =
                 if bolt.hostile { bodies } else { &targets };
             // **A shield facing the bolt stops it at the plate** (feature
@@ -3763,6 +3834,7 @@ impl Combat {
                     {
                         stop = Some((t, None));
                         lamp = None;
+                        tank = None;
                         shielded = Some(i);
                     }
                 }
@@ -3785,6 +3857,7 @@ impl Combat {
                     {
                         stop = Some((t, None));
                         lamp = None;
+                        tank = None;
                         on_plate = Some(k);
                     }
                 }
@@ -3898,6 +3971,11 @@ impl Combat {
                             bolt.struck[balance::LANCE_RECALL - 1] = Some(who);
                             through = true;
                         }
+                    } else if let Some(i) = tank {
+                        // Nothing nearer than the drum: the drum took it.
+                        let flown = (at - bolt.fired_from).len() / TILE;
+                        let by = if bolt.hostile { None } else { bolt.by };
+                        tanked.push((i, bolt.stats().damage_at(flown) * bolt.damage, by));
                     } else if let Some(lamp) = lamp {
                         // Nothing nearer than the lamp: the lamp took it.
                         let flown = (at - bolt.fired_from).len() / TILE;
@@ -4017,6 +4095,7 @@ impl Combat {
         self.wounds_taken.extend(taken);
         self.lamp_hits.extend(broken);
         self.cover_hits.extend(bagged);
+        self.tank_hits.extend(tanked);
         self.plate_hits.extend(plated);
         self.plate_blocks.extend(blocked);
         self.bolts.extend(bounced);
@@ -4240,7 +4319,8 @@ impl Combat {
         // A grenade (feature 75): a dark canister with a lit fuse, lifted
         // and shadowed while it flies, blinking faster as the fuse runs
         // down once it lies on its tile.
-        for g in self.grenades.iter().filter(|g| !g.unseen) {
+        // A drum about to go up is the drum itself, drawn by the deck.
+        for g in self.grenades.iter().filter(|g| !g.unseen && !g.barrel) {
             let pos = g.pos();
             if g.bomb {
                 draw_bomb(list, g);
@@ -4421,8 +4501,8 @@ fn along(a: Vec2, b: Vec2, centre: Vec2, radius: f32) -> Option<f32> {
 }
 
 /// Whether a bolt from `from` gets to `to` with nothing in its way: no
-/// wall, and no lamp still lit that it would pass near enough to break —
-/// the two things a flying bolt stops at before the bodies
+/// wall, no lamp still lit that it would pass near enough to break and no
+/// whole fuel drum — the things a flying bolt stops at before the bodies
 /// (`Combat::step`). What `Game::shot_from` picks a shot's start
 /// by.
 pub fn line_of_fire(sight: &Sight, from: Vec2, to: Vec2) -> bool {
@@ -4431,6 +4511,10 @@ pub fn line_of_fire(sight: &Sight, from: Vec2, to: Vec2) -> bool {
             .lamps()
             .iter()
             .all(|l| l.is_out() || along(from, to, l.at, LAMP_RADIUS).is_none())
+        && sight
+            .props()
+            .iter()
+            .all(|p| !p.tank || p.is_broken() || along(from, to, p.at, TANK_RADIUS).is_none())
 }
 /// What a candidate stand is worth to the enemy, in **tiles of walking**
 /// — every term is in that one unit, so the trade-offs read off the

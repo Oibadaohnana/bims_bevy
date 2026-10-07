@@ -197,6 +197,9 @@ impl World {
                 .collect();
             Some((spots, 0.0))
         } else {
+            // A wave whose every way in is welded burns through the one
+            // its turn names (`World::burn_through`).
+            self.burn_through(&station, wave);
             self.arrival_spots(&station, total as u32, wave)
         };
         let Some((spots, facing)) = placed else {

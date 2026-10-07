@@ -2836,6 +2836,16 @@ fn frame(
                     orders.extend(order);
                     screen.log.extend(line);
                 }
+                // The weld (October 2026): V welds shut the way in the
+                // player's Bim stands at, any class.
+                if keys_now.pressed(i, Action::Weld)
+                    && let Some(game) = &session.game
+                {
+                    match game.world.can_weld(screen.net.slot) {
+                        Ok(_) => orders.push(Order::Weld),
+                        Err(why) => screen.log.push(crate::names::weld_refused(why)),
+                    }
+                }
                 // The 1× key (task 119: 1× or paused, nothing else) sets
                 // going: an order, so a pause by anybody is a pause for
                 // everybody.

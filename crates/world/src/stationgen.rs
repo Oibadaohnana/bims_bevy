@@ -117,6 +117,28 @@ pub const LAB_MIN: (u32, u32) = (7, 5);
 pub const REC_MIN: (u32, u32) = (6, 5);
 /// A store: shelves along the north wall from `x0 + 2`.
 pub const STORE_MIN: (u32, u32) = (5, 4);
+/// A hangar: a pillar at the least, three tiles in from every wall.
+pub const HANGAR_MIN: (u32, u32) = (8, 8);
+/// A shaft: the walkway two wide round the walls, the railing, and a pit
+/// two across at the least.
+pub const SHAFT_MIN: (u32, u32) = (8, 8);
+/// A gallery's long side, at the least; its short side is
+/// [`GALLERY_ACROSS`].
+pub const GALLERY_LONG: u32 = 12;
+pub const GALLERY_ACROSS: (u32, u32) = (5, 8);
+pub const GALLERY_MIN: (u32, u32) = (GALLERY_LONG, GALLERY_ACROSS.0);
+/// How far apart a hangar's pillars stand, corner to corner: two tiles of
+/// pillar and four of deck.
+const PILLAR_STEP: u32 = 6;
+/// How far apart a gallery's alcoves are along it, first on one wall and
+/// then on the other.
+const ALCOVE_STEP: u32 = 5;
+/// One room left over in so many is a store rather than a combat room,
+/// where it is big enough for one.
+const COMBAT_ODDS: u32 = 6;
+/// One room in so many — and one combat room in two — has windows onto
+/// its corridor in place of its walls.
+const WINDOW_ODDS: u32 = 5;
 
 /// How many columns of bunks a room's quarters lay, at most.
 const BUNK_COLUMNS: u32 = 3;
@@ -251,6 +273,18 @@ enum Role {
     Rec,
     Heads,
     Store,
+    /// A combat room (October 2026): a hall with pillars on a grid, crates
+    /// between them and a fuel drum or two against them — the long
+    /// sight-lines a Lancer wants and the cover to break them.
+    Hangar,
+    /// A shaft: a pit filling the room but for a walkway round its walls,
+    /// railed off, and a catwalk across it where it is long enough — a
+    /// fight over a gap nobody crosses on foot.
+    Shaft,
+    /// A gallery: a long narrow room with alcoves stepped into its long
+    /// walls, a lane down the middle to snipe along and corners to peek
+    /// round.
+    Gallery,
 }
 
 impl Role {
@@ -263,6 +297,9 @@ impl Role {
             Role::Rec => REC_MIN,
             Role::Heads => HEADS_MIN,
             Role::Store => STORE_MIN,
+            Role::Hangar => HANGAR_MIN,
+            Role::Shaft => SHAFT_MIN,
+            Role::Gallery => GALLERY_MIN,
         }
     }
 }
@@ -870,12 +907,245 @@ fn deal(kind: StationKind, rooms: &[Block], rng: &mut Rng) -> Option<Vec<Role>> 
             None => return None,
         }
     }
+    // Every room left over is a combat room where it is big enough for
+    // one, five times in six, and a store otherwise.
+    for i in 0..rooms.len() {
+        if roles[i].is_some() {
+            continue;
+        }
+        let (w, h) = size(&rooms[i]);
+        let mut fit: Vec<Role> = Vec::new();
+        if w >= HANGAR_MIN.0 && h >= HANGAR_MIN.1 || h >= HANGAR_MIN.0 && w >= HANGAR_MIN.1 {
+            fit.push(Role::Hangar);
+        }
+        if w >= SHAFT_MIN.0 && h >= SHAFT_MIN.1 {
+            fit.push(Role::Shaft);
+        }
+        let (long, across) = (w.max(h), w.min(h));
+        if long >= GALLERY_LONG && (GALLERY_ACROSS.0..=GALLERY_ACROSS.1).contains(&across) {
+            fit.push(Role::Gallery);
+        }
+        if !fit.is_empty() && !one_in(rng, COMBAT_ODDS) {
+            roles[i] = rng.pick(&fit).copied();
+        }
+    }
     Some(
         roles
             .into_iter()
             .map(|r| r.unwrap_or(Role::Store))
             .collect(),
     )
+}
+
+/// Whether a role is one of the combat rooms.
+fn is_combat(role: Role) -> bool {
+    matches!(role, Role::Hangar | Role::Shaft | Role::Gallery)
+}
+
+/// What a combat room stands on its deck: the pieces of `furnish`'s
+/// `Floor::combat` for the room `room` (walls on) in its role, nothing for
+/// any other. Every piece keeps the two tiles inside each wall clear —
+/// a door's approach — but a gallery's alcoves, which a door is then
+/// chosen clear of, and a hangar's drums, which stand against a pillar.
+fn room_pieces(room: Block, role: Role, rng: &mut Rng) -> Vec<(PartKind, (u32, u32))> {
+    let i = room.inner();
+    let (x0, y0, x1, y1) = (i.x0, i.y0, i.x1, i.y1);
+    let (w, h) = (x1 - x0 + 1, y1 - y0 + 1);
+    let mut out = Vec::new();
+    match role {
+        Role::Shaft => {
+            // A walkway two wide round the walls, a railing, and the pit;
+            // a catwalk two wide across the pit's short way, railed both
+            // sides, where the long way has room for it and a pit each
+            // side.
+            let long_x = w >= h;
+            let long = w.max(h);
+            let bridge = long >= 12;
+            let mid = if long_x {
+                x0 + w / 2 - 1
+            } else {
+                y0 + h / 2 - 1
+            };
+            for y in y0..=y1 {
+                for x in x0..=x1 {
+                    let d = (x - x0).min(y - y0).min(x1 - x).min(y1 - y);
+                    if d < 2 {
+                        continue;
+                    }
+                    let along = if long_x { x } else { y };
+                    if bridge && (along == mid || along == mid + 1) {
+                        continue;
+                    }
+                    let beside = bridge && (along + 1 == mid || along == mid + 2);
+                    let kind = if d == 2 || beside {
+                        PartKind::Railing
+                    } else {
+                        PartKind::Pit
+                    };
+                    out.push((kind, (x, y)));
+                }
+            }
+        }
+        Role::Hangar => {
+            // Pillars two by two on a grid three tiles in from every wall,
+            // centred; a crate pair in the middle of every other square of
+            // deck between four of them; a drum or two against a pillar.
+            let fit = |n: u32| (n.saturating_sub(6) + 4) / PILLAR_STEP;
+            let (nx, ny) = (fit(w), fit(h));
+            if nx == 0 || ny == 0 {
+                return out;
+            }
+            let span = |n: u32| n * PILLAR_STEP - 4;
+            let px0 = x0 + 3 + (w - 6 - span(nx)) / 2;
+            let py0 = y0 + 3 + (h - 6 - span(ny)) / 2;
+            let mut pillars = Vec::new();
+            for j in 0..ny {
+                for k in 0..nx {
+                    let (px, py) = (px0 + k * PILLAR_STEP, py0 + j * PILLAR_STEP);
+                    for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                        out.push((PartKind::Wall, (px + dx, py + dy)));
+                    }
+                    pillars.push((px, py));
+                }
+            }
+            for j in 0..ny.saturating_sub(1) {
+                for k in 0..nx.saturating_sub(1) {
+                    if one_in(rng, 2) {
+                        let (cx, cy) = (px0 + k * PILLAR_STEP + 3, py0 + j * PILLAR_STEP + 3);
+                        let pair = if one_in(rng, 2) {
+                            [(cx, cy), (cx + 1, cy)]
+                        } else {
+                            [(cx, cy), (cx, cy + 1)]
+                        };
+                        for at in pair {
+                            out.push((PartKind::Crate, at));
+                        }
+                    }
+                }
+            }
+            // A single row or column of pillars has no squares between
+            // four: a crate pair beside every other pillar instead, on
+            // the side away from the nearer wall.
+            if nx == 1 || ny == 1 {
+                for (n, &(px, py)) in pillars.iter().enumerate() {
+                    if n % 2 == 1 {
+                        continue;
+                    }
+                    let pair = if nx == 1 {
+                        [(px + 2, py), (px + 2, py + 1)]
+                    } else {
+                        [(px, py + 2), (px + 1, py + 2)]
+                    };
+                    if pair.iter().all(|&(x, y)| x + 3 <= x1 && y + 3 <= y1) {
+                        for at in pair {
+                            out.push((PartKind::Crate, at));
+                        }
+                    }
+                }
+            }
+            let drums = 1 + rng.below(2);
+            for _ in 0..drums {
+                let Some(&(px, py)) = rng.pick(&pillars) else {
+                    break;
+                };
+                // Against the pillar's west or north face, on its upper
+                // tile: the square beside it is deck four wide.
+                let at = if one_in(rng, 2) {
+                    (px - 1, py)
+                } else {
+                    (px, py - 1)
+                };
+                if !out.iter().any(|&(_, t)| t == at) {
+                    out.push((PartKind::FuelTank, at));
+                }
+            }
+        }
+        Role::Gallery => {
+            // Alcoves: a stub of wall into the room from a long wall every
+            // `ALCOVE_STEP` tiles, the walls by turns, a lane at least
+            // four wide left down the middle; a crate in the lane between
+            // two of them now and then where the lane is wide.
+            let long_x = w >= h;
+            let (long, across) = if long_x { (w, h) } else { (h, w) };
+            let deep = if across >= 7 { 2 } else { 1 };
+            let mut far = one_in(rng, 2);
+            let mut a = 3;
+            while a + 4 <= long {
+                for d in 0..deep {
+                    let off = if far { across - 1 - d } else { d };
+                    let at = if long_x {
+                        (x0 + a, y0 + off)
+                    } else {
+                        (x0 + off, y0 + a)
+                    };
+                    out.push((PartKind::Wall, at));
+                }
+                // A crate pair across the lane's middle, two tiles from the
+                // alcove's side of it, halfway to the next alcove.
+                if across - deep >= 6 && a + 3 + 4 <= long && one_in(rng, 2) {
+                    let off = if far { across - 1 - deep - 2 } else { deep + 2 };
+                    let b = a + 2;
+                    for at in [b, b + 1] {
+                        out.push((
+                            PartKind::Crate,
+                            if long_x {
+                                (x0 + at, y0 + off)
+                            } else {
+                                (x0 + off, y0 + at)
+                            },
+                        ));
+                    }
+                }
+                far = !far;
+                a += ALCOVE_STEP;
+            }
+        }
+        _ => {}
+    }
+    out
+}
+
+/// The windows a room has in place of its walls: every tile of its ring
+/// with the room's deck inside and corridor deck outside, bar the corners
+/// and a door's own two.
+fn windows_of(room: Block, raster: &Raster, doors: &[((u32, u32), Rotation)]) -> Vec<(u32, u32)> {
+    let door_tiles: Vec<(u32, u32)> = doors
+        .iter()
+        .flat_map(|&((x, y), r)| {
+            [
+                (x, y),
+                if r == Rotation::R0 {
+                    (x, y + 1)
+                } else {
+                    (x + 1, y)
+                },
+            ]
+        })
+        .collect();
+    let (x0, y0, x1, y1) = (
+        room.x0 as i32,
+        room.y0 as i32,
+        room.x1 as i32,
+        room.y1 as i32,
+    );
+    let mut out = Vec::new();
+    let mut try_tile = |x: i32, y: i32, (dx, dy): (i32, i32)| {
+        if door_tiles.contains(&(x as u32, y as u32)) {
+            return;
+        }
+        if raster.corridor(x + dx, y + dy) && raster.room(x - dx, y - dy) {
+            out.push((x as u32, y as u32));
+        }
+    };
+    for x in x0 + 1..x1 {
+        try_tile(x, y0, (0, -1));
+        try_tile(x, y1, (0, 1));
+    }
+    for y in y0 + 1..y1 {
+        try_tile(x0, y, (-1, 0));
+        try_tile(x1, y, (1, 0));
+    }
+    out
 }
 
 /// A station's tiles as a raster the drawing is checked on: which are
@@ -1087,6 +1357,7 @@ fn floor_of(
     locks: &[((u32, u32), Rotation)],
     array: (u32, u32),
     cover: &[(u32, u32)],
+    combat: &[(PartKind, (u32, u32))],
 ) -> Floor {
     let lobby = sketch.lobby.block();
     let rooms: Vec<Block> = sketch.rooms.iter().map(|r| r.block()).collect();
@@ -1136,6 +1407,8 @@ fn floor_of(
         })
         .collect();
     walls.retain(|t| !door_tiles.contains(t));
+    // A window stands where its wall would.
+    walls.retain(|t| !combat.contains(&(PartKind::Window, *t)));
     walls.dedup();
     let pick = |role: Role| roles.iter().position(|&r| r == role).map(|i| rooms[i]);
     let stores: Vec<Block> = roles
@@ -1176,6 +1449,7 @@ fn floor_of(
         mess_columns: 1,
         wild: None,
         clear: Vec::new(),
+        combat: combat.to_vec(),
         gates: Vec::new(),
     }
 }
@@ -1257,7 +1531,7 @@ fn cover(
     doors: &[((u32, u32), Rotation)],
     locks: &[((u32, u32), Rotation)],
     rng: &mut Rng,
-) -> Vec<(u32, u32)> {
+) -> (Vec<(u32, u32)>, Vec<(PartKind, (u32, u32))>) {
     let mut keep = doorway_keep(doors);
     keep.extend(doorway_keep(locks));
     let near_keep = |x: i32, y: i32| {
@@ -1265,6 +1539,9 @@ fn cover(
             .any(|&(kx, ky)| (kx - x).abs() <= 3 && (ky - y).abs() <= 3)
     };
     let mut out: Vec<(u32, u32)> = Vec::new();
+    // A line in three is crates (cover that is shot to pieces, and walked
+    // round), and a wide corridor has a fuel drum or two against its walls.
+    let mut props: Vec<(PartKind, (u32, u32))> = Vec::new();
     for c in &sketch.corridors {
         let (across, along) = (c.y1 - c.y0 - 1, c.x1 - c.x0 - 1);
         // The long way is the way the corridor runs.
@@ -1306,12 +1583,48 @@ fn cover(
             if !across_only || line.iter().any(|&(x, y)| near_keep(x, y)) {
                 continue;
             }
-            out.extend(line.iter().map(|&(x, y)| (x as u32, y as u32)));
+            if one_in(rng, 3) {
+                props.extend(
+                    line.iter()
+                        .map(|&(x, y)| (PartKind::Crate, (x as u32, y as u32))),
+                );
+            } else {
+                out.extend(line.iter().map(|&(x, y)| (x as u32, y as u32)));
+            }
             placed.push(at);
             from_low = !from_low;
         }
+        // The drums: against either wall of a corridor four wide or more,
+        // never in a crossing, by a doorway or within three tiles of a line
+        // of cover or another drum, so the corridor is still three wide
+        // past one.
+        if width < 4 || one_in(rng, 2) {
+            continue;
+        }
+        let drums = 1 + rng.below(2);
+        let mut stood: Vec<i32> = Vec::new();
+        for _ in 0..drums {
+            let lo = if runs_x { c.x0 } else { c.y0 } + 2;
+            let hi = if runs_x { c.x1 } else { c.y1 } - 2;
+            let at = roll(rng, lo, hi);
+            let low = one_in(rng, 2);
+            let (x, y, wall) = match (runs_x, low) {
+                (true, true) => (at, c.y0 + 1, (at, c.y0)),
+                (true, false) => (at, c.y1 - 1, (at, c.y1)),
+                (false, true) => (c.x0 + 1, at, (c.x0, at)),
+                (false, false) => (c.x1 - 1, at, (c.x1, at)),
+            };
+            let clear = raster.corridor(x, y)
+                && !raster.corridor(wall.0, wall.1)
+                && !near_keep(x, y)
+                && placed.iter().chain(&stood).all(|&p| (p - at).abs() > 3);
+            if clear {
+                props.push((PartKind::FuelTank, (x as u32, y as u32)));
+                stood.push(at);
+            }
+        }
     }
-    out
+    (out, props)
 }
 
 /// What a generated station came to, for the variety the tests print and
@@ -1437,10 +1750,17 @@ fn candidate(
     let port = ((1u32, sketch.py as u32), Rotation::R0);
     let array = array(&raster, port.0, rng).ok_or(Fail::NoArray)?;
 
+    // The combat rooms' pieces, drawn once: the trial furnishing stands
+    // them too, so no door is chosen into an alcove or onto a pit.
+    let mut combat: Vec<(PartKind, (u32, u32))> = Vec::new();
+    for (room, &role) in rooms.iter().zip(&roles) {
+        combat.extend(room_pieces(*room, role, rng));
+    }
+
     // A trial furnishing with every room shut and the port the one way
     // in: what stands where, so each room's door and every other airlock
     // goes where nothing blocks it.
-    let trial_floor = floor_of(&sketch, &roles, &[], &[port], array, &[]);
+    let trial_floor = floor_of(&sketch, &roles, &[], &[port], array, &[], &combat);
     let trial = furnish_placer(side, trial_floor, map_seed);
     let locks = airlocks(kind, &raster, &sketch, &trial, array, rng);
     let mut doors = Vec::new();
@@ -1466,8 +1786,21 @@ fn candidate(
     // The reactor room's door is kept clear of cover with the rest.
     let mut kept = doors.clone();
     kept.push(((LOBBY_EAST, sketch.py as u32), Rotation::R0));
-    let bags = cover(&sketch, &raster, &kept, &locks, rng);
-    let floor = floor_of(&sketch, &roles, &doors, &locks, array, &bags);
+    let (bags, props) = cover(&sketch, &raster, &kept, &locks, rng);
+    combat.extend(props);
+    // Windows onto the corridors: a combat room's one time in two, any
+    // other room's one in `WINDOW_ODDS`.
+    for (room, &role) in rooms.iter().zip(&roles) {
+        let odds = if is_combat(role) { 2 } else { WINDOW_ODDS };
+        if one_in(rng, odds) {
+            combat.extend(
+                windows_of(*room, &raster, &doors)
+                    .into_iter()
+                    .map(|t| (PartKind::Window, t)),
+            );
+        }
+    }
+    let floor = floor_of(&sketch, &roles, &doors, &locks, array, &bags, &combat);
     let placer = furnish_placer(side, floor.clone(), map_seed);
     Ok((placer, floor, sketch.side_on))
 }

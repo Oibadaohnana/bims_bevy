@@ -318,7 +318,10 @@ use crate::game::Game;
 /// day, and `World::machines_forced` where `defense_by_machines_forced`
 /// was.
 /// 122: the run's ascension (`World::ascension`).
-pub const SAVE_VERSION: u32 = 122;
+/// 123: a station's crates and fuel drums (`bims::sight::Prop`, the
+/// layout's `props`, a drum's burst on `Grenade::barrel`) and the ways in
+/// welded (`world::Run::welded`).
+pub const SAVE_VERSION: u32 = 123;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

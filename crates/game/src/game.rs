@@ -1,6 +1,7 @@
 //! The room's game: the deck, the bodies on it, the errand each is on, the
 //! fight, and the per-frame draw list handed to the renderer.
 
+use crate::balance;
 use crate::bim::{Bim, CREW, Hand, PLAYER, TRAIL_LIFE};
 use crate::character::{
     ACCENT, Action, BODY_MARGIN, FallBack, Look, Outfit, PICK_RADIUS, SWING_TIME, Tint, Worn,
@@ -9,7 +10,7 @@ use crate::clock::MINUTES_PER_SECOND;
 use crate::clock::{self, Clock};
 use crate::combat::{
     ArmourKind, Blow, COVER_WORTH, Combat, FIST_DAMAGE, Gear, Grenade, Hit, Item, MELEE_PERIOD,
-    MELEE_RANGE, Piece, Sentry, Shot, Skill, Tactics, Weapon, WeaponKind, WeaponStats,
+    MELEE_RANGE, NOBODY, Piece, Sentry, Shot, Skill, Tactics, Weapon, WeaponKind, WeaponStats,
     line_of_fire,
 };
 use crate::cue::{Cue, Cued};
@@ -2404,6 +2405,22 @@ impl Game {
             // out, and the deck round it goes dark.
             for (lamp, damage) in self.combat.take_lamp_hits() {
                 self.room.sight.damage_lamp(lamp, damage);
+            }
+            // What a crate stopped comes off the crate: at nought it is
+            // matchwood and no cover. The sandbags shrug theirs off.
+            for (tile, damage) in self.combat.take_cover_hits() {
+                if let Some(i) = self.room.sight.prop_on(tile)
+                    && !self.room.sight.props()[i].tank
+                {
+                    self.room.sight.damage_prop(i, damage);
+                }
+            }
+            // And a fuel drum holed to nothing bursts, on the next tick.
+            for (i, damage, by) in self.combat.take_tank_hits() {
+                if self.room.sight.damage_prop(i, damage) {
+                    let at = self.room.sight.props()[i].at;
+                    self.combat.burst_tank(by.unwrap_or(NOBODY), at, 0.0);
+                }
             }
             // And what landed on a sentry is the sentry's, not a body's.
             let taken = std::mem::take(&mut self.combat.wounds_taken);
@@ -9880,7 +9897,20 @@ impl Game {
         // A Guardian's grenade (October 2026) is an enemy's: its hits carry
         // nobody, and it bursts on this room's own alone — no target, and no
         // intruder, who is on the machines' side.
-        let by = (!g.hostile).then_some(g.by);
+        // A fuel drum's (`barrel`) is nobody's on a body and the one's who
+        // holed it on a target.
+        let by = (!g.hostile && !g.barrel).then_some(g.by);
+        let by_target = if g.barrel {
+            (g.by != NOBODY).then_some(g.by)
+        } else {
+            by
+        };
+        // A drum is a bomb's worth to the crew and the sentries.
+        let own_share = if g.barrel {
+            balance::TANK_BLAST_CREW_SHARE
+        } else {
+            1.0
+        };
         // This room's own, the thrower included — but never by an
         // engineer's mine or satchel (task 154), which hurts the enemy alone.
         let crew = if g.laid { 0 } else { self.bims.len() };
@@ -9899,6 +9929,7 @@ impl Game {
             if b.peek.is_some() || self.room.sight.cover_between(at, g.at).is_some() {
                 damage *= 0.5;
             }
+            damage *= own_share;
             let hit = self.combat.blast(who, damage, by);
             self.blast(who, hit.damage);
             self.wounds_taken.push(hit);
@@ -9933,7 +9964,34 @@ impl Game {
             if peeking || self.room.sight.cover_between(at, g.at).is_some() {
                 damage *= 0.5;
             }
-            self.combat.blast_target(i, damage, by);
+            self.combat.blast_target(i, damage, by_target);
+        }
+        // The crates and the drums in reach — a mine's and a satchel's too
+        // — but for the unseen copy a town's room lays (the crew's room has
+        // the one that counts): a crate takes the burst, and a drum it holes
+        // goes up after it — a chain, drum by drum. Before the sentries and
+        // the bags, by index.
+        if !g.unseen {
+            let props: Vec<(usize, Vec2, bool)> = self
+                .room
+                .sight
+                .props()
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| !p.is_broken())
+                .map(|(i, p)| (i, p.at, p.tank))
+                .collect();
+            let chain_by = if g.barrel || !g.hostile { g.by } else { NOBODY };
+            for (i, at, tank) in props {
+                // The drum bursting is the one at the centre; it is broken.
+                let Some(damage) = reaches(self, at) else {
+                    continue;
+                };
+                if self.room.sight.damage_prop(i, damage) && tank {
+                    self.combat
+                        .burst_tank(chain_by, at, balance::TANK_CHAIN_DELAY);
+                }
+            }
         }
         // A mine or a satchel touches no sentry and no sandbag (task 154).
         if g.laid {
@@ -9943,7 +10001,7 @@ impl Game {
         let sentries: Vec<(u32, Vec2)> = self.sentries.iter().map(|s| (s.id, s.at)).collect();
         for (id, at) in sentries {
             if let Some(damage) = reaches(self, at) {
-                self.sentry_hits.push((id, damage));
+                self.sentry_hits.push((id, damage * own_share));
             }
         }
         // And the laid sandbags: gone, whatever they had left.
@@ -10061,6 +10119,38 @@ impl Game {
     /// Lamp `i` as the world remembers it. See `Sight::set_lamp_health`.
     pub fn set_lamp_health(&mut self, i: usize, health: f32) {
         self.room.sight.set_lamp_health(i, health);
+    }
+
+    /// The crates and the fuel drums as the fight has left them. See
+    /// `Sight::props`.
+    pub fn props(&self) -> &[crate::sight::Prop] {
+        self.room.sight.props()
+    }
+
+    /// The crates and the drums laid outright on a bare room, for the
+    /// tests: `(the tile's rectangle, a drum)`.
+    #[allow(dead_code)]
+    pub fn set_props_for_probe(&mut self, props: &[(Rect, bool)]) {
+        let cover: Vec<Rect> = props.iter().filter(|p| !p.1).map(|p| p.0).collect();
+        self.room.sight.set_cover(&cover);
+        self.room.sight.set_props(props);
+    }
+
+    /// The crate or the drum on the tile a room point is in, if any.
+    pub fn prop_at(&self, p: Vec2) -> Option<usize> {
+        let tile = self.room.sight.tile_of(p);
+        self.room.sight.prop_on(tile)
+    }
+
+    /// Which props' health changed since last asked: the world's cue to
+    /// remember it, as for a lamp.
+    pub fn take_prop_changes(&mut self) -> Vec<usize> {
+        self.room.sight.take_prop_changes()
+    }
+
+    /// Prop `i` as the world remembers it. See `Sight::set_prop_health`.
+    pub fn set_prop_health(&mut self, i: usize, health: f32) {
+        self.room.sight.set_prop_health(i, health);
     }
 
     /// Daylight over `over`, or none: the tiles under it are lit whatever
@@ -15351,5 +15441,105 @@ mod tests {
         for code in [0u16, 1, 12345, 32768, 65535] {
             assert_eq!(angle_code(code_angle(code)), code);
         }
+    }
+
+    /// The crates and the fuel drums (October 2026): a satchel set off by
+    /// a drum holes it, the drum bursts a moment later on the target beside
+    /// it — a hit by the engineer — and on the crew standing by it, the
+    /// next drum in its reach goes up after it, and a crate it reaches
+    /// loses what the burst carried; a crate shot to nothing is no cover.
+    #[test]
+    fn a_drum_set_off_bursts_on_everybody_and_sets_off_the_next() {
+        let mut game = room();
+        game.set_autonomous(false);
+        let t = TILE;
+        let from = game.bim_pos(1);
+        let tile = |p: Vec2| {
+            let min = vec2((p.x / t).floor() * t, (p.y / t).floor() * t);
+            Rect::from_corners(min, min + vec2(t, t))
+        };
+        let a = from + vec2(0.0, 2.0 * t);
+        let b = a + vec2(2.0 * t, 0.0);
+        let c = a + vec2(-2.0 * t, 0.0);
+        game.set_props_for_probe(&[(tile(a), true), (tile(b), true), (tile(c), false)]);
+        let target = b + vec2(t, 0.0);
+        let arm = WeaponKind::Claw.at(Tier::One);
+        game.set_hostiles(vec![Some((target, arm))]);
+        // A satchel beside drum A.
+        game.detonate(0, a + vec2(0.0, -t), 1.5 * t, 80.0);
+        let mut hits = Vec::new();
+        let mut wounds = Vec::new();
+        for _ in 0..60 {
+            game.simulate(DT);
+            hits.extend(game.take_hits().into_iter().filter(|h| h.blast));
+            wounds.extend(game.take_wounds_taken());
+        }
+        let props = game.props();
+        assert!(
+            props[0].is_broken() && props[1].is_broken(),
+            "both drums burst"
+        );
+        assert!(
+            props[2].health < crate::sight::CRATE_HEALTH,
+            "the crate took the bursts"
+        );
+        assert!(
+            hits.iter().any(|h| h.who == 0 && h.by == Some(0)),
+            "the target hit by the engineer whose satchel set it off: {hits:?}"
+        );
+        assert!(
+            wounds.iter().any(|h| h.who == 1),
+            "the crew member standing by it is hurt"
+        );
+        // A crate shot to nothing is no cover from across it.
+        let behind = c + vec2(0.0, t);
+        let shooter = c + vec2(0.0, -4.0 * t);
+        assert!(game.covered_for_probe(behind, shooter) || props[2].is_broken());
+        let i = game.prop_at(c).expect("the crate");
+        game.set_prop_health(i, 0.0);
+        assert!(
+            !game.covered_for_probe(behind, shooter),
+            "matchwood is no cover"
+        );
+    }
+
+    /// A bolt that meets a fuel drum on its way stops there and holes it,
+    /// whoever fired it: a machine's bolts at a crew member behind a drum
+    /// hit the drum, and enough of them burst it — on that crew member.
+    #[test]
+    fn a_bolt_across_a_drum_holes_it_and_enough_burst_it() {
+        let mut game = room();
+        game.set_autonomous(false);
+        let t = TILE;
+        let body = game.bim_pos(1);
+        let drum = body + vec2(0.0, 1.5 * t);
+        let min = vec2((drum.x / t).floor() * t, (drum.y / t).floor() * t);
+        let rect = Rect::from_corners(min, min + vec2(t, t));
+        game.set_props_for_probe(&[(rect, true)]);
+        let at = game.props()[0].at;
+        let from = at + vec2(0.0, 5.0 * t);
+        let gun = WeaponKind::LaserPistol.at(Tier::One);
+        let mut wounds = Vec::new();
+        for shot in 0..40 {
+            if game.props()[0].is_broken() {
+                break;
+            }
+            // Straight up through the drum at where the body stands.
+            game.combat.fire(from, at + (at - from), gun, true, false);
+            for _ in 0..20 {
+                game.simulate(DT);
+                wounds.extend(game.take_wounds_taken());
+            }
+            assert!(shot < 39, "the drum never burst");
+        }
+        for _ in 0..30 {
+            game.simulate(DT);
+            wounds.extend(game.take_wounds_taken());
+        }
+        assert!(game.props()[0].is_broken(), "burst");
+        assert!(
+            wounds.iter().any(|h| h.who == 1),
+            "the body by it took the burst: {wounds:?}"
+        );
     }
 }

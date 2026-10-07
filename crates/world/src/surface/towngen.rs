@@ -620,6 +620,7 @@ pub(crate) fn draw(biome: Biome, population: u32, rng: &mut Rng) -> Result<Floor
         mess_columns: columns,
         wild: Some(biome),
         clear: town.clear,
+        combat: Vec::new(),
         gates,
     })
 }
