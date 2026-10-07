@@ -3615,6 +3615,15 @@ pub const EVACUATION_TIP: &str = "• Take up the flag: V beside it
 • Everyone alive aboard the ship: held
 • Reward: the share of them saved
 • A wave every 25 s until then";
+/// What the Use key would do where the player's own Bim stands
+/// (October 2026), said under it: the key, then the deed.
+pub fn use_prompt(key: &str, what: &str) -> String {
+    format!("{key} — {what}")
+}
+pub const USE_TAKE_FLAG: &str = "take the flag";
+pub const USE_DROP_FLAG: &str = "put the flag down";
+pub const USE_PLANT: &str = "plant the charge";
+pub const USE_WELD: &str = "weld shut";
 /// And for the flag refused (October 2026).
 pub fn flag_refused(why: world::Refusal) -> String {
     format!("No flag: {}.", refusal(why))

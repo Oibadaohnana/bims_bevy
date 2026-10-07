@@ -8738,3 +8738,14 @@ of `world`) is the rule; its module note is the whole of it.
 
 **SAVE_VERSION 127.** Meant to alter play (a third of the station attacks
 in the tier-three zone).
+
+**Everything used or shot is marked** (October 2026, the player's: "make
+interactable thing clearly visible in the map"): the painter draws the
+ways in, the charge, the way out, the flag, the nests and every whole
+fuel drum (an amber hazard ring, `world_paint::prop_faces`) in glowing
+colours that read through the fog and the dark, and the app says under
+the player's own Bim what the Use key would do there — "V — take the
+flag", "put the flag down", "plant the charge", "weld shut"
+(`names::use_prompt`; nothing while its hands are already on a weld or
+the charge). `BIMS_FLAG=1` puts an Evacuation's flag in the player's
+hands for a look.

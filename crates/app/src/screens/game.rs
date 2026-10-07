@@ -3201,6 +3201,15 @@ fn frame(
     // it does from the first frame of a run, since the keys walk it and
     // the pointer aims it (task 144). No key lets it go since the
     // follow key went (October 2026).
+    // `BIMS_FLAG=1` (October 2026): the Evacuation's flag in the player's
+    // own Bim's hands, once there is one.
+    if crate::dev::flag()
+        && let Some(game) = session.game.as_mut()
+        && game.world.evacuation_look().is_some_and(|e| !e.carried)
+        && game.world.run.mission_steps < 120
+    {
+        game.world.give_flag_for_probe(local);
+    }
     if let Some(game) = session.game.as_mut() {
         if !game.follow {
             game.set_follow(true);
@@ -4378,6 +4387,34 @@ fn frame(
             };
             let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
             theme::surge_mark(&painter, egui::pos2(at.x, at.y), view.scale);
+        }
+        // And what the Use key would do where the player's own Bim stands
+        // (October 2026): the key and the deed under its feet — the flag
+        // taken up or put down, the charge planted, a way in welded —
+        // nothing while its hands are already on one.
+        let slot = screen.net.slot;
+        let busy = game.world.aboard.room.deploy_work(slot as usize).is_some();
+        let deed = if busy {
+            None
+        } else {
+            match game.world.can_flag(slot) {
+                Ok(true) => Some(USE_TAKE_FLAG),
+                Ok(false) => Some(USE_DROP_FLAG),
+                Err(_) if game.world.can_plant(slot).is_ok() => Some(USE_PLANT),
+                Err(_) if game.world.can_weld(slot).is_ok() => Some(USE_WELD),
+                Err(_) => None,
+            }
+        };
+        if let Some(deed) = deed
+            && let Some((x, y)) = session.crew_on_screen(slot)
+        {
+            let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+            theme::name_over(
+                &painter,
+                egui::pos2(at.x, at.y + 44.0 * view.scale.max(0.4)),
+                &use_prompt(keys_now.key(Action::Use).name(), deed),
+                theme::CAUTION,
+            );
         }
         // And what each beam is putting back, in green over the patient
         // (feature 91): the line says a medic is working and the numbers

@@ -790,6 +790,8 @@ fn lamp_faces(list: &mut DrawList, game: &Game, design: &ShipDesign, station: Op
 /// station's picture (`World::prop_look`, `fittings::prop_face`): a whole
 /// one draws nothing here.
 fn prop_faces(list: &mut DrawList, game: &Game, design: &ShipDesign, station: u32) {
+    let t = TILE as f32;
+    let pulse = (game.frame as f32 * 0.05).sin() * 0.5 + 0.5;
     for part in &design.parts {
         if !matches!(part.kind, PartKind::Crate | PartKind::FuelTank) {
             continue;
@@ -798,8 +800,28 @@ fn prop_faces(list: &mut DrawList, game: &Game, design: &ShipDesign, station: u3
         if share < 1.0 {
             crate::fittings::prop_face(list, part, share);
         }
+        // A drum still whole is a thing to shoot (October 2026): a slow
+        // amber hazard ring round it that reads through the dark.
+        if part.kind == PartKind::FuelTank && share > 0.0 {
+            let (x, y) = hull::middle(part.origin.0, part.origin.1);
+            let r = t * (0.55 + 0.08 * pulse);
+            list.push(
+                crate::draw::KIND_ELLIPSE,
+                x,
+                y,
+                r * 2.0,
+                r * 2.0,
+                0.0,
+                0.0,
+                3.0,
+                DRUM_HAZARD.glowing(1.2 + 0.5 * pulse),
+            );
+        }
     }
 }
+
+/// A fuel drum's hazard ring.
+const DRUM_HAZARD: Color = Color::rgb(1.0, 0.55, 0.12);
 
 /// The amber of a way in the waves may take, the red of the one the next
 /// wave takes, and a weld's hot orange (October 2026).
@@ -840,8 +862,13 @@ fn ways_in(list: &mut DrawList, game: &Game, station: u32) {
             bar(list, t * 0.5, 3.0, WELD_SEAM.glowing(1.2 + 0.4 * pulse));
             continue;
         }
-        let colour = if e.next { WAY_IN_NEXT } else { WAY_IN };
-        bar(list, t * 0.9, 5.0, colour);
+        // Glowing, so a way in reads through the fog and the dark.
+        let colour = if e.next {
+            WAY_IN_NEXT.glowing(1.4 + 0.6 * pulse)
+        } else {
+            WAY_IN.alpha(0.9).glowing(1.25)
+        };
+        bar(list, t * 0.9, 7.0, colour);
         // A weld under way: a seam growing across the doorway from one
         // side, glowing, as far as the work has got.
         if e.progress > 0.0 {
@@ -872,7 +899,7 @@ fn ways_in(list: &mut DrawList, game: &Game, station: u32) {
                 let (cx, cy) = (x - ox * inset, y - oy * inset);
                 let (bx, by) = (cx + ox * t * 0.35, cy + oy * t * 0.35);
                 let wing = t * 0.45;
-                let c = WAY_IN_NEXT.alpha(0.5 + 0.4 * pulse);
+                let c = WAY_IN_NEXT.glowing(1.2 + 0.6 * pulse);
                 list.line(bx - ax * wing, by - ay * wing, cx, cy, 4.0, c);
                 list.line(bx + ax * wing, by + ay * wing, cx, cy, 4.0, c);
             }
@@ -1005,12 +1032,13 @@ fn sabotage_marks(list: &mut DrawList, game: &Game, station: u32) {
                 cx,
                 cy,
                 t * (0.8 + 0.15 * pulse),
-                4.0,
-                CHARGE.alpha(0.8),
+                7.0,
+                CHARGE.glowing(1.4 + 0.6 * pulse),
             );
             let arm = t * 0.35;
-            list.line(cx - arm, cy - arm, cx + arm, cy + arm, 4.0, CHARGE);
-            list.line(cx - arm, cy + arm, cx + arm, cy - arm, 4.0, CHARGE);
+            let cross = CHARGE.glowing(1.6);
+            list.line(cx - arm, cy - arm, cx + arm, cy + arm, 6.0, cross);
+            list.line(cx - arm, cy + arm, cx + arm, cy - arm, 6.0, cross);
             if look.planted > 0.0 {
                 let w = 1.6 * t;
                 let (x0, y) = (cx - w / 2.0, cy + t * 1.1);
@@ -1037,7 +1065,7 @@ fn sabotage_marks(list: &mut DrawList, game: &Game, station: u32) {
                 cy,
                 t * 0.7,
                 5.0,
-                CHARGE_ARMED.alpha(0.6 + 0.4 * blink),
+                CHARGE_ARMED.glowing(1.2 + 0.8 * blink),
             );
             list.push(
                 crate::draw::KIND_ELLIPSE,
@@ -1067,8 +1095,8 @@ fn sabotage_marks(list: &mut DrawList, game: &Game, station: u32) {
                 wx,
                 wy,
                 t * (1.4 + 0.2 * pulse),
-                5.0,
-                WAY_OUT.alpha(0.8),
+                7.0,
+                WAY_OUT.glowing(1.4 + 0.6 * pulse),
             );
             let (ax, ay) = (-oy, ox);
             for k in 0..2 {
@@ -1076,9 +1104,9 @@ fn sabotage_marks(list: &mut DrawList, game: &Game, station: u32) {
                 let (px, py) = (wx + ox * ahead, wy + oy * ahead);
                 let (bx, by) = (px - ox * t * 0.35, py - oy * t * 0.35);
                 let wing = t * 0.45;
-                let c = WAY_OUT.alpha(0.5 + 0.4 * pulse);
-                list.line(bx - ax * wing, by - ay * wing, px, py, 4.0, c);
-                list.line(bx + ax * wing, by + ay * wing, px, py, 4.0, c);
+                let c = WAY_OUT.glowing(1.2 + 0.6 * pulse);
+                list.line(bx - ax * wing, by - ay * wing, px, py, 5.0, c);
+                list.line(bx + ax * wing, by + ay * wing, px, py, 5.0, c);
             }
         }
         _ => {}

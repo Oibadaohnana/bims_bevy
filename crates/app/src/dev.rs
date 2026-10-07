@@ -1320,6 +1320,12 @@ pub fn show_welds() -> bool {
     std::env::var("BIMS_WELDS").is_ok_and(|v| v.trim() == "1")
 }
 
+/// `BIMS_FLAG=1` (October 2026): an Evacuation's flag in the player's own
+/// Bim's hands from the first frame it can be, for a look at it carried.
+pub fn flag() -> bool {
+    std::env::var("BIMS_FLAG").is_ok_and(|v| v.trim() == "1")
+}
+
 /// `BIMS_PLANT=1` (October 2026): a Sabotage's charge planted at once, the
 /// hold begun, for a look at it.
 pub fn plant() -> bool {
