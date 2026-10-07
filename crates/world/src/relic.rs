@@ -159,8 +159,8 @@ pub enum Stat {
     /// (October 2026, *Forked Path*, `World::floor_next`).
     FreeRoute,
     /// What a site cleared pays every player of the money in its own
-    /// wallet, in per cent, capped at [`data::WAR_CHEST_CAP_PERCENT`] of a
-    /// site's pay that day (October 2026, *War Chest*,
+    /// wallet, in per cent, capped at [`data::WAR_CHEST_CAP_ENEMIES`]
+    /// enemies' money that day (October 2026, *War Chest*,
     /// `World::pay_the_war_chest`).
     Interest,
     /// What the bonus wave pays more, its experience and its money, in per

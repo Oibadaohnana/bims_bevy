@@ -577,7 +577,7 @@ impl World {
     /// *War Chest*, at a site's clear: every player paid its per cent of
     /// the money in its own wallet — the takings of this site not shared
     /// out yet, so not counted — rounded down and at most
-    /// [`data::WAR_CHEST_CAP_PERCENT`] of what a site pays a player today,
+    /// [`data::WAR_CHEST_CAP_ENEMIES`] enemies' money today,
     /// into that wallet ([`WorldEvent::WarChest`]). Nothing without it.
     pub(crate) fn pay_the_war_chest(&mut self, events: &mut Vec<WorldEvent>) {
         let percent = relic::crew_percent(self.relics(), Stat::Interest);
@@ -585,9 +585,8 @@ impl World {
             return;
         }
         let cap = self
-            .site_money_on(self.run_day())
-            .saturating_mul(data::WAR_CHEST_CAP_PERCENT)
-            / 100;
+            .enemy_money_on(self.run_day())
+            .saturating_mul(data::WAR_CHEST_CAP_ENEMIES);
         for slot in 0..self.players() {
             let money = (self.wallet(slot).saturating_mul(percent as Money) / 100).min(cap);
             if money == 0 {

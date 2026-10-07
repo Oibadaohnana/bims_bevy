@@ -12,14 +12,14 @@
 //                           twice that; the bonus wave half again)
 //   site_xp_growth_percent  how much more a site is worth every day after,
 //                           in per cent, compounded
-//   site_money              what a site pays in euros on the run's first
-//                           day, a player's worth for every player into the
-//                           pool: each enemy down pays its wave's share of
-//                           it, once (a Husk or a pistol a tenth less, a
-//                           Warden or a Guardian a tenth more; an elite's
-//                           site half again; the bonus wave 29% again)
-//   site_money_growth_percent  how much more a site pays every day after,
-//                           in per cent, compounded
+//   enemy_money             what every enemy down pays in euros on the
+//                           run's first day, into the pool, whatever the
+//                           wave or the site — more enemies, more money
+//                           (a Husk or a pistol a tenth less, a Warden or
+//                           a Guardian a tenth more; an elite's site half
+//                           again; the bonus wave's enemies as much)
+//   enemy_money_growth_percent  how much more an enemy pays every day
+//                           after, in per cent, compounded
 //   defense_bounty_percent  how much of that a defence pays (100 = the same
 //                           as an attack, 0 = nothing)
 //   bot_bounty_percent      how much of that is paid when one of the crew's
@@ -37,8 +37,8 @@
 (
     site_xp: 60,
     site_xp_growth_percent: 12,
-    site_money: 935,
-    site_money_growth_percent: 17,
+    enemy_money: 310,
+    enemy_money_growth_percent: 7,
     defense_bounty_percent: 100,
     bot_bounty_percent: 100,
     player_bounty_percent: 110,

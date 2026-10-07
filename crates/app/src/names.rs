@@ -2138,8 +2138,8 @@ pub fn modifier_line(m: world::relic::Modifier) -> String {
         }
         Stat::Interest => {
             return format!(
-                "Every site cleared pays each player {n}% of the money it kept (at most {}% of a site's pay)",
-                world::data::WAR_CHEST_CAP_PERCENT
+                "Every site cleared pays each player {n}% of the money it kept (at most {} enemies' pay)",
+                world::data::WAR_CHEST_CAP_ENEMIES
             );
         }
         Stat::BonusWavePay => "experience and money from the bonus wave",

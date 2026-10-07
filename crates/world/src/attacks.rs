@@ -35,7 +35,7 @@
 //!   critical.
 //! - **A salvage sweep**: [`data::SALVAGE_CRATES`] crates in the holds,
 //!   each taken up bringing a wave at once, each a fifth bigger; carried
-//!   aboard the ship, each pays [`data::SALVAGE_PAY_PERCENT`] of the site's
+//!   aboard the ship, each pays [`data::SALVAGE_PAY_PERCENT`] of an enemy's
 //!   money into the takings. The site's own waves besides, and its
 //!   bounty paid as each enemy goes down, so the crew may leave when they
 //!   like; it is cleared once every crate is home.
@@ -1184,7 +1184,10 @@ impl World {
             }
         }
         if paid > 0 {
-            let each = self.site_money_here() * data::SALVAGE_PAY_PERCENT / 100;
+            let each = self.enemy_money_on(self.run_day())
+                * Money::from(self.players().max(1))
+                * data::SALVAGE_PAY_PERCENT
+                / 100;
             self.money += each * paid;
         }
         self.set_objective(id, Objective::Salvage(s));

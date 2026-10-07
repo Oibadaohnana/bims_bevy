@@ -698,7 +698,7 @@ fn war_chest_pays_on_the_money_kept_at_a_clear() {
             assert!(paid.is_empty());
             continue;
         }
-        let cap = world.site_money_on(world.run_day()) * data::WAR_CHEST_CAP_PERCENT / 100;
+        let cap = world.enemy_money_on(world.run_day()) * data::WAR_CHEST_CAP_ENEMIES;
         let interest = (before * data::WAR_CHEST_INTEREST as u64 / 100).min(cap);
         assert!(interest > 0);
         assert_eq!(paid, vec![interest], "once, at the clear");

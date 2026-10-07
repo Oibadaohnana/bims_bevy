@@ -210,11 +210,11 @@ impl Tuning for Rewards {
     const UNTUNED: Self = Rewards::DEFAULT;
     fn describe(&self) -> String {
         format!(
-            "a site {} xp (+{}% a day) and €{} (+{}% a day) (defence {}%, a player's {}%, a bot's {}%, {}), buyback €{}, shelf {}%",
+            "a site {} xp (+{}% a day), an enemy €{} (+{}% a day) (defence {}%, a player's {}%, a bot's {}%, {}), buyback €{}, shelf {}%",
             self.site_xp,
             self.site_xp_growth_percent,
-            self.site_money,
-            self.site_money_growth_percent,
+            self.enemy_money,
+            self.enemy_money_growth_percent,
             self.defense_bounty_percent,
             self.player_bounty_percent,
             self.bot_bounty_percent,
@@ -616,7 +616,7 @@ mod tests {
         assert_eq!(s.tier_1_area.guardians, 0);
         let r: Rewards = parse("(buyback: 3)").unwrap();
         assert_eq!(r.buyback, 3);
-        assert_eq!(r.site_money, Rewards::DEFAULT.site_money);
+        assert_eq!(r.enemy_money, Rewards::DEFAULT.enemy_money);
         let w: WeaponDamage = parse("(auto_rifle: (9.0, 8.0))").unwrap();
         assert_eq!(w.of(WeaponKind::AutoRifle), (9.0, 8.0));
         assert_eq!(w.laser_pistol, WeaponDamage::DEFAULT.laser_pistol);

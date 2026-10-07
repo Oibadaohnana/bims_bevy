@@ -190,11 +190,10 @@ fn the_bonus_wave_is_chosen_before_the_fight_and_comes_last() {
     let each = world.xp_per_down();
     let half = budget * data::BONUS_WAVE_XP_PERCENT / 100;
     assert_eq!(each, (half + big / 2) / big);
-    // And a quarter of the site's money again (October 2026).
-    let quarter = world.site_money_here() * u64::from(data::BONUS_WAVE_MONEY_PERCENT) / 100;
+    // And each of it the day's money, as any enemy (October 2026).
     assert_eq!(
         world.money_per_down(),
-        (quarter + u64::from(big) / 2) / u64::from(big)
+        world.enemy_money_on(world.run_day())
     );
     let before = xp(&world, 0);
     let pending = world.run.pending_bounty;
@@ -298,24 +297,19 @@ fn a_training_log_and_the_catch_up_lift_a_player_s_share() {
     );
 }
 
-/// **A site's money is a budget too** (October 2026): every machine of a
-/// one-wave site down pays its share of the day's money, a player's worth
-/// for every player into the one pool — so each player's share is the
-/// same alone or two, give or take a kind's spread.
+/// **An enemy's money is the day's** (October 2026, the player's: "can
+/// the pay not just be a day progression thing without any wave
+/// schenanigans"): every machine down pays the day's amount (give or take
+/// its kind's spread and who took it down), whatever the wave's size —
+/// so two players' bigger wave is more money, and a wave of n pays about
+/// n times the day's.
 #[test]
-fn a_site_pays_each_player_its_money_alone_or_two() {
+fn every_enemy_pays_the_day_s_money_whatever_the_wave() {
     for players in [1, 2] {
         let (mut world, station) = held_arena(players);
         let n = wait_for_a_wave(&mut world);
-        let budget = world.site_money_here();
-        assert_eq!(
-            budget,
-            world.site_money_on(world.run_day()) * u64::from(players)
-        );
-        assert_eq!(
-            world.money_per_down(),
-            (budget + u64::from(n) / 2) / u64::from(n)
-        );
+        let day = world.enemy_money_on(world.run_day());
+        assert_eq!(world.money_per_down(), day);
         let before = world.money;
         let events = wreck_them_one_by_one(&mut world, players);
         assert!(world.droid_station_cleared(station));
@@ -327,11 +321,10 @@ fn a_site_pays_each_player_its_money_alone_or_two() {
             })
             .sum();
         assert_eq!(world.money - before, paid);
-        let each = paid / u64::from(players);
-        let alone = world.site_money_on(world.run_day());
+        let want = day * u64::from(n);
         assert!(
-            each * 100 >= alone * 85 && each * 100 <= alone * 115,
-            "{players} players: €{each} each of €{alone}"
+            paid * 100 >= want * 85 && paid * 100 <= want * 125,
+            "{players} players, {n} machines: €{paid} of about €{want}"
         );
     }
 }
@@ -368,10 +361,10 @@ fn overtime_chooses_the_bonus_wave_and_pays_it_double() {
         (whole + big / 2) / big,
         "twice the share"
     );
-    let money = world.site_money_here() * u64::from(data::BONUS_WAVE_MONEY_PERCENT) * 2 / 100;
     assert_eq!(
         world.money_per_down(),
-        (money + u64::from(big) / 2) / u64::from(big)
+        world.enemy_money_on(world.run_day()) * 2,
+        "twice the day's money an enemy"
     );
     wreck_them_one_by_one(&mut world, 1);
     assert!(world.droid_station_cleared(station));

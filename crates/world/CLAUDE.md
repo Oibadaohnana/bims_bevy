@@ -8875,3 +8875,28 @@ where `Some`, `SAVE_VERSION` 129).
   20–27. `Interaction::Defuse` is the Use key's (`DEFUSE_CODE` 104).
 - Tests: `tests_defense.rs`' last five; the commands `bombs`, `doors`,
   `chief`.
+
+## An enemy's money is the day's (October 2026)
+
+> "A site's experience budget, the bonus wave and Clean Sweep" and "The
+> money is a site's budget too" above describe the **money** as a budget
+> shared over a site's waves; that is gone. The experience is still the
+> budget (the player: "keep XP per kill").
+
+The player's words: "can the pay not just be a day progression thing
+without any wave schenanigans? With Elites paying 50% more. and everyday
+the pay rises", and of the two ways "so more enemies from the relics also
+means more money". `World::money_per_down` is `Rewards::enemy_money_on`
+(`data::ENEMY_MONEY` €310, `ENEMY_MONEY_GROWTH_PERCENT` 7 — seven, not the
+budget's seventeen, since the enemies grow in number too: a site of the
+default scaling pays about what the budget did), whatever the wave or the
+site; the bonus wave's enemies are worth as much (*Overtime* doubles it).
+Everything after it is as it was: the kind's spread, who took it down,
+the relics' bounty, a defence's per cent, an elite's 150
+(`ELITE_BOUNTY_PERCENT`). `Run::money_each` is kept for the save and set
+by nothing. A salvage crate pays `SALVAGE_PAY_PERCENT` (50) of an enemy's
+money a player; *War Chest* is capped at `WAR_CHEST_CAP_ENEMIES` (10)
+enemies' money. `rewards.ron`'s `site_money` lines are `enemy_money`.
+Bomb disposal, Hold the doors and Protect the commander price their
+experience over `OBJECTIVE_WAVES` (their landed waves grew the count and
+paid past the budget). Not a save change.

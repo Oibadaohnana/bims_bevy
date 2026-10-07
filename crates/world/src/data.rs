@@ -470,10 +470,10 @@ pub const REACTOR_REACH_TILES: f32 = 3.0;
 pub const FUEL_RESTOCK_STEPS: u64 = 1_200;
 pub const FUEL_WAVE_STEPS: u64 = 1_800;
 /// **A salvage sweep**: the crates, what each carried home pays (a share
-/// of the site's money), and how much bigger the wave each taken up
-/// brings.
+/// of an enemy's money that day, a player's worth for every player), and
+/// how much bigger the wave each taken up brings.
 pub const SALVAGE_CRATES: u32 = 6;
-pub const SALVAGE_PAY_PERCENT: u64 = 12;
+pub const SALVAGE_PAY_PERCENT: u64 = 50;
 pub const SALVAGE_WAVE_GROWTH_PERCENT: u32 = 20;
 /// About how many waves an attack whose waves come on a clock is fought
 /// over (the Overseer, a heist, a fuel run): what its experience and its
@@ -558,7 +558,7 @@ pub const AREA_HEAL_PERCENT: f32 = 0.5;
 // loss if they fall — and they count towards the wave size as crew
 // would (`World::droid_wave_size`).
 
-/// What the Republic pays for a site on the run's first day, in euros
+/// What the Republic paid for a site on the run's first day, in euros
 /// (October 2026, `Rewards::site_money`): a **budget**, as a site's
 /// experience is, each enemy down paying its wave's share of it
 /// (`World::money_per_down`) — so the money no longer moves with the
@@ -571,11 +571,22 @@ pub const AREA_HEAL_PERCENT: f32 = 0.5;
 /// is fitted to what those paid a lone player fighting every row:
 /// €836 a site on day one, €79 000 on day thirty. Then a tenth more
 /// (the player, October 2026: "give 10% more money"): 850 to 935.
-pub const SITE_MONEY: Money = 935;
-/// How much more a site pays every day after, in per cent, compounded
-/// (`Rewards::site_money_growth_percent`): €935 on day one, €3 840 on day
-/// ten, €18 460 on day twenty, €88 760 on day thirty.
-pub const SITE_MONEY_GROWTH_PERCENT: u32 = 17;
+///
+/// **Since October 2026 it is a day's amount an enemy** (the player's:
+/// "can the pay not just be a day progression thing without any wave
+/// schenanigans? With Elites paying 50% more. and everyday the pay rises"
+/// — and of the two ways, "so more enemies from the relics also means
+/// more money"): €310 on day one, a day-one enemy's share of the budget
+/// it replaced (€935 over three).
+pub const ENEMY_MONEY: Money = 310;
+/// How much more an enemy pays every day after, in per cent, compounded
+/// (`Rewards::enemy_money_growth_percent`): €310 on day one, €570 on day
+/// ten, €1 121 on day twenty, €2 359 on day thirty-one. Seven, not the
+/// budget's seventeen: the enemies grow in number as well (three a
+/// player on day one to two waves of twenty-three by day thirty), and at
+/// seventeen a late site would have paid fifteen times what it did; at
+/// seven a site of the default scaling pays about what the budget did.
+pub const ENEMY_MONEY_GROWTH_PERCENT: u32 = 7;
 /// How much of an enemy's share a **defence** pays, in per cent. Task
 /// 136 made it nothing — the survivors were the reward — and the player
 /// then asked for money for every enemy downed or destroyed, wherever:
@@ -647,12 +658,6 @@ pub const HEART_XP_BODIES: u32 = 20;
 pub const BONUS_WAVE_SIZE_PERCENT: u32 = 150;
 /// ...worth this much of the site's experience on top, in per cent...
 pub const BONUS_WAVE_XP_PERCENT: u32 = 50;
-/// ...and this much of its money (October 2026: half, as the
-/// experience, until a bonus wave at every fight came to too much; then
-/// a quarter; 29 puts a lone player taking four elites and a bonus wave
-/// at every fight at €802k at the Heart, the player's "800k when
-/// greedy").
-pub const BONUS_WAVE_MONEY_PERCENT: u32 = 29;
 /// A player below the best level among the players gets this much more
 /// of every enemy's experience, in per cent: a player dead and bought
 /// back, or joined late, catches up.
@@ -745,10 +750,10 @@ pub const MARKSMANS_CREED_NEAR: i32 = 20;
 pub const FORKED_PATH_ENEMY_HEALTH: i32 = 15;
 /// *War Chest* (October 2026): every site cleared pays each player this
 /// many per cent of the money in its own wallet, at most
-/// [`WAR_CHEST_CAP_PERCENT`] of what a site pays a player that day
-/// (`Rewards::site_money_on`) — and a trader asks this many per cent more.
+/// [`WAR_CHEST_CAP_ENEMIES`] enemies' money that day
+/// (`Rewards::enemy_money_on`) — and a trader asks this many per cent more.
 pub const WAR_CHEST_INTEREST: i32 = 10;
-pub const WAR_CHEST_CAP_PERCENT: Money = 50;
+pub const WAR_CHEST_CAP_ENEMIES: Money = 10;
 pub const WAR_CHEST_PRICES: i32 = 20;
 /// *Overtime* (October 2026): the bonus wave pays this many per cent more
 /// experience and money (its 50% of the site's experience made the

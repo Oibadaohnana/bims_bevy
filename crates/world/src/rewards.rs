@@ -30,15 +30,16 @@ pub struct Rewards {
     /// How much more a site is worth every day after the first, in per
     /// cent, compounded.
     pub site_xp_growth_percent: u32,
-    /// What the Republic pays for a site on the run's first day, in euros:
-    /// each enemy down there pays its wave's share of it, once
-    /// ([`Rewards::site_money_on`], `World::money_per_down`), as the
-    /// experience is shared. It was a bounty an enemy by its tier until
-    /// October 2026 (`bounty`).
-    pub site_money: Money,
-    /// How much more a site pays every day after the first, in per cent,
-    /// compounded.
-    pub site_money_growth_percent: u32,
+    /// What the Republic pays for an enemy down on the run's first day, in
+    /// euros, whatever the wave or the site ([`Rewards::enemy_money_on`],
+    /// `World::money_per_down`; October 2026, the player's: "can the pay
+    /// not just be a day progression thing without any wave
+    /// schenanigans"). It was a site's budget shared over its waves'
+    /// bodies until then (`site_money`), and a bounty by tier before.
+    pub enemy_money: Money,
+    /// How much more an enemy pays every day after the first, in per
+    /// cent, compounded.
+    pub enemy_money_growth_percent: u32,
     /// How much of that a defence pays, in per cent of it: a hundred is
     /// the same as an attack, nought is nothing.
     pub defense_bounty_percent: u32,
@@ -63,8 +64,8 @@ impl Rewards {
     pub const DEFAULT: Rewards = Rewards {
         site_xp: data::SITE_XP,
         site_xp_growth_percent: data::SITE_XP_GROWTH_PERCENT,
-        site_money: data::SITE_MONEY,
-        site_money_growth_percent: data::SITE_MONEY_GROWTH_PERCENT,
+        enemy_money: data::ENEMY_MONEY,
+        enemy_money_growth_percent: data::ENEMY_MONEY_GROWTH_PERCENT,
         defense_bounty_percent: data::DEFENSE_BOUNTY_PERCENT,
         bot_bounty_percent: data::BOT_BOUNTY_PERCENT,
         player_bounty_percent: data::PLAYER_BOUNTY_PERCENT,
@@ -81,10 +82,10 @@ impl Rewards {
             as u32
     }
 
-    /// What a site pays on run day `day`, the same way: `site_money` grown
-    /// by `site_money_growth_percent` a day.
-    pub fn site_money_on(&self, day: u32) -> Money {
-        grown(self.site_money, self.site_money_growth_percent, day)
+    /// What an enemy down pays on run day `day`, the same way:
+    /// `enemy_money` grown by `enemy_money_growth_percent` a day.
+    pub fn enemy_money_on(&self, day: u32) -> Money {
+        grown(self.enemy_money, self.enemy_money_growth_percent, day)
     }
 
     /// `amount` at a defence: its per cent, rounded down.
@@ -135,21 +136,21 @@ mod tests {
     #[test]
     fn the_default_is_the_constants_and_a_dial_moves_it() {
         let d = Rewards::DEFAULT;
-        assert_eq!(d.site_money_on(1), data::SITE_MONEY);
-        assert_eq!(d.site_money_on(10), 3_841);
-        assert_eq!(d.site_money_on(30), 88_756);
+        assert_eq!(d.enemy_money_on(1), data::ENEMY_MONEY);
+        assert_eq!(d.enemy_money_on(10), 569);
+        assert_eq!(d.enemy_money_on(31), 2_359);
         assert_eq!(d.site_xp_on(31), 1_797);
         assert_eq!(d.shelf_price(1_234), 1_234);
         let tuned = Rewards {
-            site_money: 10,
-            site_money_growth_percent: 0,
+            enemy_money: 10,
+            enemy_money_growth_percent: 0,
             defense_bounty_percent: 50,
             bot_bounty_percent: 25,
             player_bounty_percent: 120,
             shelf_price_percent: 150,
             ..d
         };
-        assert_eq!(tuned.site_money_on(20), 10);
+        assert_eq!(tuned.enemy_money_on(20), 10);
         assert_eq!(tuned.at_defense(25), 12);
         assert_eq!(d.by_bot(1_500), 1_500);
         assert_eq!(d.by_player(1_500), 1_650);
