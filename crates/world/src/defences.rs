@@ -21,12 +21,22 @@
 //!   the Republic's soldiers come instead, a wave's worth every as often,
 //!   at the day's tier, until nothing of the enemy stands — and the deck
 //!   clear is the site held. **The commander down is the run lost.**
-//! - **Protect the commander**: the site's commander walking a round of
-//!   spots spread over it, a spot every [`data::CHIEF_MOVE_STEPS`], every
+//! - **Protect the commander**: the site's commander in **his room** — a
+//!   station laid out with one (`Feature::Command`: the room nearest the
+//!   port, a desk of crates across it, so the waves come in far from it), a town's watch house
+//!   (`surface::WATCH_ROOM`) — posted at the tile of it farthest from its
+//!   doors, where he stays the whole fight and fights from (the player's:
+//!   "he will just stay for the whole fight and defend himself"), every
 //!   enemy making for him, for [`data::CHIEF_STEPS`] (two minutes); waves
 //!   every [`data::CHIEF_WAVE_STEPS`]. Downed he is revived as any of the
 //!   crew; **dead, the site falls**. A town's defence that is no Area
 //!   defend is this one.
+//!
+//! Either commander holds his post: the crew's room is told it as his
+//! objective (`say_the_commander_s_post`), which he walks back to and
+//! shoots from once the alarm has dropped every post, and he is posted
+//! there again whenever an order took him more than [`HOLD_SLACK`] tiles
+//! off it.
 //!
 //! The commander is gone at the mission's end, as a prisoner never freed
 //! is. A child of `crate::world`, as `mission.rs` is. **Nothing here draws
@@ -40,6 +50,10 @@ use crate::run::Mission;
 pub const DEFUSE_CODE: u32 = 104;
 /// How long the room's errand runs: longer than any defusing.
 const ERRAND_MINUTES: f32 = 600.0;
+/// How far off his post a commander may stand, in tiles, before he is
+/// posted there again — and how often that is asked, in steps.
+const HOLD_SLACK: f32 = 2.0;
+const HOLD_EVERY: u64 = 60;
 
 impl World {
     /// The guard of the defence at the site the crew are at, with its id.
@@ -129,14 +143,24 @@ impl World {
                 }))
             }
             Mission::Chief => {
-                let spots = attacks::spots(design, None, data::CHIEF_SPOTS as usize, from, false);
-                let first = *spots.first()?;
-                let vip = self.enlist_commander(first)?;
+                // His room: the station's built for him, a town's watch
+                // house; a station that could not be built so has him
+                // at the open tile nearest the port.
+                let room = station
+                    .fitted
+                    .as_ref()
+                    .filter(|f| f.feature == crate::stationgen::Feature::Command)
+                    .and_then(|f| f.rooms.first().copied())
+                    .or_else(|| surface::surface_body(id).map(|_| surface::WATCH_ROOM));
+                let post = match room {
+                    Some(room) => command_post(design, room, from)?,
+                    None => *attacks::spots(design, None, 1, from, true).first()?,
+                };
+                let vip = self.enlist_commander(post)?;
                 Some(Guard::Chief(Chief {
                     vip,
-                    spots,
-                    next: 1,
-                    move_at: self.run.mission_steps + data::CHIEF_MOVE_STEPS,
+                    room: room.unwrap_or([post.0, post.1, post.0, post.1]),
+                    post,
                     left: data::CHIEF_STEPS,
                 }))
             }
@@ -175,6 +199,51 @@ impl World {
         self.guard_here()
             .and_then(|(_, g)| g.vip())
             .is_some_and(|v| v == who)
+    }
+
+    /// The commander's post, said to the crew's room every step as his
+    /// objective (by crew index; nobody else's), so the alarm dropping
+    /// every post leaves him making for it and shooting from it. Nothing
+    /// with no commander here.
+    pub(super) fn say_the_commander_s_post(&mut self) {
+        let held = self
+            .guard_here()
+            .filter(|_| self.aboard.is_joined() && self.in_mission())
+            .and_then(|(_, g)| match g {
+                Guard::Doors(d) => Some((d.vip, d.core)),
+                Guard::Chief(c) => Some((c.vip, c.post)),
+                Guard::Bombs(_) => None,
+            });
+        let mut spots = Vec::new();
+        if let Some((vip, post)) = held
+            && let Some(at) = self.tile_on_deck(post)
+            && vip < self.aboard.room.crew_count()
+        {
+            spots = vec![None; self.aboard.room.crew_count() as usize];
+            spots[vip as usize] = Some(at);
+        }
+        self.aboard.room.set_objectives(&spots);
+    }
+
+    /// The commander posted at his post again where an order took him
+    /// more than [`HOLD_SLACK`] tiles off it, asked every [`HOLD_EVERY`]
+    /// steps; never while he is down.
+    fn hold_the_commander(&mut self, vip: u32, post: (u32, u32)) {
+        let who = vip as usize;
+        if self.run.mission_steps % HOLD_EVERY != 0
+            || who >= self.aboard.room.crew_count() as usize
+            || !self.aboard.room.is_alive(who)
+            || self.aboard.room.is_down(who)
+        {
+            return;
+        }
+        let Some(at) = self.tile_on_deck(post) else {
+            return;
+        };
+        let off = (self.aboard.room.bim_pos(who) - at).len();
+        if off > HOLD_SLACK * shipdesign::TILE as f32 {
+            self.aboard.room.post_at(who, at);
+        }
     }
 
     /// A crew member dropped: the commander's index moved down past it.
@@ -421,6 +490,7 @@ impl World {
             });
         }
         self.seal_the_gates(&d);
+        self.hold_the_commander(d.vip, d.core);
         // The commander down: the run lost.
         let vip = d.vip as usize;
         if vip < self.aboard.room.crew_count() as usize
@@ -517,15 +587,8 @@ impl World {
             self.set_guard(id, Guard::Chief(c));
             return;
         }
-        // His round: the next spot every so often.
-        if self.run.mission_steps >= c.move_at && !c.spots.is_empty() {
-            let spot = c.spots[c.next as usize % c.spots.len()];
-            if let Some(at) = self.tile_on_deck(spot) {
-                self.aboard.room.post_at(vip, at);
-            }
-            c.next = (c.next + 1) % c.spots.len() as u32;
-            c.move_at = self.run.mission_steps + data::CHIEF_MOVE_STEPS;
-        }
+        // He holds his room.
+        self.hold_the_commander(c.vip, c.post);
         if c.left > 0 {
             c.left -= 1;
             if c.left == 0 {
@@ -767,6 +830,77 @@ impl World {
 /// within a tile and a half.
 fn self_enemies_at(world: &World, p: DVec2) -> bool {
     world.enemies_near(p, 1.5) > 0
+}
+
+/// Where a commander holds his room (inner tiles, inclusive): its open
+/// tile — free deck with free deck all round — farthest from the nearest
+/// of its doors (the doors with a tile on its ring), any free tile of it
+/// where none is open; farthest from `from` with no door found. Ties to
+/// the lower row, then column.
+fn command_post(design: &ShipDesign, room: [u32; 4], from: DVec2) -> Option<(u32, u32)> {
+    let t = shipdesign::TILE as f64;
+    let mid = |x: f64, y: f64| dvec2((x + 0.5) * t, (y + 0.5) * t);
+    let [x0, y0, x1, y1] = room;
+    let on_ring = |(x, y): (u32, u32)| {
+        let (x, y) = (x as i64, y as i64);
+        let inside_ring = x >= x0 as i64 - 1
+            && x <= x1 as i64 + 1
+            && y >= y0 as i64 - 1
+            && y <= y1 as i64 + 1;
+        let inside = x >= x0 as i64 && x <= x1 as i64 && y >= y0 as i64 && y <= y1 as i64;
+        inside_ring && !inside
+    };
+    let doors: Vec<DVec2> = design
+        .parts
+        .iter()
+        .filter(|p| p.kind == shipdesign::PartKind::Door)
+        .filter_map(|p| {
+            let tiles = p.tiles();
+            if !tiles.iter().any(|&t| on_ring(t)) {
+                return None;
+            }
+            let n = tiles.len() as f64;
+            let (sx, sy) = tiles
+                .iter()
+                .fold((0.0, 0.0), |(a, b), &(x, y)| (a + x as f64, b + y as f64));
+            Some(mid(sx / n, sy / n))
+        })
+        .collect();
+    let grid = design.grid();
+    let free = |x: i64, y: i64| {
+        x >= 0
+            && y >= 0
+            && grid.get(shipdesign::Layer::Floor, (x as i32, y as i32)) != 0
+            && grid.get(shipdesign::Layer::Object, (x as i32, y as i32)) == 0
+    };
+    let open = |x: i64, y: i64| (-1..=1).all(|dx| (-1..=1).all(|dy| free(x + dx, y + dy)));
+    let score = |x: u32, y: u32| {
+        let p = mid(x as f64, y as f64);
+        if doors.is_empty() {
+            p.sub(from).length()
+        } else {
+            doors
+                .iter()
+                .map(|&d| p.sub(d).length())
+                .fold(f64::INFINITY, f64::min)
+        }
+    };
+    let best = |want: &dyn Fn(i64, i64) -> bool| {
+        let mut best: Option<((u32, u32), f64)> = None;
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                if !want(x as i64, y as i64) {
+                    continue;
+                }
+                let s = score(x, y);
+                if best.is_none_or(|(_, b)| s > b) {
+                    best = Some(((x, y), s));
+                }
+            }
+        }
+        best.map(|(tile, _)| tile)
+    };
+    best(&open).or_else(|| best(&free))
 }
 
 /// The free tile beside a door's two tiles that is outside `room` (deck

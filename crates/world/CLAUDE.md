@@ -8886,6 +8886,28 @@ where `Some`, `SAVE_VERSION` 129).
 - Tests: `tests_defense.rs`' last five; the commands `bombs`, `doors`,
   `chief`.
 
+**The commander holds his room** (October 2026, the player's: "the
+commander should have his commander room … in which he will just stay
+for the whole fight and defend himself"): Protect the commander's site
+is laid out with `stationgen::Feature::Command` (`Role::Command`, the
+room nearest the port — the waves come in by the airlocks farthest from
+it, so they cross the station to him; farthest, the first wave downed him
+seconds in — and no airlock opens into it (`airlocks`' `keep_out`);
+`COMMAND_MIN` 8×7, a desk of crates across its middle; `feature_of(Chief)`, so `fit_the_site` builds it), a town's
+is its watch house (`surface::WATCH_ROOM`, the same in every town), and
+a station that could not be built so has him at the open tile nearest
+the port. `objective::Chief` is `{ vip, room, post, left }` — the
+round of four spots, `CHIEF_SPOTS` and `CHIEF_MOVE_STEPS` went. His post
+is `command_post`: the room's open tile farthest from its doors. Either
+commander (the vault's too) holds his post: `say_the_commander_s_post`,
+after `guard_step`, tells the crew's room his post as his objective (by
+crew index — the crew's room had none before), so once the alarm drops
+every post `bot_stand` walks him back and he fights from it; and
+`hold_the_commander` posts him there again every 60 steps he stands more
+than two tiles off it (an order undone), never while down. **SAVE_VERSION
+132.** `the_commander_holds_his_room_the_whole_fight`,
+`a_town_s_commander_holds_its_watch_house`.
+
 ## An enemy's money is the day's (October 2026)
 
 > "A site's experience budget, the bonus wave and Clean Sweep" and "The

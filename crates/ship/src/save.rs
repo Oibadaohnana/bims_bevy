@@ -331,7 +331,9 @@ use crate::game::Game;
 /// 129: the defences' missions (`world::objective::Guard` on a `Defense`)
 /// and a vault's doors (`stationgen::Fitted::doors`).
 /// 131: the Overseer's tile away from the crew (`objective::Overseer::away`).
-pub const SAVE_VERSION: u32 = 131;
+/// 132: Protect the commander's room and post (`world::objective::Chief`
+/// lost its round), and `stationgen::Feature::Command`.
+pub const SAVE_VERSION: u32 = 132;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

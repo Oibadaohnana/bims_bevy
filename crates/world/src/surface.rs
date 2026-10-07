@@ -563,6 +563,14 @@ const LOT_F: (u32, u32) = (76, 88);
 const WATCH_X0: u32 = GUARD_POST.0 + 3;
 const WATCH_Y0: u32 = GUARD_POST.1 - 4;
 const WATCH_SIDE: u32 = 8;
+/// The watch house's deck (inner tiles, inclusive): a town's commander's
+/// room at Protect the commander, the same in every town.
+pub const WATCH_ROOM: [u32; 4] = [
+    WATCH_X0 + 1,
+    WATCH_Y0 + 1,
+    WATCH_X0 + WATCH_SIDE - 1,
+    WATCH_Y0 + WATCH_SIDE - 1,
+];
 /// The trading house: the trading hall (the reactor room, eleven wide
 /// and fourteen tall for the desk, the reactor, life support and the
 /// batteries at `furnish`'s offsets) with its door onto the yard, the

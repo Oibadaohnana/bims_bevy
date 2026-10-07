@@ -146,6 +146,9 @@ pub const CARGO_MIN: (u32, u32) = (7, 6);
 /// A vault's least deck, the long way first: six of antechamber, the
 /// partition and four of core.
 pub const VAULT_MIN: (u32, u32) = (11, 6);
+/// The commander's room's least deck (Protect the commander): the desk
+/// across its middle with a tile to stand behind it.
+pub const COMMAND_MIN: (u32, u32) = (8, 7);
 /// How deep a vault's core is, behind its partition.
 const VAULT_CORE: u32 = 4;
 
@@ -334,6 +337,9 @@ enum Role {
     /// door of its own the core, four tiles deep, where the commander
     /// stands.
     Vault,
+    /// The commander's room (a defence's, Protect the commander): a desk
+    /// of crates across its middle he holds the whole fight behind.
+    Command,
 }
 
 impl Role {
@@ -356,6 +362,7 @@ impl Role {
             Role::Reactor => REACTOR_MIN,
             Role::Cargo => CARGO_MIN,
             Role::Vault => VAULT_MIN,
+            Role::Command => COMMAND_MIN,
         }
     }
 }
@@ -379,6 +386,10 @@ pub enum Feature {
     /// A vault, the room farthest from the port: an antechamber with two
     /// doors and a core behind a partition door (Hold the doors).
     Vault,
+    /// The commander's room, the room nearest the port (Protect the
+    /// commander): the crew land beside it, and the waves, which come in
+    /// by the airlocks farthest from the port, cross the station to it.
+    Command,
 }
 
 impl Feature {
@@ -391,6 +402,7 @@ impl Feature {
             Feature::FuelRun => &[Role::Depot, Role::Reactor],
             Feature::Cargo => &[Role::Cargo, Role::Cargo],
             Feature::Vault => &[Role::Vault],
+            Feature::Command => &[Role::Command],
         }
     }
 }
@@ -1054,8 +1066,8 @@ fn deal(
     )
 }
 
-/// A mission's rooms dealt (October 2026): the depot to the room nearest
-/// the port that takes it, and every other to the room farthest from the
+/// A mission's rooms dealt (October 2026): the depot and the commander's
+/// room to the room nearest the port that takes it, and every other to the room farthest from the
 /// port and from the mission's rooms already dealt. `None` where a role
 /// finds no room.
 fn deal_feature(
@@ -1075,7 +1087,7 @@ fn deal_feature(
             let m = middle(&rooms[i]);
             chosen.iter().fold(dist(m, port), |d, &c| d.min(dist(m, c)))
         };
-        let pick = if role == Role::Depot {
+        let pick = if matches!(role, Role::Depot | Role::Command) {
             free.min_by(|&a, &b| {
                 dist(middle(&rooms[a]), port)
                     .total_cmp(&dist(middle(&rooms[b]), port))
@@ -1278,6 +1290,17 @@ fn room_pieces(room: Block, role: Role, rng: &mut Rng) -> Vec<(PartKind, (u32, u
             let (cx, cy) = (x0 + w / 2, y0 + h / 2);
             out.push((PartKind::Crate, (cx - 1, cy)));
             out.push((PartKind::Crate, (cx, cy)));
+            out.push((PartKind::BigPlant, (x1 - 2, y0 + 2)));
+        }
+        Role::Command => {
+            // The desk: a row of crates across the middle, three where
+            // the room is wide enough, a tile clear of every wall's two;
+            // a plant in a corner.
+            let (cx, cy) = (x0 + w / 2, y0 + h / 2);
+            let to = if w >= 9 { cx + 1 } else { cx };
+            for x in cx - 1..=to {
+                out.push((PartKind::Crate, (x, cy)));
+            }
             out.push((PartKind::BigPlant, (x1 - 2, y0 + 2)));
         }
         Role::Depot => {
@@ -1484,6 +1507,7 @@ fn airlocks(
     sketch: &Sketch,
     trial: &Placer,
     array: (u32, u32),
+    keep_out: &[Block],
     rng: &mut Rng,
 ) -> Vec<((u32, u32), Rotation)> {
     let port = ((1u32, sketch.py as u32), Rotation::R0);
@@ -1520,7 +1544,9 @@ fn airlocks(
                         })
                     })
                 };
-                let into_room = inward(&|x, y| raster.room(x, y));
+                let into_room = inward(&|x, y| {
+                    raster.room(x, y) && !keep_out.iter().any(|b| b.contains(x, y))
+                });
                 let into_corridor = inward(&|x, y| raster.corridor(x, y));
                 // Never on the array or beside it, never on the west
                 // skin by the port.
@@ -2037,7 +2063,15 @@ fn candidate(
     // goes where nothing blocks it.
     let trial_floor = floor_of(&sketch, &roles, &[], &[port], array, &[], &combat);
     let trial = furnish_placer(side, trial_floor, map_seed);
-    let locks = airlocks(kind, &raster, &sketch, &trial, array, rng);
+    // No way in opens into the commander's room: the waves come in far
+    // from him.
+    let keep_out: Vec<Block> = rooms
+        .iter()
+        .zip(&roles)
+        .filter(|(_, r)| **r == Role::Command)
+        .map(|(b, _)| *b)
+        .collect();
+    let locks = airlocks(kind, &raster, &sketch, &trial, array, &keep_out, rng);
     let mut doors = Vec::new();
     let mut brig_door = None;
     let mut vault_doors: Vec<(u32, u32)> = Vec::new();

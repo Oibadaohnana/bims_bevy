@@ -444,18 +444,24 @@ pub const EVAC_WAVE_STEPS: u64 = 1_500;
 /// areas"), his pace (the player's: "30% of a normal walk speed"), the
 /// share of his health he flees under, how near the inside of his airlock
 /// counts as out, and how often a wave lands while he lives.
+/// He **runs from the crew** (the player's: "the overseer should run away
+/// from the players", "keep away from crew", "somewhat faster"): with one
+/// of them within `OVERSEER_SHY_TILES` he makes for the tile within
+/// `OVERSEER_AWAY_TILES` walked tiles of him farthest from the nearest,
+/// thought again every `OVERSEER_RETHINK_STEPS`, at `OVERSEER_RUN_PACE`
+/// — as he does for his airlock.
 pub const OVERSEER_HEALTH: [f32; 4] = [400.0, 650.0, 1_000.0, 1_500.0];
 pub const OVERSEER_PACE: f32 = 0.3;
+pub const OVERSEER_RUN_PACE: f32 = 0.6;
+pub const OVERSEER_SHY_TILES: f32 = 10.0;
+pub const OVERSEER_AWAY_TILES: u32 = 6;
+pub const OVERSEER_RETHINK_STEPS: u64 = 45;
 pub const OVERSEER_FLEES_UNDER: f32 = 0.5;
 pub const OVERSEER_OUT_TILES: f32 = 1.5;
 pub const OVERSEER_WAVE_STEPS: u64 = 1_800;
 /// **A data heist**: how many terminals, how long each is a hold of the
 /// Use key (an engineer's twice as quick), and how soon the next wave
 /// lands after one, by how many are taken — every terminal taken the
-pub const OVERSEER_RUN_PACE: f32 = 0.6;
-pub const OVERSEER_SHY_TILES: f32 = 10.0;
-pub const OVERSEER_AWAY_TILES: u32 = 6;
-pub const OVERSEER_RETHINK_STEPS: u64 = 45;
 /// alarm a step higher: sooner, and a quarter bigger a terminal.
 pub const HEIST_TERMINALS: u32 = 3;
 pub const HACK_SECONDS: u32 = 10;
@@ -496,11 +502,10 @@ pub const BOMB_WAVE_STEPS: u64 = 1_800;
 pub const DOOR_BREAK_STEPS: u32 = 1_200;
 pub const DOORS_WAVE_STEPS: u64 = 1_500;
 pub const DOORS_STEPS: u64 = 10_800;
-/// **Protect the commander**: two minutes, the spots of his round and how
-/// long he stands at each, and the waves' gap.
+/// **Protect the commander**: two minutes, and the waves' gap. He holds
+/// his room the whole fight (the player's: "he will just stay for the
+/// whole fight and defend himself"); his round of four spots went.
 pub const CHIEF_STEPS: u64 = 7_200;
-pub const CHIEF_SPOTS: u32 = 4;
-pub const CHIEF_MOVE_STEPS: u64 = 1_200;
 pub const CHIEF_WAVE_STEPS: u64 = 1_500;
 /// How near a drum or a crate a Bim takes it up, in tiles.
 pub const LOAD_REACH_TILES: f32 = 1.5;

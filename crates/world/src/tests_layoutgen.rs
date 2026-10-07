@@ -658,6 +658,7 @@ fn a_station_is_built_for_its_mission_s_rooms() {
         Feature::FuelRun,
         Feature::Cargo,
         Feature::Vault,
+        Feature::Command,
     ];
     for kind in [
         StationKind::Relay,
@@ -673,7 +674,7 @@ fn a_station_is_built_for_its_mission_s_rooms() {
                     built += 1;
                     assert_eq!(fitted.feature, feature);
                     let want = match feature {
-                        Feature::Office | Feature::Brig => 1,
+                        Feature::Office | Feature::Brig | Feature::Command => 1,
                         Feature::Servers => 3,
                         Feature::FuelRun | Feature::Cargo | Feature::Vault => 2,
                     };
@@ -683,6 +684,19 @@ fn a_station_is_built_for_its_mission_s_rooms() {
                         fitted.doors.len(),
                         if feature == Feature::Vault { 3 } else { 0 }
                     );
+                    // No way in opens into the commander's room.
+                    if feature == Feature::Command {
+                        let r = fitted.rooms[0];
+                        for port in crate::droid::airlocks(&g.placer.design) {
+                            let (x, y) = crate::droid::inside_of(&port, 1.0);
+                            let t = shipdesign::TILE as f64;
+                            let (tx, ty) = ((x / t).floor() as u32, (y / t).floor() as u32);
+                            assert!(
+                                !(tx >= r[0] && tx <= r[2] && ty >= r[1] && ty <= r[3]),
+                                "{kind:?}: an airlock into the commander's room"
+                            );
+                        }
+                    }
                     let side = g.placer.design.build_area;
                     for r in &fitted.rooms {
                         assert!(r[0] <= r[2] && r[1] <= r[3] && r[2] < side && r[3] < side);

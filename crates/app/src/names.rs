@@ -3528,7 +3528,7 @@ pub fn objective_line(look: &world::ObjectiveLook) -> String {
         },
         Mission::Chief if look.phase == 0 => {
             format!(
-                "PROTECT THE COMMANDER — every machine hunts him · {} left",
+                "PROTECT THE COMMANDER — he holds his room, every machine hunts him · {} left",
                 time()
             )
         }
@@ -3635,7 +3635,8 @@ pub fn objective_tip(mission: world::run::Mission) -> &'static str {
 • Hold 3:00, then the Republic's soldiers come"
         }
         Mission::Chief => {
-            "• Every machine hunts the commander
+            "• He holds his room the whole fight and shoots back
+• Every machine hunts him there
 • Keep him alive 2:00; downed, revive him
 • Dead: the site falls"
         }

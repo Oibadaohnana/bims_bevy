@@ -1816,7 +1816,6 @@ fn the_commander_dead_loses_the_site_and_not_the_run() {
     let Some(Guard::Chief(c)) = world.guard_now() else {
         panic!("chief");
     };
-    assert!(c.spots.len() >= 2, "a round");
     world.aboard.room.kill_now(c.vip as usize);
     let mut fell = false;
     for _ in 0..3 {
@@ -1832,6 +1831,99 @@ fn the_commander_dead_loses_the_site_and_not_the_run() {
     assert!(fell);
     assert!(world.defense(id).unwrap().lost, "the site falls");
     assert!(!world.lost, "the run goes on");
+}
+
+/// The design tile crew member `who` stands on.
+fn tile_of(world: &World, who: u32) -> (u32, u32) {
+    let p = world.aboard.room.bim_pos(who as usize);
+    let q = world
+        .aboard
+        .to_station(worldgen::math::dvec2(p.x as f64, p.y as f64))
+        .expect("the rooms joined");
+    let t = shipdesign::TILE as f64;
+    ((q.x / t).floor() as u32, (q.y / t).floor() as u32)
+}
+
+fn in_room(tile: (u32, u32), room: [u32; 4]) -> bool {
+    tile.0 >= room[0] && tile.0 <= room[2] && tile.1 >= room[1] && tile.1 <= room[3]
+}
+
+/// Protect the commander (the player's: "the commander should have his
+/// commander room that need to be defending in which he will just stay
+/// for the whole fight and defend himself"): the station is built with
+/// his room, he stands at its tile farthest from its doors, holds it
+/// through the waves with the alarm up, and an order that takes him off
+/// it is undone.
+#[test]
+fn the_commander_holds_his_room_the_whole_fight() {
+    use crate::objective::Guard;
+    let (mut world, id) = guarded(crate::run::Mission::Chief);
+    let Some(Guard::Chief(c)) = world.guard_now() else {
+        panic!("chief");
+    };
+    let fitted = world
+        .station(id)
+        .unwrap()
+        .fitted
+        .clone()
+        .expect("laid out with his room");
+    assert_eq!(fitted.feature, crate::stationgen::Feature::Command);
+    assert_eq!(c.room, fitted.rooms[0]);
+    assert!(in_room(c.post, c.room), "{:?} in {:?}", c.post, c.room);
+    assert!(in_room(tile_of(&world, c.vip), c.room), "posted in it");
+    let vip = c.vip as usize;
+    let mut fought = false;
+    for step in 0..1_800u32 {
+        world.aboard.room.patch_up_for_probe(vip);
+        world.step(&[]);
+        fought |= world.droids_standing() > 0;
+        if step > 120 && step % 30 == 0 {
+            let at = tile_of(&world, c.vip);
+            assert!(in_room(at, c.room), "step {step}: {at:?} out of {:?}", c.room);
+        }
+    }
+    assert!(fought, "the waves came");
+    // Sent off to the far side of the deck: pulled back to his post before
+    // he is out of the door.
+    let post = world
+        .aboard
+        .from_station(worldgen::math::dvec2(
+            (c.post.0 as f64 + 0.5) * shipdesign::TILE as f64,
+            (c.post.1 as f64 + 0.5) * shipdesign::TILE as f64,
+        ))
+        .map(|q| bims::math::vec2(q.x as f32, q.y as f32))
+        .unwrap();
+    let tile = shipdesign::TILE as f32;
+    let off = |w: &World| (w.aboard.room.bim_pos(vip) - post).len();
+    let far = world.aboard.room.bim_pos(0);
+    assert!((far - post).len() > 4.0 * tile, "crew member 0 is off in the deck");
+    world.aboard.room.post_at(vip, far);
+    let mut most: f32 = 0.0;
+    for _ in 0..600 {
+        world.aboard.room.patch_up_for_probe(vip);
+        world.step(&[]);
+        most = most.max(off(&world));
+        assert!(in_room(tile_of(&world, c.vip), c.room), "never out of his room");
+    }
+    assert!(most > 1.5 * tile, "the order moved him: {most}");
+    assert!(off(&world) <= 1.5 * tile, "back at his post: {}", off(&world));
+}
+
+/// And in a town his room is the watch house by the pad.
+#[test]
+fn a_town_s_commander_holds_its_watch_house() {
+    use crate::objective::Guard;
+    let Some((mut world, _)) = a_threatened_town(1.0, 2, Some(2)) else {
+        return;
+    };
+    world.set_mission_for_probe(Some(crate::run::Mission::Chief));
+    world.step(&[]);
+    let Some(Guard::Chief(c)) = world.guard_now() else {
+        panic!("chief");
+    };
+    assert_eq!(c.room, surface::WATCH_ROOM);
+    assert!(in_room(c.post, c.room));
+    assert!(in_room(tile_of(&world, c.vip), c.room), "posted in it");
 }
 
 #[test]

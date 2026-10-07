@@ -965,11 +965,10 @@ fn eat_guard(hash: &mut Fnv, g: &crate::objective::Guard) {
         Guard::Chief(c) => {
             hash.eat(0x_4348_4946);
             hash.eat(u64::from(c.vip));
-            for &t in &c.spots {
-                hash.eat(tile(t));
+            for v in c.room {
+                hash.eat(u64::from(v));
             }
-            hash.eat(u64::from(c.next));
-            hash.eat(c.move_at);
+            hash.eat(tile(c.post));
             hash.eat(c.left);
         }
     }
@@ -1037,11 +1036,11 @@ fn eat_objective(hash: &mut Fnv, o: &crate::objective::Objective) {
             hash.eat(u64::from(v.office.1));
             hash.eat(u64::from(v.airlock));
             hash.eat(u64::from(v.phase.code()));
+            hash.eat(v.next_wave);
             hash.eat(
                 v.away
                     .map_or(u64::MAX, |(x, y)| u64::from(x) << 32 | u64::from(y)),
             );
-            hash.eat(v.next_wave);
         }
         Objective::Heist(h) => {
             hash.eat(0x_4845_4953);

@@ -1564,6 +1564,9 @@ impl World {
         self.evacuation_step(&mut events);
         //    And Bomb disposal, Hold the doors, Protect the commander.
         self.guard_step(&mut events);
+        //    And the commander of either held at his post (the crew's
+        //    room told it as his objective).
+        self.say_the_commander_s_post();
         //    And an Area defend's FOB said to both rooms: the sandbags,
         //    and where each body makes for (October 2026).
         self.say_the_fob();

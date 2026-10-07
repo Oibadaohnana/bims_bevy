@@ -147,6 +147,7 @@ pub fn feature_of(mission: Mission) -> Option<Feature> {
         Mission::FuelRun => Some(Feature::FuelRun),
         Mission::Salvage => Some(Feature::Cargo),
         Mission::Doors => Some(Feature::Vault),
+        Mission::Chief => Some(Feature::Command),
         _ => None,
     }
 }
@@ -373,9 +374,9 @@ impl World {
                     airlock,
                     phase: OverseerPhase::Office,
                     next_wave: now + data::OVERSEER_WAVE_STEPS,
+                    away: None,
                 })
             }
-                    away: None,
             Mission::Heist => {
                 let n = data::HEIST_TERMINALS as usize;
                 let mut terminals: Vec<(u32, u32)> = (0..n)
@@ -893,9 +894,9 @@ impl World {
         let alive = room.is_alive(who) && !room.is_down(who) && !room.is_gone(who);
         let share = room.health(who) / room.max_health(who).max(1.0);
         let pos = room.body_pos(who);
+        let here = residents.aboard.to_design(pos);
         let station = self.station(id).cloned();
         let exit = station.as_ref().and_then(|s| {
-        let here = residents.aboard.to_design(pos);
             let port = *droidplan::airlocks(&s.design).get(o.airlock as usize)?;
             let inside = dvec2(port.centre.0, port.centre.1).sub(
                 dvec2(port.outward.0 as f64, port.outward.1 as f64)
@@ -980,8 +981,6 @@ impl World {
         self.set_objective(id, Objective::Overseer(o));
     }
 
-    fn heist_step(&mut self, id: u32, mut h: Heist, events: &mut Vec<WorldEvent>) {
-        for i in 0..h.terminals.len() {
     /// Where the Overseer at `at` (a design point of the site) runs to
     /// from the crew: with one of them up within
     /// [`data::OVERSEER_SHY_TILES`] of him, the tile within
@@ -1047,6 +1046,8 @@ impl World {
         Some((best.0.0 as u32, best.0.1 as u32))
     }
 
+    fn heist_step(&mut self, id: u32, mut h: Heist, events: &mut Vec<WorldEvent>) {
+        for i in 0..h.terminals.len() {
             if h.taken[i] {
                 continue;
             }

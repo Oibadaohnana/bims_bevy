@@ -210,16 +210,15 @@ pub struct Doors {
     pub soldiers_at: u64,
 }
 
-/// **Protect the commander**: the commander by crew index, the spots of
-/// his round (design tiles), which he walks to next and when, and the
-/// steps he has still to be kept alive.
+/// **Protect the commander**: the commander by crew index, his room's
+/// deck (design tiles, inclusive) and the tile in it he holds the whole
+/// fight, and the steps he has still to be kept alive.
 #[derive(Clone, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Chief {
     pub vip: u32,
-    pub spots: Vec<(u32, u32)>,
-    pub next: u32,
-    pub move_at: u64,
+    pub room: [u32; 4],
+    pub post: (u32, u32),
     pub left: u64,
 }
 

@@ -769,7 +769,7 @@ impl Block {
         Block { x0, y0, x1, y1 }
     }
 
-    fn contains(&self, x: i32, y: i32) -> bool {
+    pub(crate) fn contains(&self, x: i32, y: i32) -> bool {
         x >= self.x0 as i32 && x <= self.x1 as i32 && y >= self.y0 as i32 && y <= self.y1 as i32
     }
 
