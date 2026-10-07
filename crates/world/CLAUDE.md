@@ -8444,3 +8444,38 @@ many and at what tier, the floor's length, the defenders, the elites.
 `tests_tier_two`, `tests_elite`, `tests_floor`, `tests_manufacturer`,
 `tests_site_xp`, `tests_relic` and the rest that fight are the rule;
 `SURVIVORS`, `REFERENCE_CHECKSUM` and the ship's `PINNED` move.
+
+## Ascensions (October 2026)
+
+`crate::ascension` is the rule: a run's level past the game as it
+plays, nought to `ascension::MOST` (5), each holding every one under it.
+`World::ascension` (saved, serde default, **not hashed** — what it
+decides is) is set by `World::set_ascension`, the game setup's pick dealt
+at Start (`SettingsWire::ascension`, `designer::build_run`); it lays the
+floor again when the floor is on.
+
+- **1, Swarming Elites**: `lay_floor` gives each fight's place past
+  area 0 `ascension::ELITE_CHANCE` (20) in a hundred of going to the
+  nearest elite system still free (`Candidate::elite`, a roll of its own
+  off the floor's seed and the place, `ELITE_SALT`) — so level nought
+  lays the floor it always did. The elite is still the stateless star
+  roll, so the traders, the Manufacturers and the outposts never move.
+  A galaxy has some twenty elite systems, so the floor runs out first:
+  the default seed's goes from seven elites of 76 fights to thirteen.
+- **2, Tougher Enemies**: `enemy_health_factor` adds
+  `ascension::enemy_health` (+10) to the relics' `EnemyHealth`, so every
+  machine, garrison and Manufacturer laid has it.
+- **3, Aua Making Enemies**: `skill_of` multiplies every crew member's
+  `damage_taken` by +10% (`ascension::enemy_damage`).
+- **4, More Enemies**: `World::scaling` is `ascension::scale` over the
+  difficulty or the file — every area's growth turned up by one share
+  so a player brings `HEART_ENEMIES` (10) per cent more on the Heart's
+  day, day one as it was (no growth at all: the count itself).
+  `wave_scaling()` stays the file's own.
+- **5, One More**: `scale` puts `EXTRA_WAVES` (1) on every area's waves.
+
+`relic::Profile::ascension` (serde default) is the highest opened;
+`Profile::record_win(at)` opens `at + 1`, never past `MOST` and never
+closing one. The app's setup picks up to it (`profile::ascension_open`)
+and starts on it. `tests_ascension.rs` and `ascension::tests` are the
+rule. **`SAVE_VERSION` 122.**

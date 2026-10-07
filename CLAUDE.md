@@ -87,9 +87,13 @@ desktop):
   read again whenever saved while the game runs
   (`crates/app/src/wavecfg.rs`). Keep `rewards.ron` at the constants —
   its test says so. `scaling.ron` is the player's: the game setup's
-  Difficulty shows every dial, and *Save as default* writes them into
+  Scaling tab shows every dial, and *Save as default* writes them into
   it (only it has to parse). A smoke run that presses that button wants `BIMS_SCALING`
-  pointed at a scratch copy.
+  pointed at a scratch copy. **Ascensions** (`world::ascension`, 0–5,
+  each on top of the ones under it) are picked on the setup's Crew tab
+  and laid over the scaling for the run; a win opens the next in
+  `profile.ron` (`BIMS_PROFILE_DIR` for a scratch one, `BIMS_ASCENSION=n`
+  opens and picks `n` for a look).
   `audio.ron` (`BIMS_AUDIO`) is the player's volume for each sound, a
   multiple of `sound.rs`'s level — one a clip, plus the weapons that
   borrow a clip; also read again when saved. A new `Clip` wants its line

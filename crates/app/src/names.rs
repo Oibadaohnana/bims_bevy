@@ -573,7 +573,6 @@ pub const SOMEBODY_LEFT: &str = "Somebody left.";
 /// The setup's difficulty: every dial of the wave formula the host picks
 /// for the run (`world::droid::Difficulty`, task 147), their notes, and
 /// the button that puts them back to the tuning file's (`scaling.ron`).
-pub const DIFFICULTY: &str = "Difficulty";
 pub const DIFFICULTY_NOTE: &str = "• The run is four areas, each so many days (a day a row)\n• A wave: (per player + every day's growth so far) × players, + per bot × bots\n• Area 0: Manufacturers only, pistols to full gear\n• Tier 1: machines 0% to 100% by tier 2's door\n• Tier 2 / 3: every enemy that tier from the area's first day, ramping from halfway through the area before";
 pub const WAVE_PER_PLAYER: &str = "Enemies per player";
 pub const WAVE_PER_PLAYER_NOTE: &str = "On day 1, for each player";
@@ -638,29 +637,78 @@ pub fn first_wave_line(machines: u32, players: u32) -> String {
     let m = if machines == 1 { "enemy" } else { "enemies" };
     format!("The first wave: {machines} {m} for {who}")
 }
+/// The setup's ascensions (October 2026, `world::ascension`): a name and
+/// what it adds, nought to `ascension::MOST`, each on top of the ones
+/// under it.
+pub const ASCENSION: &str = "Ascension";
+pub const ASCENSION_NAMES: [&str; 6] = [
+    "Standard",
+    "Swarming Elites",
+    "Tougher Enemies",
+    "Aua Making Enemies",
+    "More Enemies",
+    "One More",
+];
+/// What each ascension adds, in a line.
+pub fn ascension_line(level: u32) -> String {
+    use world::ascension as a;
+    match level {
+        0 => "The run as it plays".into(),
+        1 => format!("+{}% chance of an elite fight on the map", a::ELITE_CHANCE),
+        2 => format!("Enemies have +{}% hit points", a::ENEMY_HEALTH),
+        3 => format!("Enemies deal +{}% damage", a::ENEMY_DAMAGE),
+        4 => format!("+{}% enemies at the Heart", a::HEART_ENEMIES),
+        _ => format!("+{} wave every mission", a::EXTRA_WAVES),
+    }
+}
+pub fn ascension_name(level: u32) -> &'static str {
+    ASCENSION_NAMES
+        .get(level as usize)
+        .copied()
+        .unwrap_or(ASCENSION_NAMES[ASCENSION_NAMES.len() - 1])
+}
+/// A level not opened yet, and what opens it.
+pub fn ascension_locked(level: u32) -> String {
+    format!(
+        "Win a run at ascension {} to open it",
+        level.saturating_sub(1)
+    )
+}
+/// The victory screen's line when a win opened the next ascension.
+pub fn ascension_opened(level: u32) -> String {
+    format!("Ascension {level} unlocked: {}", ascension_name(level))
+}
+/// The setup's two tabs: the crew and the run, and the wave formula's
+/// dials (`scaling.ron`).
+pub const SETUP_TAB_CREW: &str = "Crew";
+pub const SETUP_TAB_SCALING: &str = "Scaling";
+pub const SETUP_TITLE: &str = "New run";
+pub const LOBBY_TITLE: &str = "Lobby";
+/// The setup's money choice.
+pub const MONEY_PER_BIM: &str = "Starting money";
+pub const MONEY_PER_BIM_TIP: &str = "• Each Bim's share
+• All of it one pool";
 /// The setup's auto-shoot (October 2026): each player's own, beside the
 /// keys and the trigger, never instead of them.
 pub const AUTO_SHOOT: &str = "Auto shoot";
-pub const AUTO_SHOOT_NOTE: &str = "Your Bim fires at the nearest enemy in reach, or the one you click; WASD and the left button work as ever";
+pub const AUTO_SHOOT_NOTE: &str = "• Fires at the nearest enemy in reach, or the one you click\n• WASD and the left button work as ever";
 pub const AUTO_SHOOT_OFF: &str = "You aim and fire";
 pub const AUTO_SHOOT_ON: &str = "It fires by itself";
 /// The setup's name field: what the player calls their crew member.
 pub const BIM_NAME: &str = "Your Bim";
-pub const BIM_NAME_NOTE: &str = "What your crew member is called; blank keeps the crew's own name";
+pub const BIM_NAME_NOTE: &str = "• Your crew member's name\n• Blank: the crew's own";
 /// The field's hint, and what the lobby's roster prints for a Bim not
 /// yet named: the crew's own name for that berth.
 pub const BIM_NAME_HINT: &str = "a name";
 /// The setup's hair chooser: the row's title and its note, and the name
 /// of every style and every colour, in `bims::character::Hair::ALL`'s and
 /// `Shade::ALL`'s order (feature 62).
-pub const BIM_HAIR: &str = "Hair";
-pub const BIM_HAIR_NOTE: &str = "How your crew member wears it, and its colour";
+pub const BIM_HAIR_NOTE: &str = "Hair";
 /// And the colour chooser (feature 84): the ring on the deck that says
 /// which of the crew is yours. One a player, so a colour somebody else
 /// in the lobby has taken is not offered.
 pub const BIM_TINT: &str = "Your colour";
-pub const BIM_TINT_NOTE: &str =
-    "The ring on the deck under your own crew member. The crew nobody steers have none.";
+pub const BIM_TINT_NOTE: &str = "• The ring under your own crew member on the deck";
 pub const BIM_TINT_TAKEN: &str = "taken";
 /// The class chooser (features 74 and 75): a name a `world::Class`, in
 /// `Class::ALL`'s order, with a line each saying what it does.
@@ -2363,8 +2411,13 @@ pub fn floor_place_day(day: u32, tier: u32) -> String {
     format!("Day {day} · tier {}", crate::format::roman(tier))
 }
 /// How far up the floor the crew are.
-pub fn floor_progress(day: u32, heart: u32) -> String {
-    format!("Day {day} of {heart} — the Machine Heart on day {heart}")
+pub fn floor_progress(day: u32, heart: u32, ascension: u32) -> String {
+    let line = format!("Day {day} of {heart} — the Machine Heart on day {heart}");
+    if ascension == 0 {
+        line
+    } else {
+        format!("Ascension {ascension} · {line}")
+    }
 }
 pub const FLOOR_FOCUS: &str = "Back to where you are";
 pub const FLOOR_FOCUS_TIP: &str = "Scroll to your row";
@@ -3547,6 +3600,14 @@ mod tests {
         assert!(HEALTH_TIP.contains("30 s") && HEALTH_TIP.contains("10 s (medic 4 s)"));
         assert!(HEALTH_TIP.contains("20 HP") && CRITICAL_TIP.contains("20 HP"));
         assert_eq!(downed_short(29.2), "DOWNED — dies in 30 s");
+    }
+
+    #[test]
+    fn every_ascension_has_a_name() {
+        assert_eq!(ASCENSION_NAMES.len() as u32, world::ascension::MOST + 1);
+        for level in 0..=world::ascension::MOST {
+            assert!(!ascension_line(level).is_empty());
+        }
     }
 
     #[test]

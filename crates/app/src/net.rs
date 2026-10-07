@@ -420,6 +420,8 @@ pub struct SettingsWire {
     pub end: bool,
     /// The world clock's day the `end` run opens on (`dev::end_day`).
     pub end_day: u32,
+    /// The run's ascension as the host picked it (`world::ascension`).
+    pub ascension: u32,
 }
 
 impl SettingsWire {
@@ -436,6 +438,7 @@ impl SettingsWire {
             weapons: settings.weapons,
             end: settings.end,
             end_day: settings.end_day,
+            ascension: settings.ascension,
         }
     }
 
@@ -454,6 +457,7 @@ impl SettingsWire {
         settings.weapons = self.weapons;
         settings.end = self.end;
         settings.end_day = self.end_day;
+        settings.ascension = self.ascension;
     }
 }
 

@@ -562,6 +562,11 @@ pub struct Profile {
     pub classes: Vec<u32>,
     /// Runs won.
     pub wins: u32,
+    /// The highest ascension opened (`crate::ascension`): nought for a new
+    /// player, one more for every run won at the highest
+    /// ([`Profile::record_win`]).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub ascension: u32,
 }
 
 impl Default for Profile {
@@ -580,6 +585,7 @@ impl Profile {
                 .map(Class::code)
                 .collect(),
             wins: 0,
+            ascension: 0,
         }
     }
 
@@ -593,6 +599,14 @@ impl Profile {
         if won {
             self.wins = self.wins.saturating_add(1);
         }
+    }
+
+    /// A run won at ascension `at`: the win counted, and the ascension
+    /// above it opened (never past `ascension::MOST`, never closing one).
+    pub fn record_win(&mut self, at: u32) {
+        self.record_run(true);
+        let next = at.saturating_add(1).min(crate::ascension::MOST);
+        self.ascension = self.ascension.max(next);
     }
 }
 

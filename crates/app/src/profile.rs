@@ -62,14 +62,27 @@ pub fn save(profile: &Profile) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-/// A run won, on this machine: counted in this player's profile. A
-/// profile that cannot be written is said on the terminal.
-pub fn record_win() {
+/// A run won at ascension `at`, on this machine: counted in this
+/// player's profile, the next ascension opened. The ascension it opened,
+/// if it opened one. A profile that cannot be written is said on the
+/// terminal.
+pub fn record_win(at: u32) -> Option<u32> {
     let mut profile = load();
-    profile.record_run(true);
+    let was = profile.ascension;
+    profile.record_win(at);
     if let Err(why) = save(&profile) {
         eprintln!("profile: not written: {why}");
     }
+    (profile.ascension > was).then_some(profile.ascension)
+}
+
+/// The highest ascension this machine's profile has opened —
+/// `BIMS_ASCENSION` (`dev::ascension`) over it, for a look at one.
+pub fn ascension_open() -> u32 {
+    let open = load().ascension;
+    crate::dev::ascension()
+        .map_or(open, |a| a.max(open))
+        .min(world::ascension::MOST)
 }
 
 /// What the host's profile opened for this run: the classes that may be
@@ -98,11 +111,13 @@ impl RunUnlocks {
     }
 }
 
-/// A run won and written into this machine's profile. Present once the
-/// end screen has recorded the win, which is what keeps it to once a win;
-/// taken away when a run opens.
+/// A run won and written into this machine's profile, with the ascension
+/// it opened, if any. Present once the end screen has recorded the win,
+/// which is what keeps it to once a win; taken away when a run opens.
 #[derive(Resource, Clone, Copy, Debug, Default)]
-pub struct Victory;
+pub struct Victory {
+    pub opened: Option<u32>,
+}
 
 impl Default for RunUnlocks {
     fn default() -> RunUnlocks {

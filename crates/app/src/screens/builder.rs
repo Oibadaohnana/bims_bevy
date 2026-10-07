@@ -185,6 +185,13 @@ pub struct Settings {
     /// own choice and nobody else's: it never crosses the wire, and the
     /// room is told only the aim and the trigger a click would tell it.
     pub auto_shoot: bool,
+    /// The run's ascension (`world::ascension`), the host's to pick and
+    /// dealt with the rest.
+    pub ascension: u32,
+    /// The highest ascension this machine's profile has opened
+    /// (`profile::ascension_open`): how far the picker goes. Never
+    /// crosses the wire — a guest only watches the host's pick.
+    pub ascension_open: u32,
 }
 
 impl Default for Settings {
@@ -208,6 +215,8 @@ impl Default for Settings {
             end: false,
             end_day: crate::dev::end_day(),
             auto_shoot: crate::dev::auto_shoot(),
+            ascension: crate::profile::ascension_open(),
+            ascension_open: crate::profile::ascension_open(),
         }
     }
 }
@@ -328,6 +337,16 @@ pub struct BuilderScreen {
     file_scaling: WaveScaling,
     /// What Save as default said, for a few seconds under the difficulty.
     difficulty_note: Option<Remark>,
+    /// Which of the setup's two tabs is up.
+    tab: SetupTab,
+}
+
+/// The setup's tabs: the crew and the run, and the wave formula's dials.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+enum SetupTab {
+    #[default]
+    Crew,
+    Scaling,
 }
 
 pub struct BuilderPlugin;
@@ -387,6 +406,7 @@ fn open(mut commands: Commands, mut settings: ResMut<Settings>) {
         sheet: None,
         file_scaling: WaveScaling::DEFAULT,
         difficulty_note: None,
+        tab: SetupTab::Crew,
     };
     roll_start(&mut screen, &mut settings);
     commands.insert_resource(screen);
@@ -816,7 +836,9 @@ fn frame(
             // The cockpit behind it, moving; the bars and the settings'
             // card see-through over it.
             super::backdrop::paint(&ctx, &backdrops, Backdrop::Setup);
-            let bar = egui::Frame::side_top_panel(&ctx.global_style()).fill(SETUP_BAR);
+            let bar = egui::Frame::side_top_panel(&ctx.global_style())
+                .fill(SETUP_BAR)
+                .inner_margin(egui::Margin::symmetric(12, 8));
             egui::Panel::top("setup-head")
                 .frame(bar)
                 .show(&mut root, |ui| {
@@ -824,10 +846,8 @@ fn frame(
                         if ui.button("< Back").clicked() {
                             go = Some(Screen::Menu);
                         }
-                        ui.heading("Game setup");
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(egui::RichText::new("One crew, no lobby").color(theme::MUTED));
-                        });
+                        ui.add_space(8.0);
+                        ui.label(title_text(SETUP_TITLE));
                     });
                 });
             egui::Panel::bottom("setup-foot")
@@ -835,9 +855,14 @@ fn frame(
                 .show(&mut root, |ui| {
                     ui.horizontal(|ui| {
                         let why = start_refusal(settings);
-                        ui.label(egui::RichText::new(why.unwrap_or("")).color(theme::CAUTION));
+                        match why {
+                            Some(why) => {
+                                ui.label(egui::RichText::new(why).color(theme::CAUTION));
+                            }
+                            None => run_summary(ui, screen, settings),
+                        }
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if theme::big(ui, "Start", why.is_none()).clicked() {
+                            if start_button(ui, why.is_none()).clicked() {
                                 start = true;
                             }
                         });
@@ -862,7 +887,7 @@ fn frame(
                         online.leave();
                         go = Some(Screen::Menu);
                     }
-                    ui.heading("Lobby");
+                    ui.label(title_text(LOBBY_TITLE));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("Copy").clicked()
                             && let Some(code) = &online.code
@@ -1077,8 +1102,110 @@ fn lobby_start_refusal(settings: &Settings, online: &Online) -> Option<&'static 
     start_refusal(settings)
 }
 
-/// The settings tool: one tabbed panel, shown on its own for a solo game
-/// and inside the lobby. Both write to the same `Settings`.
+/// The setup's gold: the ascension picked, the Start button, a section's
+/// mark — the tier-three colour, so the screen's one warm accent is the
+/// one the run climbs to.
+const GOLD: egui::Color32 = theme::TIER_THREE;
+/// A section of the setup's crew page: a card a shade lighter than the
+/// page, so the page reads as panels and not one list.
+const SECTION_FILL: egui::Color32 = egui::Color32::from_rgba_premultiplied(26, 28, 31, 235);
+/// Under this width the crew page's two columns stack.
+const TWO_COLUMNS_FROM: f32 = 660.0;
+
+/// A screen's title along its top bar: big, spaced, upper case.
+fn title_text(text: &str) -> egui::RichText {
+    egui::RichText::new(text.to_uppercase())
+        .size(22.0)
+        .strong()
+        .extra_letter_spacing(3.0)
+        .color(theme::INK)
+}
+
+/// The setup's Start: gold, and bigger than anything else on the screen.
+fn start_button(ui: &mut egui::Ui, enabled: bool) -> egui::Response {
+    let text = egui::RichText::new("START")
+        .size(20.0)
+        .strong()
+        .extra_letter_spacing(2.0)
+        .color(if enabled {
+            theme::PANEL_DEEP
+        } else {
+            theme::MUTED
+        });
+    let button = egui::Button::new(text).min_size(egui::vec2(170.0, 40.0));
+    let button = if enabled { button.fill(GOLD) } else { button };
+    ui.add_enabled(enabled, button)
+}
+
+/// The footer's line beside Start: the class, the ascension and the
+/// money the run sets out with.
+fn run_summary(ui: &mut egui::Ui, screen: &BuilderScreen, settings: &Settings) {
+    ui.spacing_mut().item_spacing.x = 14.0;
+    ui.label(
+        egui::RichText::new(class_name(screen.bim_class))
+            .size(16.0)
+            .strong()
+            .color(class_colour(screen.bim_class)),
+    );
+    ui.label(
+        egui::RichText::new(format!(
+            "{ASCENSION} {} · {}",
+            settings.ascension,
+            ascension_name(settings.ascension)
+        ))
+        .size(16.0)
+        .color(if settings.ascension > 0 {
+            GOLD
+        } else {
+            theme::MUTED
+        }),
+    );
+    ui.label(
+        egui::RichText::new(euros(settings.money_per_bim))
+            .size(16.0)
+            .color(theme::MONEY),
+    );
+}
+
+/// A section's title: small, upper case, spaced, with a gold tick before
+/// it.
+fn section_title(ui: &mut egui::Ui, text: &str) -> egui::Response {
+    ui.horizontal(|ui| {
+        let (mark, _) = ui.allocate_exact_size(egui::vec2(3.0, 14.0), egui::Sense::hover());
+        ui.painter().rect_filled(mark, 1.0, GOLD);
+        ui.label(
+            egui::RichText::new(text.to_uppercase())
+                .size(13.0)
+                .strong()
+                .extra_letter_spacing(1.5)
+                .color(theme::ACCENT),
+        )
+    })
+    .inner
+}
+
+/// A card of the crew page, its title along the top.
+fn section(ui: &mut egui::Ui, title: &str, tip: Option<&str>, body: impl FnOnce(&mut egui::Ui)) {
+    egui::Frame::new()
+        .fill(SECTION_FILL)
+        .stroke(egui::Stroke::new(1.0, theme::LINE))
+        .corner_radius(8.0)
+        .inner_margin(12.0)
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            let title = section_title(ui, title);
+            if let Some(tip) = tip {
+                title.on_hover_text(tip);
+            }
+            ui.add_space(6.0);
+            body(ui);
+        });
+    ui.add_space(8.0);
+}
+
+/// The settings tool: two tabs — the crew and the run, and the wave
+/// formula's dials — shown on its own for a solo game and inside the
+/// lobby. Both write to the same `Settings`.
 fn tool(
     ui: &mut egui::Ui,
     screen: &mut BuilderScreen,
@@ -1087,104 +1214,152 @@ fn tool(
     editable: bool,
     now: f64,
 ) {
-    ui.label(egui::RichText::new("Game setup").strong().size(16.0));
-    ui.separator();
-    // The setup's rows run past a short window's foot, so they scroll.
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 22.0;
+        for (tab, name) in [
+            (SetupTab::Crew, SETUP_TAB_CREW),
+            (SetupTab::Scaling, SETUP_TAB_SCALING),
+        ] {
+            if tab_button(ui, name, screen.tab == tab).clicked() {
+                screen.tab = tab;
+            }
+        }
+    });
+    let line = ui.available_rect_before_wrap();
+    ui.painter().hline(
+        line.x_range(),
+        line.top(),
+        egui::Stroke::new(1.0, theme::LINE),
+    );
+    ui.add_space(10.0);
+    // The rows run past a short window's foot, so they scroll.
     egui::ScrollArea::vertical()
         .id_salt("setup-rows")
         .auto_shrink([false, false])
-        .show(ui, |ui| {
-            setup_rows(ui, screen, settings, online, editable, now)
+        .show(ui, |ui| match screen.tab {
+            SetupTab::Crew => crew_page(ui, screen, settings, online, editable),
+            SetupTab::Scaling => {
+                let players = (online.peers.len() as u32).max(1);
+                difficulty_rows(
+                    ui,
+                    settings,
+                    screen.file_scaling,
+                    players,
+                    editable,
+                    &mut screen.difficulty_note,
+                    now,
+                );
+            }
         });
     screen.net.push(online, settings, false);
 }
 
-/// The Game setup tab's rows: the money, the difficulty, the auto-shoot,
-/// and this player's own Bim — its name, hair, tint and class.
-fn setup_rows(
+/// One of the setup's tabs: its name, lit and underlined in gold while it
+/// is up.
+fn tab_button(ui: &mut egui::Ui, name: &str, on: bool) -> egui::Response {
+    let colour = if on { theme::INK } else { theme::MUTED };
+    let galley = ui.painter().layout_no_wrap(
+        name.to_uppercase(),
+        egui::FontId::proportional(17.0),
+        colour,
+    );
+    let size = galley.size() + egui::vec2(4.0, 10.0);
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    let colour = if response.hovered() && !on {
+        theme::ACCENT
+    } else {
+        colour
+    };
+    ui.painter()
+        .galley(rect.min + egui::vec2(2.0, 2.0), galley, colour);
+    if on {
+        let bar = egui::Rect::from_min_max(
+            egui::pos2(rect.left(), rect.bottom() - 3.0),
+            rect.right_bottom(),
+        );
+        ui.painter().rect_filled(bar, 1.0, GOLD);
+    }
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// The Crew tab: the player's own Bim on the left — how it looks, what it
+/// is called, its class — and the run on the right: the ascension, the
+/// money, the auto-shoot. One column under each other where the card is
+/// narrow.
+fn crew_page(
     ui: &mut egui::Ui,
     screen: &mut BuilderScreen,
     settings: &mut Settings,
     online: &Online,
     editable: bool,
-    now: f64,
 ) {
-    choice_row(
-        ui,
-        "Money per Bim",
-        "What each of you brings; it all goes into one pool",
-        editable,
-        &MONEY.map(|(label, amount)| (label, euros(amount), amount)),
-        &mut settings.money_per_bim,
-    );
-    let players = (online.peers.len() as u32).max(1);
-    difficulty_rows(
-        ui,
-        settings,
-        screen.file_scaling,
-        players,
-        editable,
-        &mut screen.difficulty_note,
-        now,
-    );
-    // Auto-shoot: everybody's own, host or guest, like the name.
-    choice_row(
-        ui,
-        AUTO_SHOOT,
-        AUTO_SHOOT_NOTE,
-        true,
-        &[
-            ("Off", AUTO_SHOOT_OFF.to_string(), false),
-            ("On", AUTO_SHOOT_ON.to_string(), true),
-        ],
-        &mut settings.auto_shoot,
-    );
-    // The player's own crew member's name: everybody's to type,
-    // host or guest, since each names their own.
-    ui.add_space(6.0);
-    ui.label(egui::RichText::new(BIM_NAME).strong());
-    ui.label(
-        egui::RichText::new(BIM_NAME_NOTE)
-            .small()
-            .color(theme::MUTED),
-    );
-    ui.add(
-        egui::TextEdit::singleline(&mut screen.bim_name)
-            .char_limit(wire::MAX_NAME)
-            .hint_text(BIM_NAME_HINT)
-            .desired_width(180.0),
-    );
-    hair_chooser(ui, screen);
-    tint_chooser(ui, screen, &online.tints_taken());
-    class_chooser(ui, screen, &settings.unlocks);
+    let bim = |ui: &mut egui::Ui, screen: &mut BuilderScreen, settings: &mut Settings| {
+        section(ui, BIM_NAME, None, |ui| {
+            bim_card(ui, screen, &online.tints_taken());
+        });
+        section(ui, BIM_CLASS, Some(BIM_CLASS_NOTE), |ui| {
+            class_chooser(ui, screen, &settings.unlocks);
+        });
+    };
+    let run = |ui: &mut egui::Ui, settings: &mut Settings| {
+        section(ui, ASCENSION, None, |ui| {
+            ascension_picker(ui, settings, editable);
+        });
+        section(ui, MONEY_PER_BIM, Some(MONEY_PER_BIM_TIP), |ui| {
+            choice_row(
+                ui,
+                editable,
+                &MONEY.map(|(label, amount)| (label, euros(amount), amount)),
+                &mut settings.money_per_bim,
+            );
+        });
+        // Auto-shoot: everybody's own, host or guest, like the name.
+        section(ui, AUTO_SHOOT, Some(AUTO_SHOOT_NOTE), |ui| {
+            choice_row(
+                ui,
+                true,
+                &[
+                    ("Off", AUTO_SHOOT_OFF.to_string(), false),
+                    ("On", AUTO_SHOOT_ON.to_string(), true),
+                ],
+                &mut settings.auto_shoot,
+            );
+        });
+    };
+    if ui.available_width() >= TWO_COLUMNS_FROM {
+        ui.columns(2, |columns| {
+            let (left, right) = columns.split_at_mut(1);
+            bim(&mut left[0], screen, settings);
+            run(&mut right[0], settings);
+        });
+    } else {
+        bim(ui, screen, settings);
+        run(ui, settings);
+    }
 }
 
 /// How big the chooser's portrait is, in points a side, and how far the
 /// figure is zoomed: a body is some ninety units across at the room's
-/// scale, so nine tenths fills the box with it, hair and all.
-const PORTRAIT_SIDE: f32 = 96.0;
-const PORTRAIT_ZOOM: f32 = 0.9;
+/// scale, and the room draws it at a fraction of that here, so the zoom
+/// is what fills the box with it, hair and all.
+const PORTRAIT_SIDE: f32 = 120.0;
+const PORTRAIT_ZOOM: f32 = 1.8 * PORTRAIT_SIDE / 96.0;
 
-/// The hair chooser (feature 62): the figure as it will stand on the
-/// deck, a button a style and a swatch a colour, everybody's to pick like
-/// the name. The portrait is the room's own drawing of the Bim
-/// (`character::portrait`), facing up the screen, so what is chosen is
-/// what is seen — in the class's own kit (feature 81), since the class
-/// chosen below it is worn on the deck.
-fn hair_chooser(ui: &mut egui::Ui, screen: &mut BuilderScreen) {
-    ui.add_space(6.0);
-    ui.label(egui::RichText::new(BIM_HAIR).strong());
-    ui.label(
-        egui::RichText::new(BIM_HAIR_NOTE)
-            .small()
-            .color(theme::MUTED),
-    );
+/// The player's Bim (features 62 and 84): the figure as it will stand on
+/// the deck beside its name, its hair's style and colour, and the colour
+/// of the ring under it — everybody's to pick. The portrait is the room's
+/// own drawing of the Bim (`character::portrait`), facing up the screen,
+/// so what is chosen is what is seen — in the class's own kit (feature
+/// 81), since the class chosen below it is worn on the deck. A colour
+/// another player in the lobby has taken is greyed and dead: a colour is
+/// one player's.
+fn bim_card(ui: &mut egui::Ui, screen: &mut BuilderScreen, taken: &[Tint]) {
     ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(
             egui::vec2(PORTRAIT_SIDE, PORTRAIT_SIDE),
             egui::Sense::hover(),
         );
-        ui.painter().rect_filled(rect, 4.0, theme::RAISED);
+        ui.painter().rect_filled(rect, 8.0, theme::PANEL_DEEP);
         let (hair, shade) = screen.bim_hair;
         screen.portrait.clear();
         bims::character::portrait(
@@ -1192,6 +1367,14 @@ fn hair_chooser(ui: &mut egui::Ui, screen: &mut BuilderScreen) {
             screen.bim_class.outfit(),
             -std::f32::consts::FRAC_PI_2,
             &mut screen.portrait,
+        );
+        // The ring it will stand in on the deck, under the figure.
+        let (r, g, b) = screen.bim_tint.rgb();
+        let ring = egui::Color32::from_rgb((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8);
+        ui.painter().circle_stroke(
+            rect.center(),
+            PORTRAIT_SIDE * 0.36,
+            egui::Stroke::new(2.0, ring.gamma_multiply(0.8)),
         );
         paint_shapes(
             ui.painter(),
@@ -1205,27 +1388,42 @@ fn hair_chooser(ui: &mut egui::Ui, screen: &mut BuilderScreen) {
         );
         ui.painter().rect_stroke(
             rect,
-            4.0,
-            egui::Stroke::new(1.0, theme::LINE),
+            8.0,
+            egui::Stroke::new(1.0, class_colour(screen.bim_class).gamma_multiply(0.7)),
             egui::StrokeKind::Outside,
         );
+        ui.add_space(6.0);
         ui.vertical(|ui| {
-            // The styles, four to a row.
-            for row in Hair::ALL.chunks(4) {
-                ui.horizontal(|ui| {
-                    for &style in row {
-                        let on = style == hair;
-                        let b =
-                            egui::Button::new(hair_name(style)).min_size(egui::vec2(76.0, 22.0));
-                        let b = if on { b.fill(theme::RAISED_ON) } else { b };
-                        if ui.add(b).clicked() {
-                            screen.bim_hair.0 = style;
-                        }
+            ui.add(
+                egui::TextEdit::singleline(&mut screen.bim_name)
+                    .char_limit(wire::MAX_NAME)
+                    .hint_text(BIM_NAME_HINT)
+                    .font(egui::FontId::proportional(17.0))
+                    .desired_width(ui.available_width().min(220.0)),
+            )
+            .on_hover_text(BIM_NAME_NOTE);
+            ui.add_space(4.0);
+            // The styles, a wrapping row of small buttons.
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
+                for &style in &Hair::ALL {
+                    let b = egui::Button::new(egui::RichText::new(hair_name(style)).small())
+                        .min_size(egui::vec2(58.0, 20.0));
+                    let b = if style == hair {
+                        b.fill(theme::RAISED_ON)
+                    } else {
+                        b
+                    };
+                    if ui.add(b).on_hover_text(BIM_HAIR_NOTE).clicked() {
+                        screen.bim_hair.0 = style;
                     }
-                });
-            }
-            // The colours: a swatch each, the picked one ringed.
-            ui.horizontal(|ui| {
+                }
+            });
+            ui.add_space(2.0);
+            // The hair's colours: a square swatch each, the picked one
+            // ringed.
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
                 for &tone in &Shade::ALL {
                     let (r, g, b) = tone.rgb();
                     let colour = egui::Color32::from_rgb(
@@ -1234,109 +1432,147 @@ fn hair_chooser(ui: &mut egui::Ui, screen: &mut BuilderScreen) {
                         (b * 255.0) as u8,
                     );
                     let (swatch, response) =
-                        ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::click());
+                        ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::click());
                     ui.painter().rect_filled(swatch, 3.0, colour);
+                    ui.painter().rect_stroke(
+                        swatch,
+                        3.0,
+                        egui::Stroke::new(1.0, theme::LINE),
+                        egui::StrokeKind::Inside,
+                    );
                     if tone == shade {
                         ui.painter().rect_stroke(
                             swatch,
                             3.0,
-                            egui::Stroke::new(2.0, theme::ACCENT),
+                            egui::Stroke::new(2.0, theme::INK),
                             egui::StrokeKind::Outside,
                         );
                     }
-                    if response.clicked() {
+                    if response.on_hover_text(shade_name(tone)).clicked() {
                         screen.bim_hair.1 = tone;
                     }
                 }
-                ui.label(egui::RichText::new(shade_name(shade)).color(theme::MUTED));
+            });
+            ui.add_space(2.0);
+            // The ring's colours: a round swatch each.
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
+                for &tint in &Tint::ALL {
+                    let gone = taken.contains(&tint);
+                    let (r, g, b) = tint.rgb();
+                    let colour = egui::Color32::from_rgb(
+                        (r * 255.0) as u8,
+                        (g * 255.0) as u8,
+                        (b * 255.0) as u8,
+                    );
+                    let colour = if gone {
+                        colour.gamma_multiply(0.25)
+                    } else {
+                        colour
+                    };
+                    let (swatch, response) = ui.allocate_exact_size(
+                        egui::vec2(20.0, 20.0),
+                        if gone {
+                            egui::Sense::hover()
+                        } else {
+                            egui::Sense::click()
+                        },
+                    );
+                    ui.painter().circle_filled(swatch.center(), 8.0, colour);
+                    if tint == screen.bim_tint {
+                        ui.painter().circle_stroke(
+                            swatch.center(),
+                            9.5,
+                            egui::Stroke::new(2.0, theme::INK),
+                        );
+                    }
+                    if gone {
+                        response.on_hover_text(BIM_TINT_TAKEN);
+                    } else if response
+                        .on_hover_text(format!("{BIM_TINT}: {}\n{BIM_TINT_NOTE}", tint_name(tint)))
+                        .clicked()
+                    {
+                        screen.bim_tint = tint;
+                    }
+                }
             });
         });
     });
 }
 
-/// The colour chooser (feature 84): a swatch a colour, the picked one
-/// ringed, and one another player in the lobby has taken greyed and
-/// dead — a colour is one player's, which is what makes it worth
-/// drawing under their Bim at all. Solo there is nobody to clash with
-/// and every swatch is live.
-fn tint_chooser(ui: &mut egui::Ui, screen: &mut BuilderScreen, taken: &[Tint]) {
-    ui.add_space(6.0);
-    ui.label(egui::RichText::new(BIM_TINT).strong());
-    ui.label(
-        egui::RichText::new(BIM_TINT_NOTE)
-            .small()
-            .color(theme::MUTED),
-    );
-    ui.horizontal(|ui| {
-        for &tint in &Tint::ALL {
-            let gone = taken.contains(&tint);
-            let (r, g, b) = tint.rgb();
-            let colour =
-                egui::Color32::from_rgb((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8);
-            let colour = if gone {
-                colour.gamma_multiply(0.25)
-            } else {
-                colour
-            };
-            let (swatch, response) = ui.allocate_exact_size(
-                egui::vec2(24.0, 24.0),
-                if gone {
-                    egui::Sense::hover()
-                } else {
-                    egui::Sense::click()
-                },
-            );
-            ui.painter().circle_filled(swatch.center(), 10.0, colour);
-            if tint == screen.bim_tint {
-                ui.painter().circle_stroke(
-                    swatch.center(),
-                    11.5,
-                    egui::Stroke::new(2.0, theme::INK),
-                );
-            }
-            if gone {
-                response.on_hover_text(BIM_TINT_TAKEN);
-            } else if response.clicked() {
-                screen.bim_tint = tint;
-            }
-        }
-        ui.label(egui::RichText::new(tint_name(screen.bim_tint)).color(theme::MUTED));
-    });
+/// A class's own colour: its abilities' family (`ability_icons`), off its
+/// ultimate's picture; the muted grey for none.
+fn class_colour(class: Class) -> egui::Color32 {
+    crate::ability_icons::Glyph::of(class, 3).map_or(theme::MUTED, |g| g.colour())
 }
 
-/// The class chooser (feature 74): a button a class, everybody's to pick
-/// like the hair, with a line under it saying what the class does and
-/// what it brings to the pool. What is picked goes with the slot at
-/// Start and onto the world as it opens; playing, the crew panel's
-/// own picker changes it through `Command::SetClass` until the first
-/// undock. Only the classes the host's profile opened are offered
-/// (feature 106, `profile::RunUnlocks`), and never the classless
-/// `Class::None` (October 2026): a player always plays a class.
+/// The class chooser (feature 74): a card a class — its ultimate's
+/// picture and its name, ringed in its colour once picked — everybody's
+/// to pick like the hair, with what the class does under the row. What is
+/// picked goes with the slot at Start and onto the world as it opens;
+/// playing, the crew panel's own picker changes it through
+/// `Command::SetClass` until the first undock. Only the classes the
+/// host's profile opened are offered (feature 106,
+/// `profile::RunUnlocks`), and never the classless `Class::None`
+/// (October 2026): a player always plays a class.
 fn class_chooser(
     ui: &mut egui::Ui,
     screen: &mut BuilderScreen,
     unlocks: &crate::profile::RunUnlocks,
 ) {
-    ui.add_space(6.0);
-    ui.label(egui::RichText::new(BIM_CLASS).strong());
-    ui.label(
-        egui::RichText::new(BIM_CLASS_NOTE)
-            .small()
-            .color(theme::MUTED),
-    );
-    ui.horizontal(|ui| {
+    const CARD: egui::Vec2 = egui::vec2(74.0, 82.0);
+    const ICON: f32 = 44.0;
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
         for class in Class::ALL
             .into_iter()
             .filter(|&c| c != Class::None && unlocks.class_open(c))
         {
             let on = class == screen.bim_class;
-            let b = egui::Button::new(class_name(class)).min_size(egui::vec2(96.0, 22.0));
-            let b = if on { b.fill(theme::RAISED_ON) } else { b };
-            if ui.add(b).clicked() {
+            let colour = class_colour(class);
+            let (rect, response) = ui.allocate_exact_size(CARD, egui::Sense::click());
+            let hovered = response.hovered();
+            let fill = if on {
+                colour.gamma_multiply(0.22)
+            } else if hovered {
+                theme::RAISED_ON
+            } else {
+                theme::RAISED
+            };
+            ui.painter().rect_filled(rect, 6.0, fill);
+            ui.painter().rect_stroke(
+                rect,
+                6.0,
+                egui::Stroke::new(
+                    if on { 2.0 } else { 1.0 },
+                    if on { colour } else { theme::LINE },
+                ),
+                egui::StrokeKind::Inside,
+            );
+            if let Some(glyph) = crate::ability_icons::Glyph::of(class, 3) {
+                let icon = egui::Rect::from_center_size(
+                    egui::pos2(rect.center().x, rect.top() + 8.0 + ICON / 2.0),
+                    egui::vec2(ICON, ICON),
+                );
+                crate::ability_icons::paint(ui.painter(), icon, glyph, on || hovered, 6.0);
+            }
+            ui.painter().text(
+                egui::pos2(rect.center().x, rect.bottom() - 8.0),
+                egui::Align2::CENTER_BOTTOM,
+                class_name(class),
+                egui::FontId::proportional(12.5),
+                if on { theme::INK } else { theme::MUTED },
+            );
+            if response
+                .on_hover_text(class_tip(class))
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .clicked()
+            {
                 screen.bim_class = class;
             }
         }
     });
+    ui.add_space(6.0);
     ui.label(
         egui::RichText::new(class_tip(screen.bim_class))
             .small()
@@ -1354,9 +1590,118 @@ fn setup_class() -> Class {
     }
 }
 
-/// A row of mutually exclusive choices, each one a number written into the
-/// setting. A guest in somebody else's lobby watches the settings rather
-/// than setting them.
+/// How big an ascension's medallion is, a side.
+const MEDALLION: f32 = 46.0;
+
+/// The ascensions (October 2026, `world::ascension`): a medallion a
+/// level, nought to the highest — the ones up to the pick lit gold, since
+/// each holds every one under it, the ones the profile has not opened
+/// dark and dead — and under them what the pick adds, a line a level. A
+/// guest sees the host's pick and picks nothing.
+fn ascension_picker(ui: &mut egui::Ui, settings: &mut Settings, editable: bool) {
+    let most = world::ascension::MOST;
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
+        for level in 0..=most {
+            let locked = editable && level > settings.ascension_open;
+            let picked = level == settings.ascension;
+            let lit = level <= settings.ascension;
+            let (rect, response) = ui.allocate_exact_size(
+                egui::vec2(MEDALLION, MEDALLION),
+                if editable && !locked {
+                    egui::Sense::click()
+                } else {
+                    egui::Sense::hover()
+                },
+            );
+            let painter = ui.painter();
+            let centre = rect.center();
+            let radius = MEDALLION / 2.0 - 2.0;
+            // A diamond: the four points of the compass round the centre.
+            let diamond = |r: f32| {
+                vec![
+                    centre + egui::vec2(0.0, -r),
+                    centre + egui::vec2(r, 0.0),
+                    centre + egui::vec2(0.0, r),
+                    centre + egui::vec2(-r, 0.0),
+                ]
+            };
+            let (fill, edge, ink) = if locked {
+                (theme::PANEL_DEEP, theme::LINE, theme::LINE)
+            } else if picked {
+                (
+                    GOLD,
+                    GOLD.lerp_to_gamma(egui::Color32::WHITE, 0.4),
+                    theme::PANEL_DEEP,
+                )
+            } else if lit {
+                (GOLD.gamma_multiply(0.25), GOLD, GOLD)
+            } else if response.hovered() {
+                (theme::RAISED_ON, theme::ACCENT, theme::INK)
+            } else {
+                (theme::RAISED, theme::LINE, theme::MUTED)
+            };
+            painter.add(egui::Shape::convex_polygon(
+                diamond(radius),
+                fill,
+                egui::Stroke::new(if picked { 2.0 } else { 1.0 }, edge),
+            ));
+            if picked {
+                painter.add(egui::Shape::closed_line(
+                    diamond(radius + 3.0),
+                    egui::Stroke::new(1.0, GOLD.gamma_multiply(0.6)),
+                ));
+            }
+            painter.text(
+                centre,
+                egui::Align2::CENTER_CENTER,
+                level.to_string(),
+                egui::FontId::proportional(if picked { 20.0 } else { 17.0 }),
+                ink,
+            );
+            let tip = if locked {
+                format!("{}\n{}", ascension_name(level), ascension_locked(level))
+            } else {
+                format!("{}\n{}", ascension_name(level), ascension_line(level))
+            };
+            let response = response.on_hover_text(tip);
+            if response.clicked() && editable && !locked {
+                settings.ascension = level;
+            }
+        }
+    });
+    ui.add_space(8.0);
+    let level = settings.ascension;
+    ui.label(
+        egui::RichText::new(ascension_name(level))
+            .size(18.0)
+            .strong()
+            .color(if level > 0 { GOLD } else { theme::INK }),
+    );
+    if level == 0 {
+        ui.label(egui::RichText::new(ascension_line(0)).color(theme::MUTED));
+    }
+    for each in 1..=level {
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(each.to_string())
+                    .small()
+                    .strong()
+                    .color(GOLD),
+            );
+            ui.label(egui::RichText::new(ascension_line(each)).color(theme::INK));
+        });
+    }
+    if editable && settings.ascension_open < most {
+        ui.add_space(2.0);
+        ui.label(
+            egui::RichText::new(ascension_locked(settings.ascension_open + 1))
+                .small()
+                .color(theme::MUTED),
+        );
+    }
+}
+
 /// The most machines a count dial of the difficulty goes to.
 const DIFFICULTY_MOST: u32 = 99;
 /// The most days a day dial of the difficulty goes to.
@@ -1364,11 +1709,12 @@ const DIFFICULTY_DAYS_MOST: u32 = 365;
 /// How far one press of − or + moves the enemies per bot.
 const PER_BOT_STEP: f32 = 0.5;
 
-/// The setup's difficulty (task 147; the areas since October 2026): every
-/// dial of the wave formula — enemies per player and per bot, then the
-/// four areas' table — the host's to move. They show the tuning file's (`file`) until one is
-/// moved; Default puts them back to it. Under them, what the first wave
-/// comes to for the `players` here.
+/// The Scaling tab (task 147; the areas since October 2026): every dial
+/// of the wave formula — enemies per player and per bot, then the four
+/// areas' table — the host's to move. They show the tuning file's
+/// (`file`) until one is moved; Default puts them back to it. Under them,
+/// what the first wave comes to for the `players` here. A dial's note is
+/// its name's tooltip.
 fn difficulty_rows(
     ui: &mut egui::Ui,
     settings: &mut Settings,
@@ -1378,11 +1724,9 @@ fn difficulty_rows(
     note: &mut Option<Remark>,
     now: f64,
 ) {
-    ui.add_space(6.0);
     // Both buttons only when the numbers are not the file's already.
     let apart = settings.difficulty.is_some_and(|d| d != file);
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(DIFFICULTY).strong());
         if ui
             .add_enabled(
                 editable && apart,
@@ -1409,15 +1753,12 @@ fn difficulty_rows(
                 Err(why) => Remark::say(difficulty_not_saved(&why), true, now),
             };
         }
+        theme::question_mark(ui, DIFFICULTY_NOTE);
     });
-    ui.label(
-        egui::RichText::new(DIFFICULTY_NOTE)
-            .small()
-            .color(theme::MUTED),
-    );
+    ui.add_space(6.0);
     let mut d: Difficulty = settings.difficulty.unwrap_or(file);
     egui::Grid::new("difficulty")
-        .num_columns(3)
+        .num_columns(2)
         .spacing(egui::vec2(10.0, 4.0))
         .show(ui, |ui| {
             count_row(
@@ -1430,8 +1771,9 @@ fn difficulty_rows(
             );
             bot_row(ui, &mut d.enemies_per_bot, editable);
         });
-    ui.add_space(4.0);
+    ui.add_space(8.0);
     area_table(ui, &mut d, editable);
+    ui.add_space(6.0);
     ui.label(
         egui::RichText::new(area_rows_line(
             d.tier_one_day(),
@@ -1456,6 +1798,13 @@ fn difficulty_rows(
     if note.is_some() {
         Remark::show(note, ui, now, "");
     }
+}
+
+/// A dial's name, its note on hover.
+fn dial_name(ui: &mut egui::Ui, name: &str, note: &str) {
+    ui.add(egui::Label::new(name).sense(egui::Sense::hover()))
+        .on_hover_cursor(egui::CursorIcon::Help)
+        .on_hover_text(note);
 }
 
 /// The four areas' dials (October 2026, `world::droid::Area`): a row a
@@ -1484,17 +1833,16 @@ fn area_table(ui: &mut egui::Ui, d: &mut Difficulty, editable: bool) {
         (Dial::Defenders, AREA_DEFENDERS, AREA_DEFENDERS_NOTE),
     ];
     egui::Grid::new("difficulty_areas")
-        .num_columns(6)
-        .spacing(egui::vec2(10.0, 4.0))
+        .num_columns(5)
+        .spacing(egui::vec2(14.0, 4.0))
         .show(ui, |ui| {
             ui.label("");
             for name in AREA_NAMES {
                 ui.label(egui::RichText::new(name).strong());
             }
-            ui.label("");
             ui.end_row();
             for (dial, name, note) in rows {
-                ui.label(name);
+                dial_name(ui, name, note);
                 let areas = [
                     &mut d.area_0,
                     &mut d.tier_1_area,
@@ -1535,14 +1883,13 @@ fn area_table(ui: &mut egui::Ui, d: &mut Difficulty, editable: bool) {
                         Dial::Defenders => count(ui, &mut area.defenders, DIFFICULTY_MOST),
                     }
                 }
-                ui.label(egui::RichText::new(note).small().color(theme::MUTED));
                 ui.end_row();
             }
         });
 }
 
-/// One whole-number dial of the difficulty: its name, a − and a + beside
-/// a drag box held to `0..=most`, and its note.
+/// One whole-number dial of the difficulty: its name (its note on hover),
+/// and a − and a + beside a drag box held to `0..=most`.
 fn count_row(
     ui: &mut egui::Ui,
     name: &str,
@@ -1551,7 +1898,7 @@ fn count_row(
     most: u32,
     editable: bool,
 ) {
-    ui.label(name);
+    dial_name(ui, name, note);
     ui.horizontal(|ui| {
         let less = ui.add_enabled(
             editable && *value > 0,
@@ -1572,7 +1919,6 @@ fn count_row(
             *value += 1;
         }
     });
-    ui.label(egui::RichText::new(note).small().color(theme::MUTED));
     ui.end_row();
 }
 
@@ -1580,7 +1926,7 @@ fn count_row(
 /// by [`PER_BOT_STEP`], the drag box by hundredths.
 fn bot_row(ui: &mut egui::Ui, value: &mut f32, editable: bool) {
     let most = DIFFICULTY_MOST as f32;
-    ui.label(WAVE_PER_BOT);
+    dial_name(ui, WAVE_PER_BOT, WAVE_PER_BOT_NOTE);
     ui.horizontal(|ui| {
         let less = ui.add_enabled(
             editable && *value > 0.0,
@@ -1604,43 +1950,54 @@ fn bot_row(ui: &mut egui::Ui, value: &mut f32, editable: bool) {
             *value = (*value + PER_BOT_STEP).min(most);
         }
     });
-    ui.label(
-        egui::RichText::new(WAVE_PER_BOT_NOTE)
-            .small()
-            .color(theme::MUTED),
-    );
     ui.end_row();
 }
 
+/// A row of mutually exclusive choices, each one a number written into the
+/// setting. A guest in somebody else's lobby watches the settings rather
+/// than setting them.
 fn choice_row<T: PartialEq + Copy>(
     ui: &mut egui::Ui,
-    name: &str,
-    note: &str,
     editable: bool,
     options: &[(&str, String, T)],
     value: &mut T,
 ) {
-    ui.add_space(6.0);
-    ui.label(egui::RichText::new(name).strong());
-    ui.label(egui::RichText::new(note).small().color(theme::MUTED));
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
+        let width = ((ui.available_width() - 10.0 * options.len() as f32)
+            / options.len() as f32)
+            .clamp(80.0, 130.0);
         for (label, sub, v) in options {
             let on = *value == *v;
-            let text = format!("{label}\n{sub}");
-            // A sum among the options (Money per Bim) in the money's gold.
-            let text: egui::WidgetText = if sub.contains('€') {
-                theme::with_money(
-                    &text,
-                    egui::TextStyle::Button.resolve(ui.style()),
-                    ui.visuals().widgets.inactive.text_color(),
-                )
-                .into()
-            } else {
-                text.into()
+            let mut job = egui::text::LayoutJob::default();
+            let line = |size: f32, colour: egui::Color32| egui::TextFormat {
+                font_id: egui::FontId::proportional(size),
+                color: colour,
+                ..Default::default()
             };
+            job.append(
+                label,
+                0.0,
+                line(15.0, if on { theme::INK } else { theme::ACCENT }),
+            );
+            job.append("\n", 0.0, line(6.0, theme::MUTED));
+            // A sum among the options (Starting money) in the money's gold.
+            let sub_colour = if sub.contains('€') {
+                theme::MONEY
+            } else {
+                theme::MUTED
+            };
+            job.append(sub, 0.0, line(12.5, sub_colour));
             let response = ui.add_enabled(editable, {
-                let b = egui::Button::new(text).min_size(egui::vec2(120.0, 40.0));
-                if on { b.fill(theme::RAISED_ON) } else { b }
+                let b = egui::Button::new(job)
+                    .min_size(egui::vec2(width, 44.0))
+                    .corner_radius(6.0);
+                if on {
+                    b.fill(theme::RAISED_ON)
+                        .stroke(egui::Stroke::new(1.5, GOLD))
+                } else {
+                    b
+                }
             });
             if response.clicked() && editable {
                 *value = *v;
@@ -1663,6 +2020,13 @@ fn new_world(screen: &mut BuilderScreen, settings: &mut Settings) {
 /// anywhere in it. Every game is opened so — the player picks none of the
 /// three — and the caller pushes, where there is a room to push to.
 fn roll_everything(screen: &mut BuilderScreen, settings: &mut Settings) {
+    // The profile read again, since a run won since the last setup may
+    // have opened an ascension: the highest opened is the one picked.
+    let profile = crate::profile::load();
+    settings.unlocks = crate::profile::RunUnlocks::of(&profile);
+    settings.ascension_open = crate::profile::ascension_open();
+    settings.ascension = settings.ascension_open;
+    screen.tab = SetupTab::Crew;
     roll_galaxy(settings);
     new_world(screen, settings);
     roll_start(screen, settings);

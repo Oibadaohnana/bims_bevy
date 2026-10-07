@@ -746,6 +746,8 @@ pub fn build_run(s: &Settings, size: Vec2) -> Session {
     // And the difficulty the host picked, on every machine the same.
     if let Some(game) = &mut session.game {
         game.world.set_difficulty(s.difficulty);
+        // And the ascension, the same.
+        game.world.set_ascension(s.ascension);
         // And the host's rewards, dealt with company (`wavecfg::Dealt`).
         if let Some(rewards) = s.rewards {
             game.world.set_rewards(rewards);

@@ -37,6 +37,9 @@ pub struct FloorMark {
     pub tier: Tier,
 }
 
+/// The salt of an ascension's elite roll on the floor.
+const ELITE_SALT: u64 = 0x_4153_4345_4E44;
+
 /// A star the floor could put a place on: its one site and what decides
 /// which row it suits.
 struct Candidate {
@@ -48,6 +51,9 @@ struct Candidate {
     trader: bool,
     /// The day the machines take it ([`World::infested_on`]).
     turns: u32,
+    /// Whether its system is an elite's ([`crate::elite::holds`]): what an
+    /// ascension's Swarming Elites reach for ([`crate::ascension`]).
+    elite: bool,
 }
 
 impl World {
@@ -136,6 +142,8 @@ impl World {
                 hops: u32::from(self.hops_from_origin(star)),
                 trader: self.trader_of(star, &system.stations) == Some(station),
                 turns: self.infested_on(star),
+                elite: !self.quiet_sites
+                    && crate::elite::holds(self.galaxy_seed, self.home_star, star),
             });
         }
         let unreached = u32::from(u16::MAX);
@@ -150,6 +158,12 @@ impl World {
             h => h,
         };
         let hops = self.floor_hops();
+        // An ascension's Swarming Elites: odds in a hundred a fight's place
+        // past area 0 goes to an elite's system where one is left — a roll
+        // of its own off the floor's seed and the place, so level nought
+        // lays the floor it always did.
+        let elite_chance = crate::ascension::elite_chance(self.ascension());
+        let tier_one = self.scaling().tier_one_day();
         let mut used = vec![false; candidates.len()];
         floor::lay(
             floor::shape(seed, hops, self.tier_two_shop_row()),
@@ -182,8 +196,18 @@ impl World {
                 let open = |c: &Candidate| c.trader && c.turns >= row;
                 let trader = |c: &Candidate| c.trader;
                 let fight = |c: &Candidate| !c.trader;
+                let elite = |c: &Candidate| c.elite && !c.trader;
+                let swarming = !shop
+                    && elite_chance > 0
+                    && floor::row_day(row) >= tier_one
+                    && worldgen::rng::mix(
+                        seed ^ ELITE_SALT ^ (u64::from(row) << 40) ^ ((index as u64) << 32),
+                    ) % 100
+                        < u64::from(elite_chance);
                 let pick = if shop {
                     best(&used, &open).or_else(|| best(&used, &trader))
+                } else if swarming {
+                    best(&used, &elite)
                 } else {
                     None
                 }

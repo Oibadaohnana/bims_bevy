@@ -477,9 +477,11 @@ fn over(
     // written into this machine's profile the first frame it is shown:
     // every player's own, on their own disk.
     let won = session.0.game.as_ref().is_some_and(|g| g.world.is_won());
+    let mut opened = victory.as_ref().and_then(|v| v.opened);
     if won && victory.is_none() {
-        crate::profile::record_win();
-        commands.insert_resource(crate::profile::Victory);
+        let at = session.0.game.as_ref().map_or(0, |g| g.world.ascension());
+        opened = crate::profile::record_win(at);
+        commands.insert_resource(crate::profile::Victory { opened });
     }
     let when = session
         .0
@@ -512,6 +514,15 @@ fn over(
             if won {
                 ui.label(egui::RichText::new(VICTORY_TITLE).size(28.0).strong());
                 ui.label(egui::RichText::new(when).color(theme::MUTED));
+                if let Some(level) = opened {
+                    ui.add_space(6.0);
+                    ui.label(
+                        egui::RichText::new(ascension_opened(level))
+                            .size(18.0)
+                            .strong()
+                            .color(theme::TIER_THREE),
+                    );
+                }
                 // The run in numbers (feature 108), and the crew's relics.
                 if let Some(game) = session.0.game.as_ref() {
                     let summary = game.world.run_summary();

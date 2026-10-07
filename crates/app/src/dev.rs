@@ -596,6 +596,15 @@ pub fn bim_name() -> String {
     std::env::var("BIMS_BIM_NAME").unwrap_or_default()
 }
 
+/// `BIMS_ASCENSION=n`: the setup opens with ascension `n` opened and
+/// picked, whatever the profile says (`profile::ascension_open`), so a
+/// run with nobody at the keyboard can be looked at on one.
+pub fn ascension() -> Option<u32> {
+    std::env::var("BIMS_ASCENSION")
+        .ok()
+        .and_then(|v| v.parse().ok())
+}
+
 /// Whether the setup's auto-shoot starts on — `BIMS_AUTO_SHOOT=1` — so a
 /// run with nobody at the keyboard (or a command that opens no setup)
 /// can be watched shooting by itself.

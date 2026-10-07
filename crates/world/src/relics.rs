@@ -123,8 +123,10 @@ impl World {
     /// Heart's fabricators, or one of the Manufacturers' people — and
     /// `None` while they move nothing, so a crew holding none lays the
     /// bodies it always did.
+    /// The run's ascension adds its own share (`ascension::enemy_health`).
     pub fn enemy_health_factor(&self) -> Option<f32> {
-        let percent = relic::crew_percent(self.relics(), Stat::EnemyHealth);
+        let percent = relic::crew_percent(self.relics(), Stat::EnemyHealth)
+            + crate::ascension::enemy_health(self.ascension());
         (percent != 0).then(|| relic::factor(percent) as f32)
     }
 

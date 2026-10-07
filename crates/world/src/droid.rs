@@ -246,8 +246,15 @@ impl Area {
 
     /// The growth in hundredths of an enemy a day, so two machines agree
     /// to the enemy.
-    fn growth_hundredths(&self) -> u64 {
+    pub(crate) fn growth_hundredths(&self) -> u64 {
         (f64::from(self.growth_per_day.max(0.0)) * 100.0).round() as u64
+    }
+
+    /// The growth set to `h` hundredths of an enemy a day — read back by
+    /// [`Area::growth_hundredths`] as exactly `h` (an ascension's,
+    /// `crate::ascension::scale`).
+    pub(crate) fn set_growth_hundredths(&mut self, h: u64) {
+        self.growth_per_day = h as f32 / 100.0;
     }
 }
 
@@ -370,6 +377,12 @@ impl WaveScaling {
             sum = sum.saturating_add(area.growth_hundredths().saturating_mul(u64::from(gone)));
         }
         sum
+    }
+
+    /// [`WaveScaling::per_player_hundredths`] for an ascension's
+    /// arithmetic (`crate::ascension::scale`).
+    pub(crate) fn per_player_hundredths_on(&self, day: u32) -> u64 {
+        self.per_player_hundredths(day)
     }
 
     /// Enemies a player brings on run day `day`, rounded down.

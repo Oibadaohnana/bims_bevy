@@ -317,7 +317,8 @@ use crate::game::Game;
 /// difficulty with it) in place of the tier timings and the dials by the
 /// day, and `World::machines_forced` where `defense_by_machines_forced`
 /// was.
-pub const SAVE_VERSION: u32 = 121;
+/// 122: the run's ascension (`World::ascension`).
+pub const SAVE_VERSION: u32 = 122;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

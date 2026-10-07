@@ -591,7 +591,11 @@ pub fn tier_colour(tier: Tier) -> egui::Color32 {
 
 /// The floor's word in the top left corner: how far up the crew are.
 pub fn progress(world: &World, floor: &Floor) -> String {
-    floor_progress(world.run_day(), world::floor::row_day(floor.heart_row()))
+    floor_progress(
+        world.run_day(),
+        world::floor::row_day(floor.heart_row()),
+        world.ascension(),
+    )
 }
 
 /// Most points in one line; a longer one stops growing.

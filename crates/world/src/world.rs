@@ -799,6 +799,13 @@ pub struct World {
     /// machines laid) is hashed.
     #[cfg_attr(feature = "serde", serde(default))]
     difficulty: Option<droidplan::Difficulty>,
+    /// The run's **ascension** (`crate::ascension`), nought to
+    /// `ascension::MOST`: the game setup's pick, dealt at Start. **Saved**
+    /// — a load plays at the ascension the run was begun at — and not
+    /// hashed, like `difficulty`: what it decides (the waves, the floor,
+    /// a body's hit points) is.
+    #[cfg_attr(feature = "serde", serde(default))]
+    ascension: u32,
     /// What a fight pays and what things cost ([`crate::rewards::Rewards`]),
     /// the constants unless the app's `rewards.ron` says otherwise.
     /// Neither saved nor hashed, like `wave_scaling`: the money and the
@@ -1268,6 +1275,7 @@ impl World {
             droid_wave_forced: None,
             wave_scaling: droidplan::WaveScaling::DEFAULT,
             difficulty: None,
+            ascension: 0,
             rewards: crate::rewards::Rewards::DEFAULT,
             droid_waves_forced: None,
             droid_kinds_forced: None,
@@ -5980,9 +5988,33 @@ impl World {
     }
 
     /// The wave formula as it is worked: the run's difficulty where the
-    /// setup picked one, the tuning file's dials otherwise.
+    /// setup picked one, the tuning file's dials otherwise — as the run's
+    /// ascension plays it (`ascension::scale`).
     pub fn scaling(&self) -> droidplan::WaveScaling {
-        self.difficulty.unwrap_or(self.wave_scaling)
+        crate::ascension::scale(
+            self.ascension,
+            self.difficulty.unwrap_or(self.wave_scaling),
+        )
+    }
+
+    /// Set the run's ascension (the game setup's pick, dealt at Start),
+    /// held to `ascension::MOST`: the floor laid again for its elites, the
+    /// waves and the bodies from the next laid.
+    pub fn set_ascension(&mut self, level: u32) {
+        let level = level.min(crate::ascension::MOST);
+        if level == self.ascension {
+            return;
+        }
+        self.ascension = level;
+        if self.run.floor {
+            let galaxy = self.galaxy();
+            self.settle_floor(&galaxy);
+        }
+    }
+
+    /// The run's ascension.
+    pub fn ascension(&self) -> u32 {
+        self.ascension
     }
 
     /// Tune what a fight pays and what things cost (`rewards.ron`, read
@@ -8956,6 +8988,12 @@ impl World {
         // And its items (October 2026): a Steady Grip, a Long Barrel, an
         // Ablative Shell on.
         self.lift_by_items(who, &mut skill);
+        // And the run's ascension: every hit on the crew harder
+        // (`ascension::enemy_damage`).
+        let harder = crate::ascension::enemy_damage(self.ascension);
+        if harder != 0 {
+            skill.damage_taken *= crate::relic::factor(harder) as f32;
+        }
         // And how long it takes to revive a downed crewmate (task 120).
         skill.revive = self.revive_seconds(who);
         // And whether it is a medic, whom the other bots leave a downed

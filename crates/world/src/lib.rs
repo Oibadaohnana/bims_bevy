@@ -44,6 +44,7 @@
 //! with it ([`docking`]).
 
 pub mod armour;
+pub mod ascension;
 pub mod build;
 pub mod checksum;
 pub mod class;
@@ -114,6 +115,8 @@ pub use world::{
 mod tests;
 #[cfg(test)]
 mod tests_area;
+#[cfg(test)]
+mod tests_ascension;
 #[cfg(test)]
 mod tests_commander;
 #[cfg(test)]
