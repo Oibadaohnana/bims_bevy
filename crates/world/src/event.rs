@@ -245,6 +245,12 @@ pub enum WorldEvent {
     /// A wave burnt through welded way in `entry`: every way in was
     /// welded, and the turn named this one (October 2026).
     WeldBurnt { entry: u32 },
+    /// A Sabotage at `station` moved on (October 2026): `phase` a
+    /// `droid::SabotagePhase` code — planted and held (1), the escape (2),
+    /// blown (3), disarmed (4).
+    SabotageStage { station: u32, phase: u32 },
+    /// Crew member `who` put its hands to a Sabotage's charge.
+    Planting { who: u32 },
     /// The host said that player has left the game.
     PlayerGone { slot: u32 },
     /// Relics are on offer to the crew (feature 106): `count` of them, off
@@ -660,6 +666,12 @@ pub enum Refusal {
     /// Bim, none left unwelded, or at a site that has none to weld — the
     /// Machine Heart's (October 2026, `World::weld`).
     NoWayInNear = 136,
+    /// A Sabotage's charge asked to be planted with none to plant within
+    /// reach (October 2026).
+    NoChargeNear = 137,
+    /// *Back to ship* while a Sabotage's charge is armed: the ship has
+    /// cast off and waits at the way out (October 2026).
+    ShipCastOff = 138,
 }
 
 impl Refusal {
@@ -754,6 +766,8 @@ impl WorldEvent {
             WorldEvent::WarChest { .. } => 167,
             WorldEvent::Welding { .. } => 168,
             WorldEvent::WeldBurnt { .. } => 169,
+            WorldEvent::SabotageStage { .. } => 170,
+            WorldEvent::Planting { .. } => 171,
             WorldEvent::PlayerGone { .. } => 106,
             WorldEvent::RelicsOffered { .. } => 107,
             WorldEvent::RelicProposed { .. } => 108,
@@ -909,6 +923,8 @@ impl WorldEvent {
                 (who as i64) + 100 * (entry as i64) + 100_000 * i64::from(done)
             }
             WorldEvent::WeldBurnt { entry } => entry as i64,
+            WorldEvent::SabotageStage { phase, .. } => phase as i64,
+            WorldEvent::Planting { who } => who as i64,
             // The kind in the hundreds, the player in the units.
             WorldEvent::ItemUsed { who, kind } => (who as i64) + 100 * (kind as i64),
             // The buyer in the units, the kind in the tens, the tier in the

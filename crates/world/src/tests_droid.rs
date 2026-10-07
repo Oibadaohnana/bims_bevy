@@ -1414,3 +1414,170 @@ fn a_bim_welds_the_way_in_beside_it() {
             .any(|e| e.index == target.index && e.welded)
     );
 }
+
+// --- Sabotage (October 2026) ------------------------------------------------
+
+/// The arena held, its fight a Sabotage, the room open.
+fn sabotage() -> (World, u32) {
+    let (mut world, station) = held_arena();
+    world.set_mission_for_probe(Some(crate::run::Mission::Sabotage));
+    world.set_droid_waves_for_probe(2);
+    open_the_room(&mut world);
+    (world, station)
+}
+
+fn stage(world: &World) -> crate::droid::SabotagePhase {
+    world.sabotage_look().expect("a Sabotage").phase
+}
+
+/// The charge is laid deep in the site and the way out at another airlock;
+/// every wave down clears nothing; a Bim's hands on the charge plant it,
+/// and *Back to ship* is refused once it is armed.
+#[test]
+fn a_sabotage_is_planted_by_hand_and_its_waves_clear_nothing() {
+    use crate::droid::SabotagePhase;
+    let (mut world, station) = sabotage();
+    let look = world.sabotage_look().expect("laid at the first dock");
+    assert_eq!(look.phase, SabotagePhase::Plant);
+    let port = world.station(station).unwrap().port().unwrap();
+    let far = |p: worldgen::math::DVec2| (p.x - port.centre.0).hypot(p.y - port.centre.1);
+    assert!(
+        far(look.charge) > far(look.way_out) * 0.3,
+        "the charge is deep in the site"
+    );
+    assert!(far(look.way_out) > 1.0, "the way out is not the port");
+    // Every wave down: still not cleared.
+    for _ in 0..600 {
+        wreck_them_all(&mut world);
+        world.step(&[]);
+    }
+    assert!(
+        !world.infestation(station).unwrap().cleared,
+        "a Sabotage is cleared by its charge alone"
+    );
+    // Planted by hand.
+    let t = shipdesign::TILE as f32;
+    let charge = world
+        .aboard
+        .from_station(look.charge)
+        .map(|p| bims::math::vec2(p.x as f32, p.y as f32))
+        .unwrap();
+    world
+        .aboard
+        .room
+        .stand_at(0, charge + bims::math::vec2(t, 0.0));
+    let begun = world.step(&[crate::world::Command::Plant { slot: 0 }]);
+    assert!(
+        begun
+            .iter()
+            .any(|e| matches!(e, WorldEvent::Planting { who: 0 })),
+        "{begun:?}"
+    );
+    let mut held = false;
+    for _ in 0..(data::PLANT_SECONDS * 60 + 60) {
+        wreck_them_all(&mut world);
+        if world.step(&[]).iter().any(|e| {
+            matches!(e, WorldEvent::SabotageStage { phase, .. } if *phase == SabotagePhase::Hold.code())
+        }) {
+            held = true;
+            break;
+        }
+    }
+    assert!(held, "planted");
+    let refused = world.step(&[crate::world::Command::Return { slot: 0 }]);
+    assert!(refused.iter().any(|e| matches!(
+        e,
+        WorldEvent::Refused {
+            slot: 0,
+            why: crate::event::Refusal::ShipCastOff
+        }
+    )));
+}
+
+/// A machine standing at the charge while it is held disarms it, and the
+/// run is lost.
+#[test]
+fn a_charge_disarmed_loses_the_run() {
+    use crate::droid::SabotagePhase;
+    let (mut world, _station) = sabotage();
+    world.plant_for_probe();
+    let charge = world.sabotage_look().unwrap().charge;
+    let at = world.residents.as_ref().unwrap().aboard.to_room(charge);
+    for _ in 0..(data::DISARM_STEPS + 60) {
+        // One machine held on the charge, the rest wrecked.
+        let n = room!(world).droid_count() as usize;
+        for i in 0..n {
+            let room = room_mut!(world);
+            if i == 0 {
+                if let Some(d) = room.droid_mut_for_probe(0) {
+                    d.pos = at;
+                }
+            } else {
+                room.strike_droid(i, DroidPart::Chassis, 1e6);
+            }
+        }
+        world.step(&[]);
+        if stage(&world) == SabotagePhase::Disarmed {
+            break;
+        }
+    }
+    assert_eq!(stage(&world), SabotagePhase::Disarmed);
+    assert!(world.sabotage_failed());
+    assert!(world.lost, "a charge disarmed costs the run");
+}
+
+/// Held to the end, the charge can no longer be disarmed and the crew run
+/// for the way out: when it blows the one there gets away and the rest
+/// are left behind, the site is cleared, and the crew go home.
+#[test]
+fn the_charge_blows_and_only_who_reached_the_way_out_gets_away() {
+    use crate::droid::SabotagePhase;
+    let (mut world, station) = sabotage();
+    world.plant_for_probe();
+    let look = world.sabotage_look().unwrap();
+    let t = shipdesign::TILE as f64;
+    let out = world
+        .aboard
+        .from_station(look.way_out.sub(look.way_out_out.scale(1.5 * t)))
+        .map(|p| bims::math::vec2(p.x as f32, p.y as f32))
+        .unwrap();
+    let charge = world
+        .aboard
+        .from_station(look.charge)
+        .map(|p| bims::math::vec2(p.x as f32, p.y as f32))
+        .unwrap();
+    let total = data::SABOTAGE_HOLD_STEPS + data::SABOTAGE_ESCAPE_STEPS + 10;
+    let mut blown = false;
+    let mut left_behind: Vec<u32> = Vec::new();
+    for _ in 0..total {
+        wreck_them_all(&mut world);
+        world.aboard.room.stand_at(0, out);
+        world.aboard.room.patch_up_for_probe(0);
+        // A bot kept back at the charge, the rest following the player.
+        world.aboard.room.stand_at(1, charge);
+        let events = world.step(&[]);
+        if events.iter().any(|e| {
+            matches!(e, WorldEvent::SabotageStage { phase, .. } if *phase == SabotagePhase::Done.code())
+        }) {
+            left_behind = events
+                .iter()
+                .filter_map(|e| match e {
+                    WorldEvent::LeftBehind { who } => Some(*who),
+                    _ => None,
+                })
+                .collect();
+            blown = true;
+            break;
+        }
+    }
+    assert!(blown, "the charge blew");
+    assert!(!left_behind.contains(&0), "the one at the way out got away");
+    assert!(
+        left_behind.contains(&1),
+        "the one at the charge was left behind"
+    );
+    assert!(world.aboard.room.is_alive(0));
+    assert!(world.infestation(station).unwrap().cleared);
+    // And the crew go home, that very step.
+    assert!(!world.in_mission(), "the mission is over");
+}

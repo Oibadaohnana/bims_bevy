@@ -53,6 +53,7 @@ impl World {
         let roll = worldgen::rng::Rng::new(seed).below(BREACHES_ODDS);
         match kind {
             SiteKind::Defend if roll == 0 => Mission::Breaches,
+            SiteKind::Attack if roll == 0 => Mission::Sabotage,
             _ => Mission::Plain,
         }
     }

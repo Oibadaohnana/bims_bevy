@@ -89,6 +89,53 @@ pub struct Infestation {
     /// it is set, so nothing about a machines' site moved.
     #[cfg_attr(feature = "serde", serde(default))]
     pub manufacturers: bool,
+    /// **Sabotage** (October 2026, `crate::world` `sabotage.rs`): the
+    /// charge, the way out and how far the crew have got. `None` at every
+    /// other attack. Put back with the rest of this when the crew leave.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub sabotage: Option<Sabotage>,
+}
+
+/// Where a Sabotage stands: the charge to plant, held, then the run for
+/// the way out.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum SabotagePhase {
+    /// The charge not planted yet: the crew fight their way to it.
+    #[default]
+    Plant,
+    /// Planted: held against the machines making to disarm it.
+    Hold,
+    /// It can no longer be disarmed: the crew run for the way out before
+    /// it blows.
+    Escape,
+    /// It blew, the crew out.
+    Done,
+    /// The machines disarmed it: the run is lost.
+    Disarmed,
+}
+
+impl SabotagePhase {
+    pub fn code(self) -> u32 {
+        self as u32
+    }
+}
+
+/// A Sabotage's state (October 2026): the charge's tile of the site's
+/// design, the airlock the crew get out by (its index among the design's
+/// airlocks), the phase, and its counts in steps — the planting's work,
+/// the machines' disarming, what is left of the hold or the escape, and
+/// when the next wave lands while the charge is armed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Sabotage {
+    pub charge: (u32, u32),
+    pub extraction: u32,
+    pub phase: SabotagePhase,
+    pub planted: u32,
+    pub disarm: u32,
+    pub left: u64,
+    pub next_wave: u64,
 }
 
 impl Infestation {
@@ -103,6 +150,7 @@ impl Infestation {
             cleared: false,
             heart: None,
             manufacturers: false,
+            sabotage: None,
         }
     }
 

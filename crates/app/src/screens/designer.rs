@@ -162,6 +162,8 @@ pub enum Order {
     /// The way in the player's Bim stands at welded shut —
     /// `Command::Weld`, the V key (October 2026).
     Weld,
+    /// A Sabotage's charge planted — `Command::Plant`, the V key.
+    Plant,
     /// A mine or a Healing Sentry taken back up, the charge back —
     /// `Command::PackUp`.
     PackUp(u32),
@@ -538,6 +540,7 @@ impl Net {
                         Order::Sentry { x, y } => Command::Sentry { slot, tile: (x, y) },
                         Order::Detonate => Command::Detonate { slot },
                         Order::Weld => Command::Weld { slot },
+                        Order::Plant => Command::Plant { slot },
                         Order::PackUp(id) => Command::PackUp { slot, id },
                         Order::StunShot { x, y } => Command::StunShot { slot, x, y },
                         Order::Throw { x, y } => Command::Throw { slot, x, y },

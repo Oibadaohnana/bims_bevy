@@ -481,6 +481,8 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::OutOfItemRange => "they are too far off for that",
         Refusal::NoBonusWave => "a bonus wave is chosen in the ready check, at a fight",
         Refusal::NoWayInNear => "no way in to weld here — stand at an airlock or a gate",
+        Refusal::NoChargeNear => "stand at the charge's mark",
+        Refusal::ShipCastOff => "the ship has cast off — it waits at the way out",
         Refusal::BonusWaveHeld => "Overtime keeps the bonus wave on",
     }
 }
@@ -1877,6 +1879,16 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
                 who(w)
             )
         }
+        WorldEvent::Planting { who: w } => format!("{} is planting the charge.", who(w)),
+        WorldEvent::SabotageStage { phase: 1, .. } => {
+            "The charge is planted. The ship casts off: hold it until it arms.".into()
+        }
+        WorldEvent::SabotageStage { phase: 2, .. } => {
+            "The charge is armed. Get to the way out before it blows!".into()
+        }
+        WorldEvent::SabotageStage { phase: 3, .. } => "The charge blew. The ship takes off.".into(),
+        WorldEvent::SabotageStage { phase: 4, .. } => "The machines disarmed the charge.".into(),
+        WorldEvent::SabotageStage { .. } => String::new(),
         WorldEvent::WeldBurnt { .. } => {
             "The machines burnt through a weld: every way in was shut.".into()
         }
@@ -2508,6 +2520,7 @@ pub fn mission_word(
 ) -> &'static str {
     match mission {
         world::run::Mission::Breaches => ARRIVE_BREACHES,
+        world::run::Mission::Sabotage => ARRIVE_SABOTAGE,
         world::run::Mission::Plain => mission_kind_word(kind, area),
     }
 }
@@ -3568,6 +3581,38 @@ pub fn breaches_count(open: u32, total: u32) -> String {
 pub const BREACHES_SEALED_COUNT: &str = "Every breach welded";
 /// The map's word for Seal the breaches.
 pub const ARRIVE_BREACHES: &str = "SEAL BREACHES";
+/// The map's word for a Sabotage.
+pub const ARRIVE_SABOTAGE: &str = "SABOTAGE";
+/// A Sabotage's line (October 2026), by its phase: the charge to plant,
+/// held with the machines' disarming, the escape's clock.
+pub const SABOTAGE_PLANT: &str = "SABOTAGE — reach the charge (amber mark) and plant it: V";
+pub fn sabotage_hold(left: &str, disarmed: u32) -> String {
+    format!("SABOTAGE — hold the charge {left} · disarmed {disarmed}%")
+}
+pub fn sabotage_escape(left: &str) -> String {
+    format!("SABOTAGE — get to the way out (green) · it blows in {left}")
+}
+pub const SABOTAGE_BLOWN: &str = "SABOTAGE — the charge blew";
+pub const SABOTAGE_TIP: &str = "• Plant the charge at the amber mark: V, 12 s, faster with two
+• Then hold it 45 s: machines at it disarm it
+• Disarmed = run lost
+• Then the ship waits at the green way out: 75 s
+• Not there when it blows = left behind";
+/// The top count's line at a Sabotage.
+pub const SABOTAGE_COUNT_PLANT: &str = "Plant the charge · V";
+pub fn sabotage_count_hold(left: &str, disarmed: u32) -> String {
+    format!("Hold {left} · disarmed {disarmed}%")
+}
+pub fn sabotage_count_escape(left: &str) -> String {
+    format!("Get out {left}")
+}
+/// The run lost to a charge disarmed.
+pub const OVER_TITLE_SABOTAGE: &str = "The charge was disarmed";
+pub const OVER_LINE_SABOTAGE: &str = "The machines got to the charge before it could be armed.";
+/// And for a planting refused (October 2026).
+pub fn plant_refused(why: world::Refusal) -> String {
+    format!("Cannot plant: {}.", refusal(why))
+}
 pub const AREA_FOB: &str = "FOB";
 pub const AREA_CONTESTED: &str = "contested";
 pub const AREA_DEFENSE_TIP: &str = "• Hold the FOB (sandbag ring) 3 min\n• First wave in 5 s, then every 31 s, 1 s sooner each\n• Time up: clear the rest\n• Machines alone in it 20 s = run lost\n• Anybody of yours inside stops the count\n• Green arrow: the FOB off screen";
@@ -4248,6 +4293,8 @@ mod tests {
             Refusal::NotSellable,
             Refusal::OutOfItemRange,
             Refusal::NoWayInNear,
+            Refusal::NoChargeNear,
+            Refusal::ShipCastOff,
         ] {
             assert!(!refusal(why).is_empty());
         }

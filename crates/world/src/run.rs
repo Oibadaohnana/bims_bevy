@@ -123,17 +123,22 @@ pub enum Mission {
     /// way in left open, on a clock, until the crew have welded every one
     /// shut and destroyed what is aboard.
     Breaches,
+    /// **Sabotage** (an attack): plant a charge deep in the site, hold it
+    /// while the machines make to disarm it — disarmed, the run is lost —
+    /// then get out by another airlock before it blows.
+    Sabotage,
 }
 
 impl Mission {
     /// Every one, in code order.
-    pub const ALL: [Mission; 2] = [Mission::Plain, Mission::Breaches];
+    pub const ALL: [Mission; 3] = [Mission::Plain, Mission::Breaches, Mission::Sabotage];
 
     /// The number that indexes the name tables.
     pub fn code(self) -> u32 {
         match self {
             Mission::Plain => 0,
             Mission::Breaches => 1,
+            Mission::Sabotage => 2,
         }
     }
 }

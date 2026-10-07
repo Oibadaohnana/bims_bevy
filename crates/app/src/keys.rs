@@ -118,11 +118,12 @@ pub enum Action {
     /// the ultimate took G and the revive went to T, which the reload
     /// had left.
     Revive,
-    /// **Weld** (October 2026): the Bim you steer welds shut the way in
-    /// it stands at — an airlock or a town's gate the machines' waves
-    /// come by — so the next wave comes in by another; every one welded,
-    /// a wave burns through. On V.
-    Weld,
+    /// **Use** (October 2026): what the Bim you steer stands at — a
+    /// Sabotage's charge planted, else the way in welded shut (an airlock
+    /// or a town's gate the machines' waves come by, so the next wave
+    /// comes in by another; every one welded, a wave burns through). On V.
+    /// Kept in the file as `use`; `weld`, its first name, reads as it.
+    Use,
     /// **The medkit** (task 138; one key since October 2026): the medkit
     /// into the hands of the Bim you steer — it holds its fire, and a
     /// right-click on a downed crewmate revives them — or, with it in hand
@@ -206,7 +207,7 @@ impl Action {
         Action::Retreat,
         Action::Carry,
         Action::Revive,
-        Action::Weld,
+        Action::Use,
         Action::Medkit,
         Action::Item1,
         Action::Item2,
@@ -262,7 +263,7 @@ impl Action {
             // went to B.
             Action::Carry => Key::B,
             Action::Revive => Key::T,
-            Action::Weld => Key::V,
+            Action::Use => Key::V,
             Action::Medkit => Key::H,
             Action::Item1 => Key::Num1,
             Action::Item2 => Key::Num2,
@@ -300,7 +301,7 @@ impl Action {
             Action::Retreat => "retreat",
             Action::Carry => "carry",
             Action::Revive => "revive",
-            Action::Weld => "weld",
+            Action::Use => "use",
             Action::Medkit => "medkit",
             Action::Item1 => "item-1",
             Action::Item2 => "item-2",
@@ -364,8 +365,8 @@ impl Action {
             Action::Revive => {
                 "Hold it standing close to a downed crewmate and the Bim you steer gets them back up — the nearest of them. Let go before they are up and it stops. A bar over them shows how far it has got. A right-click on a downed crewmate walks over and revives them too."
             }
-            Action::Weld => {
-                "Weld shut the way in the Bim you steer stands at: an airlock or a gate the machines come aboard by. A few seconds of work, half that for an engineer. The next wave comes in by another; with every one welded, a wave burns through the one whose turn it is. The way the next wave comes is marked red."
+            Action::Use => {
+                "Use what the Bim you steer stands at. At a Sabotage's charge: plant it. At an airlock or a gate the machines come aboard by: weld it shut — a few seconds of work, half that for an engineer, faster with two — so the next wave comes in by another; with every one welded, a wave burns through the one whose turn it is. The way the next wave comes is marked red."
             }
             Action::Medkit => {
                 "Take the medkit in hand: the Bim you steer holds its fire, and a right-click on a downed crewmate walks over and revives them. Their countdown stands while the hands are on them. Pressed again, the weapon is back in hand."
@@ -397,6 +398,7 @@ impl Action {
         match name {
             "class-primary" => Some(Action::Ability1),
             "class-secondary" => Some(Action::Ability3),
+            "weld" => Some(Action::Use),
             _ => Action::ALL.iter().copied().find(|a| a.name() == name),
         }
     }

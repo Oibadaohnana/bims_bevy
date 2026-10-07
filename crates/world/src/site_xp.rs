@@ -211,7 +211,8 @@ impl World {
         if self.run.won || self.site_cleared(id) || heart::is_heart(id) {
             return false;
         }
-        let attack = self.infestation(id).is_some_and(|it| it.heart.is_none());
+        let attack = self.infestation(id).is_some_and(|it| it.heart.is_none())
+            && self.mission_here(id) == crate::run::Mission::Plain;
         // Not at an Area defend nor a mission the map shapes, which run
         // on a clock rather than a count of waves.
         let defence = self.site_threatened(id)

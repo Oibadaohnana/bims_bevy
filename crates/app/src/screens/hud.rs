@@ -238,6 +238,18 @@ fn droid_line(world: &world::World) -> Option<(String, &'static str)> {
         };
         return Some((text, HEART_TIP));
     }
+    // A Sabotage (October 2026): its phase's line in place of the waves'.
+    if let Some(look) = world.sabotage_look() {
+        use world::droid::SabotagePhase;
+        let left = crate::format::countdown(look.seconds_left as f64);
+        let words = match look.phase {
+            SabotagePhase::Plant => SABOTAGE_PLANT.to_string(),
+            SabotagePhase::Hold => sabotage_hold(&left, (look.disarmed * 100.0).round() as u32),
+            SabotagePhase::Escape => sabotage_escape(&left),
+            _ => SABOTAGE_BLOWN.to_string(),
+        };
+        return Some((words, SABOTAGE_TIP));
+    }
     let (wave, left) = world.droid_wave_standing()?;
     let waves = wave + left;
     let standing = world.droids_standing();
@@ -768,8 +780,9 @@ pub struct Counter {
     pub core: Option<f32>,
     /// An Area defend's count (October 2026), in place of `wave`.
     pub area: Option<AreaCount>,
-    /// Seal the breaches' (October 2026): how many are open of how many.
-    pub breaches: Option<(u32, u32)>,
+    /// A mission the map shapes (October 2026): its line under the
+    /// figure — the breaches open, the charge's phase — and its colour.
+    pub objective: Option<(String, egui::Color32)>,
 }
 
 /// What the top count says of an Area defend: the wave (there is no
@@ -823,7 +836,7 @@ pub fn counter(world: &world::World, flying: u32) -> Option<Counter> {
                 fob,
                 contested,
             }),
-            breaches: None,
+            objective: None,
         });
     }
     // Seal the breaches (October 2026): on a clock like an Area defend,
@@ -843,7 +856,13 @@ pub fn counter(world: &world::World, flying: u32) -> Option<Counter> {
             wave: None,
             core: None,
             area: None,
-            breaches: defending.breaches.map(|b| (b.open, b.total)),
+            objective: defending.breaches.map(|b| {
+                if b.open == 0 {
+                    (BREACHES_SEALED_COUNT.to_string(), theme::HEAL)
+                } else {
+                    (breaches_count(b.open, b.total), theme::BAD)
+                }
+            }),
         });
     }
     if let Some(defending) = world.defense_here() {
@@ -863,7 +882,7 @@ pub fn counter(world: &world::World, flying: u32) -> Option<Counter> {
             wave: Some((wave.min(waves.max(1)), waves.max(1))),
             core: None,
             area: None,
-            breaches: None,
+            objective: None,
         });
     }
     let core = world.heart_status().map(|heart| {
@@ -879,7 +898,7 @@ pub fn counter(world: &world::World, flying: u32) -> Option<Counter> {
             wave: None,
             core: Some(core),
             area: None,
-            breaches: None,
+            objective: None,
         });
     };
     let waves = wave + left;
@@ -892,13 +911,31 @@ pub fn counter(world: &world::World, flying: u32) -> Option<Counter> {
     } else {
         (up(0), wave)
     };
+    // A Sabotage's charge armed (October 2026): its waves come on a clock,
+    // no "of how many".
+    let armed = world.ship_cast_off();
     Some(Counter {
         big,
-        wave: Some((wave, waves)),
+        wave: (!armed).then_some((wave, waves)),
         core,
         area: None,
-        breaches: None,
+        objective: sabotage_count(world),
     })
+}
+
+/// A Sabotage's line under the top count (October 2026): the charge to
+/// plant, the hold's clock and the disarming, or the escape's clock.
+fn sabotage_count(world: &world::World) -> Option<(String, egui::Color32)> {
+    use world::droid::SabotagePhase;
+    let look = world.sabotage_look()?;
+    let left = crate::format::countdown(look.seconds_left as f64);
+    let disarmed = (look.disarmed * 100.0).round() as u32;
+    match look.phase {
+        SabotagePhase::Plant => Some((SABOTAGE_COUNT_PLANT.to_string(), theme::CAUTION)),
+        SabotagePhase::Hold => Some((sabotage_count_hold(&left, disarmed), theme::BAD)),
+        SabotagePhase::Escape => Some((sabotage_count_escape(&left), theme::HEAL)),
+        _ => None,
+    }
 }
 
 /// An Area defend's half of the top count: the wave and the hold's time
@@ -1049,12 +1086,9 @@ pub fn top_frame(
                         if let Some(area) = count.as_ref().and_then(|c| c.area.as_ref()) {
                             area_count(ui, area);
                         }
-                        if let Some((open, total)) = count.as_ref().and_then(|c| c.breaches) {
-                            let (words, colour) = if open == 0 {
-                                (BREACHES_SEALED_COUNT.to_string(), theme::HEAL)
-                            } else {
-                                (breaches_count(open, total), theme::BAD)
-                            };
+                        if let Some((words, colour)) =
+                            count.as_ref().and_then(|c| c.objective.clone())
+                        {
                             ui.label(
                                 egui::RichText::new(words)
                                     .size(COUNT_WAVE_SIZE)

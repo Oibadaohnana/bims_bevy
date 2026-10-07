@@ -137,6 +137,11 @@ mod entry;
 // The missions the map shapes (October 2026). A child for the same reason.
 #[path = "missions.rs"]
 mod missions;
+// Sabotage (October 2026), a mission the map shapes. A child for the same
+// reason.
+#[path = "sabotage.rs"]
+mod sabotage;
+pub use sabotage::{PLANT_CODE, SabotageLook};
 pub use entry::{EntryLook, WELD_CODE};
 pub use missions::BREACHES_ODDS;
 
@@ -290,6 +295,12 @@ pub enum Command {
     /// gate. The walk and the work are the room's; a hit drops it. Refused
     /// `OutOfReach` (not fit to act, or not in a mission) and `NoWayInNear`.
     Weld {
+        slot: u32,
+    },
+    /// That player's own Bim puts its hands to a **Sabotage**'s charge
+    /// (October 2026, the Use key): planted after `data::PLANT_SECONDS` of
+    /// hands on it. Refused `OutOfReach` and `NoChargeNear`.
+    Plant {
         slot: u32,
     },
     /// Take one of that player's own engineer's mines or Healing Sentries
@@ -1506,6 +1517,8 @@ impl World {
         self.spread_crisis(&mut events);
         self.settle_droids();
         self.droid_waves(&mut events);
+        //    And a Sabotage's charge held or run from (October 2026).
+        self.sabotage_step(&mut events);
         //    And, at a **threatened town the crew have landed at**
         //    (feature 94), the same clock again for a fight that is the
         //    town's rather than the machines': the first wave an hour
@@ -1654,6 +1667,7 @@ impl World {
         }
         //    The welding, and the welds a wave burnt through, said.
         self.settle_welds(&mut events);
+        self.settle_plants(&mut events);
         self.say_burns(&mut events);
 
         // 8. The run (feature 103): the bounty paid the step the site is
@@ -1685,6 +1699,7 @@ impl World {
             | Command::Sentry { slot, .. }
             | Command::Detonate { slot }
             | Command::Weld { slot }
+            | Command::Plant { slot }
             | Command::PackUp { slot, .. }
             | Command::StunShot { slot, .. }
             | Command::Throw { slot, .. }
@@ -1892,6 +1907,10 @@ impl World {
                     entry,
                     done: false,
                 }),
+                Err(why) => events.push(refused(slot, why)),
+            },
+            Command::Plant { .. } => match self.plant(slot) {
+                Ok(()) => events.push(WorldEvent::Planting { who: slot }),
                 Err(why) => events.push(refused(slot, why)),
             },
             Command::PackUp { id, .. } => self.pack_up(slot, id, events),
@@ -6608,8 +6627,10 @@ impl World {
                 it.settle(waves);
             }
             // And, at the Machine Heart's fortress, its own fight
-            // settled beside the waves (feature 108).
+            // settled beside the waves (feature 108), and a Sabotage's
+            // charge laid (October 2026).
             self.settle_heart_fight(id);
+            self.settle_sabotage(id);
             self.settle_droids();
         }
         let standing = self.droids_standing();
@@ -6641,7 +6662,9 @@ impl World {
                     }
                     Some(_) => {}
                 }
-            } else if !it.cleared && it.heart.is_none() {
+            } else if !it.cleared && it.heart.is_none() && it.sabotage.is_none() {
+                // A Sabotage (October 2026) is cleared by its charge
+                // blowing and nothing else (`World::sabotage_step`).
                 // The Machine Heart's fortress is cleared by its core and
                 // nothing else (feature 108, `World::heart_step`): the
                 // last wave spent there leaves the core to be fought.
@@ -7127,7 +7150,8 @@ impl World {
             // worked (October 2026); nothing anywhere else.
             let spots = match self.ship.state.station() {
                 Some(id) if self.is_breaches(id) => self.breach_objectives(id),
-                _ => Vec::new(),
+                Some(_) => self.sabotage_objectives(),
+                None => Vec::new(),
             };
             if let Some(residents) = &mut self.residents {
                 residents.aboard.room.set_objectives(&spots);

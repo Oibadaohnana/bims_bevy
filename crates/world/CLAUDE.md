@@ -8606,3 +8606,56 @@ type (`Plain`, `Breaches`; saved nowhere, derived).
 and `two_bims_weld_a_breach_twice_as_fast` are the rule. Meant to alter
 play (a third of the station defences on the floor past area 0); the
 pins run off the floor and do not meet one.
+
+## Sabotage (October 2026)
+
+The second mission the map shapes, the player's: plant a charge deep in
+the site, hold it ~45 s while the machines make to disarm it — **disarmed,
+the run is lost** — then get out at another airlock before it blows.
+`sabotage.rs` (a child of `world`) is the rule; its module note is the
+whole of it. In short:
+
+- **Which**: `mission_at` makes an attack at a station Sabotage one time
+  in `BREACHES_ODDS` (the same roll as Seal the breaches' for a defence).
+  `Infestation::sabotage: Option<droid::Sabotage { charge, extraction,
+  phase, planted, disarm, left, next_wave }>` (saved, hashed where
+  `Some`, put back with the infestation) is laid by `settle_sabotage` at
+  the first dock: the charge on the free tile farthest from the port with
+  free deck all round (`sabotage::charge_spot`), the way out the airlock
+  but the port farthest from it (`extraction_of`). No way out: a plain
+  attack.
+- **The waves clear nothing**: `droid_waves` never sets `cleared` on a
+  Sabotage; the blast does. No bonus wave.
+- **Plant**: `Command::Plant` (the Use key, V — `keys::Action::Use`,
+  which was `Weld`; the file's `weld=` reads as it) within `PLANT_REACH`
+  (1.75 tiles): the room's deploy errand of `PLANT_CODE` (101), counted
+  by the world (`settle_plants`, as `settle_welds`) to
+  `data::PLANT_SECONDS` (12) — `Refusal::NoChargeNear` (137).
+- **Hold**: `SabotagePhase::Hold` for `SABOTAGE_HOLD_STEPS` (45 s); the
+  site's own waves stop and a wave lands at once and every
+  `SABOTAGE_WAVE_STEPS` (15 s), stacking (`sabotage_step`, `lay_held_wave`);
+  every enemy makes for the charge (`sabotage_objectives`, through
+  `say_the_fob`); each machine standing or Manufacturer on its feet within
+  `DISARM_REACH_TILES` (1.5) counts a step of disarming, three at most —
+  at `DISARM_STEPS` (480) `Disarmed`, `World::lost`, the crew-down screen
+  "The charge was disarmed" (`sabotage_failed`). *Back to ship* is
+  refused `Refusal::ShipCastOff` (138) from the planting to the blast
+  (`ship_cast_off`).
+- **Escape**: `SABOTAGE_ESCAPE_STEPS` (75 s), the waves on. At the blast
+  (`blow_the_charge`) every crew member (not a commander's reinforcement)
+  further than `EXTRACTION_REACH_TILES` (3) from the way out's inside —
+  1.5 tiles in — is killed (`LeftBehind`), the site cleared
+  (`DroidStationCleared`), every player's `returning` set: the departure
+  takes the crew that very step.
+- `WorldEvent::SabotageStage { station, phase }` (170: 1 planted, 2 the
+  escape, 3 blown, 4 disarmed) and `Planting { who }` (171).
+  `World::sabotage_look()` is the app's: the charge, the way out, the
+  phase, the planting's and the disarming's shares, the clock.
+  `world_paint::sabotage_marks` draws them; `hud` the line and the
+  count; `BIMS_MISSION=sabotage`, `BIMS_PLANT=1` stage it on `droids`.
+- `tests_droid.rs`' `a_sabotage_is_planted_by_hand_and_its_waves_clear_nothing`,
+  `a_charge_disarmed_loses_the_run`,
+  `the_charge_blows_and_only_who_reached_the_way_out_gets_away`.
+
+**SAVE_VERSION 125.** Meant to alter play (a third of the station attacks
+on the floor past area 0); the pins run off the floor.

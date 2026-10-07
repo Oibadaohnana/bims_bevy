@@ -1320,12 +1320,19 @@ pub fn show_welds() -> bool {
     std::env::var("BIMS_WELDS").is_ok_and(|v| v.trim() == "1")
 }
 
+/// `BIMS_PLANT=1` (October 2026): a Sabotage's charge planted at once, the
+/// hold begun, for a look at it.
+pub fn plant() -> bool {
+    std::env::var("BIMS_PLANT").is_ok_and(|v| v.trim() == "1")
+}
+
 /// The mission every station fight is (October 2026, the missions the map
 /// shapes): `BIMS_MISSION=breaches` makes every station's defence Seal the
 /// breaches, `BIMS_MISSION=plain` none. Unset is the game's own roll.
 pub fn mission() -> Option<world::run::Mission> {
     match std::env::var("BIMS_MISSION").ok()?.trim() {
         "breaches" => Some(world::run::Mission::Breaches),
+        "sabotage" => Some(world::run::Mission::Sabotage),
         "plain" => Some(world::run::Mission::Plain),
         _ => None,
     }

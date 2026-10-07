@@ -542,8 +542,15 @@ fn over(
                     .game
                     .as_ref()
                     .is_some_and(|game| game.world.area_fell());
+                let sabotage = session
+                    .0
+                    .game
+                    .as_ref()
+                    .is_some_and(|game| game.world.sabotage_failed());
                 let (title, line) = if fob {
                     (OVER_TITLE_AREA, OVER_LINE_AREA)
+                } else if sabotage {
+                    (OVER_TITLE_SABOTAGE, OVER_LINE_SABOTAGE)
                 } else {
                     (OVER_TITLE, OVER_LINE)
                 };
@@ -877,6 +884,11 @@ fn open(
                 && let Some(game) = session.game.as_mut()
             {
                 game.world.show_welds_for_probe();
+            }
+            if crate::dev::plant()
+                && let Some(game) = session.game.as_mut()
+            {
+                game.world.plant_for_probe();
             }
             // Every run on the combat ship opens with everything there is
             // in the armory — every weapon and piece at every tier it is
@@ -2846,14 +2858,24 @@ fn frame(
                     orders.extend(order);
                     screen.log.extend(line);
                 }
-                // The weld (October 2026): V welds shut the way in the
-                // player's Bim stands at, any class.
-                if keys_now.pressed(i, Action::Weld)
+                // The Use key (October 2026): V plants a Sabotage's charge
+                // the player's Bim stands at, else welds shut the way in
+                // it stands at, any class.
+                if keys_now.pressed(i, Action::Use)
                     && let Some(game) = &session.game
                 {
-                    match game.world.can_weld(screen.net.slot) {
-                        Ok(_) => orders.push(Order::Weld),
-                        Err(why) => screen.log.push(crate::names::weld_refused(why)),
+                    let slot = screen.net.slot;
+                    let planting = game
+                        .world
+                        .sabotage_look()
+                        .is_some_and(|s| s.phase == world::droid::SabotagePhase::Plant);
+                    match (game.world.can_plant(slot), game.world.can_weld(slot)) {
+                        (Ok(_), _) => orders.push(Order::Plant),
+                        (_, Ok(_)) => orders.push(Order::Weld),
+                        (Err(why), _) if planting => {
+                            screen.log.push(crate::names::plant_refused(why))
+                        }
+                        (_, Err(why)) => screen.log.push(crate::names::weld_refused(why)),
                     }
                 }
                 // The 1× key (task 119: 1× or paused, nothing else) sets

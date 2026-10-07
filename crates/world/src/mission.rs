@@ -1401,6 +1401,12 @@ impl World {
             events.push(refused(slot, Refusal::PlayerOut));
             return;
         }
+        // A Sabotage's charge armed (October 2026): the ship has cast off
+        // and waits at the way out.
+        if self.ship_cast_off() {
+            events.push(refused(slot, Refusal::ShipCastOff));
+            return;
+        }
         let players = self.players() as usize;
         if self.run.returning.len() < players {
             self.run.returning.resize(players, false);

@@ -880,6 +880,127 @@ fn ways_in(list: &mut DrawList, game: &Game, station: u32) {
     }
 }
 
+const CHARGE: Color = Color::rgb(1.0, 0.72, 0.20);
+const CHARGE_ARMED: Color = Color::rgb(1.0, 0.25, 0.18);
+const WAY_OUT: Color = Color::rgb(0.45, 0.95, 0.60);
+
+/// A Sabotage's marks (October 2026, `World::sabotage_look`), in the
+/// station's own frame: the charge — an amber ring and cross to plant at,
+/// the planting's arc filling round it; red once planted, with the
+/// machines' disarming as a bar under it; blinking while it counts down —
+/// and, once it is armed, the way out: a green ring a tile and a half
+/// inside the airlock with chevrons pointing out.
+fn sabotage_marks(list: &mut DrawList, game: &Game, station: u32) {
+    use world::droid::SabotagePhase;
+    if game.world.ship.state.alongside() != Some(station) {
+        return;
+    }
+    let Some(look) = game.world.sabotage_look() else {
+        return;
+    };
+    let t = TILE as f32;
+    let pulse = (game.frame as f32 * 0.12).sin() * 0.5 + 0.5;
+    let (cx, cy) = (look.charge.x as f32, look.charge.y as f32);
+    let ring = |list: &mut DrawList, x: f32, y: f32, r: f32, w: f32, c: Color| {
+        list.push(
+            crate::draw::KIND_ELLIPSE,
+            x,
+            y,
+            r * 2.0,
+            r * 2.0,
+            0.0,
+            0.0,
+            w,
+            c,
+        );
+    };
+    match look.phase {
+        SabotagePhase::Plant => {
+            ring(
+                list,
+                cx,
+                cy,
+                t * (0.8 + 0.15 * pulse),
+                4.0,
+                CHARGE.alpha(0.8),
+            );
+            let arm = t * 0.35;
+            list.line(cx - arm, cy - arm, cx + arm, cy + arm, 4.0, CHARGE);
+            list.line(cx - arm, cy + arm, cx + arm, cy - arm, 4.0, CHARGE);
+            if look.planted > 0.0 {
+                let w = 1.6 * t;
+                let (x0, y) = (cx - w / 2.0, cy + t * 1.1);
+                list.line(x0, y, x0 + w, y, 6.0, Color::rgba(0.0, 0.0, 0.0, 0.6));
+                list.line(
+                    x0,
+                    y,
+                    x0 + w * look.planted.min(1.0),
+                    y,
+                    6.0,
+                    CHARGE.glowing(1.3),
+                );
+            }
+        }
+        SabotagePhase::Hold | SabotagePhase::Escape => {
+            let blink = if look.phase == SabotagePhase::Escape {
+                ((game.frame / 8) % 2) as f32
+            } else {
+                pulse
+            };
+            ring(
+                list,
+                cx,
+                cy,
+                t * 0.7,
+                5.0,
+                CHARGE_ARMED.alpha(0.6 + 0.4 * blink),
+            );
+            list.push(
+                crate::draw::KIND_ELLIPSE,
+                cx,
+                cy,
+                t * 0.45,
+                t * 0.45,
+                0.0,
+                0.0,
+                0.0,
+                CHARGE_ARMED.glowing(1.0 + 1.2 * blink),
+            );
+            if look.phase == SabotagePhase::Hold && look.disarmed > 0.0 {
+                let w = 1.6 * t;
+                let (x0, y) = (cx - w / 2.0, cy + t * 1.1);
+                list.line(x0, y, x0 + w, y, 6.0, Color::rgba(0.0, 0.0, 0.0, 0.6));
+                list.line(x0, y, x0 + w * look.disarmed.min(1.0), y, 6.0, CHARGE_ARMED);
+            }
+            // The way out.
+            let (ox, oy) = (look.way_out_out.x as f32, look.way_out_out.y as f32);
+            let (wx, wy) = (
+                look.way_out.x as f32 - ox * 1.5 * t,
+                look.way_out.y as f32 - oy * 1.5 * t,
+            );
+            ring(
+                list,
+                wx,
+                wy,
+                t * (1.4 + 0.2 * pulse),
+                5.0,
+                WAY_OUT.alpha(0.8),
+            );
+            let (ax, ay) = (-oy, ox);
+            for k in 0..2 {
+                let ahead = t * (0.2 + 0.5 * k as f32 + 0.3 * pulse);
+                let (px, py) = (wx + ox * ahead, wy + oy * ahead);
+                let (bx, by) = (px - ox * t * 0.35, py - oy * t * 0.35);
+                let wing = t * 0.45;
+                let c = WAY_OUT.alpha(0.5 + 0.4 * pulse);
+                list.line(bx - ax * wing, by - ay * wing, px, py, 4.0, c);
+                list.line(bx + ax * wing, by + ay * wing, px, py, 4.0, c);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// The box round a part's tiles, in design units: `(x0, y0, x1, y1)`.
 fn part_box(kind: PartKind, origin: (u32, u32), rotation: Rotation) -> (f32, f32, f32, f32) {
     let t = TILE as f32;
@@ -1951,6 +2072,7 @@ fn stations(
         lamp_faces(&mut picture, game, &station.design, Some(station.id));
         prop_faces(&mut picture, game, &station.design, station.id);
         ways_in(&mut picture, game, station.id);
+        sabotage_marks(&mut picture, game, station.id);
         // The machines' ship, tied up at the far airlock, or their
         // lander down on the plain beyond a gate (feature 83). Drawn in
         // the station's own frame, so it turns with the station; it is a

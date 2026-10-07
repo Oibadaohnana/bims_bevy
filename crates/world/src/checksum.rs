@@ -929,6 +929,18 @@ fn eat_manufacturers(hash: &mut Fnv, it: &crate::droid::Infestation) {
     if it.manufacturers {
         hash.eat(0x_4D41_4E55);
     }
+    // A Sabotage (October 2026), only where there is one.
+    if let Some(s) = &it.sabotage {
+        hash.eat(0x_5341_424F);
+        hash.eat(u64::from(s.charge.0));
+        hash.eat(u64::from(s.charge.1));
+        hash.eat(u64::from(s.extraction));
+        hash.eat(u64::from(s.phase.code()));
+        hash.eat(u64::from(s.planted));
+        hash.eat(u64::from(s.disarm));
+        hash.eat(s.left);
+        hash.eat(s.next_wave);
+    }
 }
 
 /// The Machine Heart's fight on its fortress's infestation (feature 108):
