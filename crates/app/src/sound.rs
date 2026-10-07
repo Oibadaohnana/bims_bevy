@@ -876,9 +876,10 @@ impl Sounds {
             Cue::RailCharge => self.one_shot(commands, Clip::RailCharge, 0.45),
             Cue::Marked => self.one_shot(commands, Clip::Marked, 0.5),
             Cue::Blink => self.one_shot(commands, Clip::Blink, 0.5),
-            // A reload, the player's own over the rest (`OTHERS_SHOTS` and a
-            // half again): a crew of bots reloading round a fight is a
-            // murmur under it. Every gun but the shotgun plays one of two
+            // A reload, the player's own over the rest (`OTHERS_SHOTS`, a
+            // half and a half again — halved once more in October 2026,
+            // a crowd's reloads crackling together): a crew of bots
+            // reloading round a fight is a murmur under it. Every gun but the shotgun plays one of two
             // takes at random, and each reload strays in pitch by
             // [`RELOAD_PITCH`].
             Cue::Reload { weapon, by } => {
@@ -890,7 +891,7 @@ impl Sounds {
                 let level = if by.is_some() && by == own {
                     0.55
                 } else {
-                    0.55 * OTHERS_SHOTS * 0.5
+                    0.55 * OTHERS_SHOTS * 0.25
                 };
                 let speed = self.stray(RELOAD_PITCH);
                 self.one_shot_at(commands, clip, level, self.volumes.of(clip), speed);
