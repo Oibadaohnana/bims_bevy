@@ -24,6 +24,14 @@ Three probes, all on the room alone and linking nothing:
   the rack, `droidwreck wrecks 12` the wrecks close up and twelve seconds
   cold.
 
+And one directory, not a probe of the room: **`cpu_drift/`** (2026-10-07),
+whether another CPU computes the simulation differently. `run.sh` plays
+the same libm inputs, galaxies, seeded runs and an arena fight twice —
+once as this machine is, once with glibc told it has no FMA/AVX2 — and
+compares bit for bit; `run.sh arm` adds aarch64 under qemu. It builds
+into `/tmp/cpu_drift`, outside the tree. The header of `run.sh` says what
+each mode is.
+
 Everything else that used to be here — `crew`, `cues`, `diary`, `neglect`,
 `poison`, `priority`, `probe`, `social`, `spread`, `stew` and `sweep` — was
 the needs, or a day in the classic room, and went with them in feature 104.

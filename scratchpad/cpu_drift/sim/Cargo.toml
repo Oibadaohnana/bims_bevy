@@ -1,0 +1,13 @@
+[workspace]
+
+[package]
+name = "drift"
+version = "0.1.0"
+edition = "2024"
+[dependencies]
+world = { path = "../../../crates/world" }
+bims = { path = "../../../crates/game" }
+shipdesign = { path = "../../../crates/shipdesign" }
+worldgen = { path = "../../../crates/worldgen" }
+[profile.release]
+debug = false
