@@ -141,9 +141,16 @@ mod missions;
 // reason.
 #[path = "sabotage.rs"]
 mod sabotage;
-pub use sabotage::{PLANT_CODE, SabotageLook};
+// Evacuation (October 2026), a mission the map shapes.
+#[path = "evacuation.rs"]
+mod evacuation;
+// A nest hunt (October 2026), a mission the map shapes.
+#[path = "nests.rs"]
+mod nests;
 pub use entry::{EntryLook, WELD_CODE};
+pub use evacuation::EvacuationLook;
 pub use missions::BREACHES_ODDS;
+pub use sabotage::{PLANT_CODE, SabotageLook};
 
 /// What a player can ask the world to do.
 ///
@@ -301,6 +308,12 @@ pub enum Command {
     /// (October 2026, the Use key): planted after `data::PLANT_SECONDS` of
     /// hands on it. Refused `OutOfReach` and `NoChargeNear`.
     Plant {
+        slot: u32,
+    },
+    /// That player's own Bim takes up an **Evacuation**'s flag lying
+    /// within reach, or puts down the one it carries where it stands
+    /// (October 2026, the Use key). Refused `OutOfReach` and `NoFlagNear`.
+    Flag {
         slot: u32,
     },
     /// Take one of that player's own engineer's mines or Healing Sentries
@@ -1519,12 +1532,16 @@ impl World {
         self.droid_waves(&mut events);
         //    And a Sabotage's charge held or run from (October 2026).
         self.sabotage_step(&mut events);
+        //    And a nest hunt's nests building (October 2026).
+        self.nests_step(&mut events);
         //    And, at a **threatened town the crew have landed at**
         //    (feature 94), the same clock again for a fight that is the
         //    town's rather than the machines': the first wave an hour
         //    after the landing, the next after each is destroyed, and the
         //    whole of it held where it stands while the ship is away.
         self.defense_waves(&mut events);
+        //    And an Evacuation's people by its flag (October 2026).
+        self.evacuation_step(&mut events);
         //    And an Area defend's FOB said to both rooms: the sandbags,
         //    and where each body makes for (October 2026).
         self.say_the_fob();
@@ -1700,6 +1717,7 @@ impl World {
             | Command::Detonate { slot }
             | Command::Weld { slot }
             | Command::Plant { slot }
+            | Command::Flag { slot }
             | Command::PackUp { slot, .. }
             | Command::StunShot { slot, .. }
             | Command::Throw { slot, .. }
@@ -1907,6 +1925,10 @@ impl World {
                     entry,
                     done: false,
                 }),
+                Err(why) => events.push(refused(slot, why)),
+            },
+            Command::Flag { .. } => match self.flag(slot) {
+                Ok(taken) => events.push(WorldEvent::FlagCarried { who: slot, taken }),
                 Err(why) => events.push(refused(slot, why)),
             },
             Command::Plant { .. } => match self.plant(slot) {
@@ -2346,6 +2368,18 @@ impl World {
     /// The comparison is against the room's **Bims** — `crew_count`, not
     /// `Aboard::count`, which counts the machines too — since what is
     /// being reopened is the people.
+    /// An Evacuation's refugees at `station` (October 2026), while it is
+    /// to come or under way; none anywhere else.
+    fn evacuees_of(&self, station: u32) -> u32 {
+        let under_way =
+            self.site_threatened(station) || self.defense(station).is_some_and(|d| !d.over());
+        if self.mission_here(station) == crate::run::Mission::Evacuation && under_way {
+            data::EVACUEES
+        } else {
+            0
+        }
+    }
+
     fn reopen_residents(&mut self, station: u32) {
         let reopen = self
             .residents
@@ -2356,7 +2390,7 @@ impl World {
                 let count = self.people_of(s);
                 // And the defenders (task 111), who are Bims of the room
                 // as much as the people are.
-                let defenders = self.defenders_of(station);
+                let defenders = self.defenders_of(station) + self.evacuees_of(station);
                 (count + defenders != r.aboard.room.crew_count())
                     .then(|| (s.design.clone(), s.map_seed))
             });
@@ -3503,10 +3537,14 @@ impl World {
         seed: u64,
     ) -> Residents {
         let defenders = self.defender_tiers(self.defenders_of(station));
+        // An Evacuation's refugees (October 2026), while it is to come or
+        // under way.
+        let evacuees = self.evacuees_of(station);
         let mut residents = Residents::open(
             station,
             design,
             count,
+            evacuees,
             &defenders,
             seed,
             self.clock_minutes,
@@ -6581,7 +6619,9 @@ impl World {
         // in its fortress they are the whole deck: no wave stands there,
         // a wave and its Guardians come for each conduit shot down
         // (October 2026, `World::conduit_wave`).
-        let heart = self.heart_machines_to_lay(&station);
+        let mut heart = self.heart_machines_to_lay(&station);
+        // And a nest hunt's nests (October 2026), the same way.
+        heart.extend(self.nest_machines_to_lay(&station));
         if let Some(residents) = &mut self.residents {
             residents
                 .aboard
@@ -6631,6 +6671,7 @@ impl World {
             // charge laid (October 2026).
             self.settle_heart_fight(id);
             self.settle_sabotage(id);
+            self.settle_nests(id);
             self.settle_droids();
         }
         let standing = self.droids_standing();
@@ -6638,6 +6679,7 @@ impl World {
         // arrival, whatever day it is.
         let now = self.run.mission_steps;
         let reinforce = self.reinforce_steps_here(id);
+        let nest_stands = self.a_nest_stands(id);
         let mut arrive = false;
         let mut last = false;
         let mut cleared = false;
@@ -6662,7 +6704,7 @@ impl World {
                     }
                     Some(_) => {}
                 }
-            } else if !it.cleared && it.heart.is_none() && it.sabotage.is_none() {
+            } else if !it.cleared && it.heart.is_none() && it.sabotage.is_none() && !nest_stands {
                 // A Sabotage (October 2026) is cleared by its charge
                 // blowing and nothing else (`World::sabotage_step`).
                 // The Machine Heart's fortress is cleared by its core and
@@ -7288,6 +7330,10 @@ impl World {
                 if total > 0 {
                     fresh.breaches = Some(defense::Breaches { total, open: total });
                 }
+            } else if self.mission_here(id) == crate::run::Mission::Evacuation {
+                // An Evacuation (October 2026): its people counted, the
+                // flag where the first of them stands.
+                fresh.evacuation = self.begin_evacuation();
             }
             let at = self.defenses.partition_point(|d| d.station < id);
             self.defenses.insert(at, fresh);
@@ -7399,12 +7445,15 @@ impl World {
             // Seal the breaches' waves are on a clock as well, every
             // `BREACH_WAVE_STEPS` while a breach is open.
             let area = d.area.is_some();
-            let clocked = area || d.breaches.is_some();
+            let breach = d.breaches.is_some();
+            let clocked = area || breach || d.evacuation.is_some();
             let gap = |wave: u32| {
                 if area {
                     defense::area_gap(wave)
-                } else {
+                } else if breach {
                     data::BREACH_WAVE_STEPS
+                } else {
+                    data::EVAC_WAVE_STEPS
                 }
             };
             if standing > 0 && !(clocked && d.wave > 0 && d.more_to_come()) {

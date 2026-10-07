@@ -424,6 +424,21 @@ pub const SABOTAGE_WAVE_STEPS: u64 = 900;
 pub const DISARM_STEPS: u32 = 480;
 pub const DISARM_REACH_TILES: f32 = 1.5;
 pub const EXTRACTION_REACH_TILES: f32 = 3.0;
+/// **Evacuation** (October 2026): how many refugees a site has past its
+/// own people; a wave every so many steps (25 s) until they are aboard,
+/// the last down or not; how near the flag a Bim picks it up, in tiles.
+pub const EVACUEES: u32 = 6;
+/// **A nest hunt** (October 2026): how many nests a site has for one
+/// player and how many more a player past it, at most; what each takes
+/// (a Heart's fabricator's); and how often every standing nest builds a
+/// machine (20 s).
+pub const NESTS: u32 = 3;
+pub const NESTS_PER_PLAYER: u32 = 1;
+pub const NESTS_MOST: u32 = 5;
+pub const NEST_HEALTH: f32 = 400.0;
+pub const NEST_BUILD_STEPS: u64 = 1_200;
+pub const EVAC_WAVE_STEPS: u64 = 1_500;
+pub const FLAG_REACH_TILES: f32 = 1.75;
 /// How many of a defended town's surviving people join the crew when the
 /// last wave is destroyed: two, not more and not less, whatever the
 /// town's size — fewer only when fewer than two are left besides the

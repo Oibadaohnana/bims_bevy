@@ -8659,3 +8659,82 @@ whole of it. In short:
 
 **SAVE_VERSION 125.** Meant to alter play (a third of the station attacks
 on the floor past area 0); the pins run off the floor.
+
+## Evacuation (October 2026)
+
+The third mission the map shapes, the player's: "a flag that the
+civilians gather around and that can be dropped off. So a player can
+pick it up and still shoot but civilians follow that player. When the
+Flag is dropped they stay near the flag". `evacuation.rs` (a child of
+`world`) is the rule; its module note is the whole of it.
+
+- **Which**: `mission_at`'s roll makes a station defence Seal the breaches
+  on 0, Evacuation on 1 (of `BREACHES_ODDS`, 3), plain on 2.
+- **Who**: `Residents::open` takes `evacuees` — `data::EVACUEES` (6)
+  refugees past the bunks, the site's own people all the same
+  (`World::evacuees_of`, while the defence is to come or under way;
+  `reopen_residents` counts them, and `set_mission_for_probe` reopens the
+  site's room so they are there). The evacuees are every own body of the
+  site's room, alive, not a Manufacturer.
+- **`Defense::evacuation: Option<defense::Evacuation { total, aboard,
+  holder, at }>`** (saved, hashed where `Some`), laid as the defence
+  begins (`begin_evacuation`: the flag where the first of them stands).
+  `Command::Flag` (the Use key, V, first before the charge and the weld)
+  takes it up within `FLAG_REACH_TILES` (1.75) — a player's Bim — or puts
+  it down where the Bim stands; `Refusal::NoFlagNear` (139),
+  `WorldEvent::FlagCarried { who, taken }` (172). A carrier unfit drops
+  it.
+- **`evacuation_step`**, after `defense_waves`: each person on the crew's
+  ship (its own design under them on the crew's deck) is aboard for good
+  (`Evacuated { station, aboard }`, 173); the rest are posted
+  (`Game::post_at`) a spot each round the flag in the site's room — the
+  sheltering keeps a post it did not set — so they follow its carrier or
+  hold where it lies. Held when every one alive is aboard: `won`,
+  `TownHeld`, the pending bounty cut to the share saved. None alive: the
+  defence `lost`, `TownFell`, nothing paid.
+- **Waves** on a clock, `data::EVAC_WAVE_STEPS` (25 s), stacking, until
+  it is over (`Defense::more_to_come`). No bonus wave; `site_waves` four.
+- The app: `evacuation_look` (the flag in the site's units, carried, the
+  aboard and the alive), `world_paint::evacuation_flag`, the HUD line and
+  count ("Aboard 3/8 · flag: V"), `BIMS_MISSION=evacuation`.
+- `tests_defense.rs`' `an_evacuation_follows_the_flag_to_the_ship_and_is_held`
+  and `a_dropped_flag_holds_them_there_and_none_left_alive_loses_the_site`.
+
+**SAVE_VERSION 126.** Meant to alter play (a third of the station defences
+on the floor past area 0).
+
+## A nest hunt (October 2026)
+
+The fourth, the player's "6. is a nice idea and i want that" — nests in
+the walls that bring waves until they are destroyed. `nests.rs` (a child
+of `world`) is the rule; its module note is the whole of it.
+
+- **Which**: `mission_at`'s roll makes a station attack in the
+  **tier-three zone** (`floor_tier_of(star) == Tier::Three`) a nest hunt
+  on 1 (Sabotage keeps 0, at every tier).
+- `Infestation::nests: Option<droid::Nests { spots, facing, down,
+  next_build, built }>` (saved, hashed where `Some`), laid at the first
+  dock (`settle_nests`): `data::NESTS` (3), one more a player past the
+  first, at most `NESTS_MOST` (5), at `nests::nest_spots` — free tiles
+  with a wall behind and the bay's two tiles before them free, the first
+  beside a fuel drum where the site has one, the rest the farthest from
+  the port and from each other.
+- **They are the Heart's fabricators**: `settle_droids` lays them first
+  (`nest_machines_to_lay`, `Droid::structure(Fabricator, Tier::Three,
+  NEST_HEALTH 400)`), so they keep the front of the machines' list, a
+  wave cleared keeps them (`clear_wave_droids` keeps structures) and
+  `droids_standing` never counts them; one destroyed before is laid a
+  wreck. `nests_step` reads which are destroyed off the room (said as
+  `WorldEvent::NestDestroyed { station, left }`, 174) and every
+  `NEST_BUILD_STEPS` (20 s) every standing one builds a machine
+  (`World::fabricate`, the fortress's, `pub(super)` now), looking for the
+  crew. `droid_waves` clears nothing while a nest stands
+  (`a_nest_stands`).
+- The app: `nests_standing`, `nests_look` (each standing nest in the
+  site's units) — `world_paint::nest_marks` rings them in a glowing red
+  seen through the fog — the HUD line and count ("Nests 2/3"),
+  `BIMS_MISSION=nests`.
+- `tests_droid.rs`' `a_nest_hunt_s_nests_build_until_destroyed_and_then_the_site_clears`.
+
+**SAVE_VERSION 127.** Meant to alter play (a third of the station attacks
+in the tier-three zone).

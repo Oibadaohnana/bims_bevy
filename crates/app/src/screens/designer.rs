@@ -164,6 +164,9 @@ pub enum Order {
     Weld,
     /// A Sabotage's charge planted — `Command::Plant`, the V key.
     Plant,
+    /// An Evacuation's flag taken up or put down — `Command::Flag`, the V
+    /// key.
+    Flag,
     /// A mine or a Healing Sentry taken back up, the charge back —
     /// `Command::PackUp`.
     PackUp(u32),
@@ -541,6 +544,7 @@ impl Net {
                         Order::Detonate => Command::Detonate { slot },
                         Order::Weld => Command::Weld { slot },
                         Order::Plant => Command::Plant { slot },
+                        Order::Flag => Command::Flag { slot },
                         Order::PackUp(id) => Command::PackUp { slot, id },
                         Order::StunShot { x, y } => Command::StunShot { slot, x, y },
                         Order::Throw { x, y } => Command::Throw { slot, x, y },

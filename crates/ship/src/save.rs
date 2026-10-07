@@ -324,7 +324,9 @@ use crate::game::Game;
 /// 124: Seal the breaches (`world::defense::Breaches` on a `Defense`) and
 /// the welding under way (`world::Run::weld_work`).
 /// 125: a Sabotage on an `Infestation` (`world::droid::Sabotage`).
-pub const SAVE_VERSION: u32 = 125;
+/// 126: an Evacuation on a `Defense` (`world::defense::Evacuation`).
+/// 127: a nest hunt's nests on an `Infestation` (`world::droid::Nests`).
+pub const SAVE_VERSION: u32 = 127;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

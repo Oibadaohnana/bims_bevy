@@ -1333,6 +1333,8 @@ pub fn mission() -> Option<world::run::Mission> {
     match std::env::var("BIMS_MISSION").ok()?.trim() {
         "breaches" => Some(world::run::Mission::Breaches),
         "sabotage" => Some(world::run::Mission::Sabotage),
+        "evacuation" => Some(world::run::Mission::Evacuation),
+        "nests" => Some(world::run::Mission::Nests),
         "plain" => Some(world::run::Mission::Plain),
         _ => None,
     }

@@ -50,6 +50,8 @@ impl World {
             Some(d) if d.area.is_some() => defense::area_waves(),
             // Seal the breaches: a wave a breach and one more, near enough.
             Some(d) if d.breaches.is_some() => d.breaches.map_or(1, |b| b.total + 1),
+            // An Evacuation: about four waves before its people are aboard.
+            Some(d) if d.evacuation.is_some() => 4,
             Some(d) => d.wave.saturating_add(d.waves_left).max(1),
             None => 1,
         }

@@ -1475,3 +1475,137 @@ fn two_bims_weld_a_breach_twice_as_fast() {
         "two Bims: {two} steps"
     );
 }
+
+// --- Evacuation (October 2026) ----------------------------------------------
+
+/// The spawn's defence as an **Evacuation**, its first wave far off.
+fn evacuation(delay: u64) -> (World, u32) {
+    let (mut world, id) = a_station_defence(1, 2);
+    world.set_defense_delay_for_probe(delay as f64 * data::STEP_MINUTES);
+    world.set_mission_for_probe(Some(crate::run::Mission::Evacuation));
+    world.step(&[]);
+    assert!(
+        world.defense(id).is_some_and(|d| d.evacuation.is_some()),
+        "the defence began as an Evacuation"
+    );
+    (world, id)
+}
+
+fn flag_on_deck(world: &World) -> bims::math::Vec2 {
+    let look = world.evacuation_look().expect("an Evacuation");
+    let p = world.aboard.from_station(look.flag).expect("on the deck");
+    bims::math::vec2(p.x as f32, p.y as f32)
+}
+
+/// The site's people and its refugees follow the flag a player carries to
+/// the ship, and the defence is held with every one of them aboard.
+#[test]
+fn an_evacuation_follows_the_flag_to_the_ship_and_is_held() {
+    let (mut world, id) = evacuation(100_000);
+    let look = world.evacuation_look().unwrap();
+    assert!(
+        look.total >= data::EVACUEES,
+        "the refugees and the site's own"
+    );
+    assert!(!look.carried);
+    // Taken up from beside it.
+    let flag = flag_on_deck(&world);
+    world.aboard.room.stand_at(0, flag);
+    let events = world.step(&[Command::Flag { slot: 0 }]);
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            WorldEvent::FlagCarried {
+                who: 0,
+                taken: true
+            }
+        )),
+        "{events:?}"
+    );
+    // Carried to the ship: they follow, and are aboard.
+    let home = world.aboard.gangway.expect("the ship's gangway");
+    let home = bims::math::vec2(home.x as f32, home.y as f32);
+    let mut held = false;
+    for _ in 0..6_000 {
+        world.aboard.room.stand_at(0, home);
+        let events = world.step(&[]);
+        if events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::TownHeld { station } if *station == id))
+        {
+            held = true;
+            break;
+        }
+    }
+    let look = world.evacuation_look().unwrap();
+    assert!(
+        held,
+        "held: {} of {} aboard, {} alive",
+        look.aboard, look.total, look.alive
+    );
+    assert_eq!(look.aboard, look.alive);
+    assert!(world.defense(id).unwrap().won);
+}
+
+/// The flag put down holds them where it lies; a player who is not the
+/// carrier cannot take it from another; and with every one of them dead
+/// the Evacuation fails and the site falls.
+#[test]
+fn a_dropped_flag_holds_them_there_and_none_left_alive_loses_the_site() {
+    let (mut world, id) = evacuation(100_000);
+    let flag = flag_on_deck(&world);
+    world.aboard.room.stand_at(0, flag);
+    world.step(&[Command::Flag { slot: 0 }]);
+    assert_eq!(world.can_flag(1), Err(crate::event::Refusal::NoFlagNear));
+    // Carried a few tiles and put down.
+    let t = shipdesign::TILE as f32;
+    let there = flag + bims::math::vec2(0.0, 4.0 * t);
+    world.aboard.room.stand_at(0, there);
+    world.step(&[]);
+    let events = world.step(&[Command::Flag { slot: 0 }]);
+    assert!(events.iter().any(|e| matches!(
+        e,
+        WorldEvent::FlagCarried {
+            who: 0,
+            taken: false
+        }
+    )));
+    world
+        .aboard
+        .room
+        .stand_at(0, flag - bims::math::vec2(0.0, 6.0 * t));
+    for _ in 0..1_200 {
+        world.step(&[]);
+    }
+    let at = flag_on_deck(&world);
+    assert!((at - there).len() < t, "it stays where it was put down");
+    // Most of them by it.
+    let residents = world.residents.as_ref().unwrap();
+    let room = &residents.aboard.room;
+    let by_it = (0..room.crew_count() as usize)
+        .filter(|&who| residents.is_own(who) && room.is_alive(who))
+        .filter(|&who| {
+            let p = residents.aboard.position(who as u32);
+            world
+                .aboard
+                .from_station(p)
+                .is_some_and(|q| (bims::math::vec2(q.x as f32, q.y as f32) - at).len() < 4.0 * t)
+        })
+        .count();
+    assert!(by_it * 2 >= data::EVACUEES as usize, "{by_it} by the flag");
+    // Every one of them dead: failed.
+    let residents = world.residents.as_mut().unwrap();
+    let n = residents.aboard.room.crew_count() as usize;
+    for who in 0..n {
+        if residents.is_own(who) {
+            residents.aboard.room.kill_now(who);
+        }
+    }
+    let events = world.step(&[]);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::TownFell { station } if *station == id))
+    );
+    assert!(world.defense(id).unwrap().lost);
+}

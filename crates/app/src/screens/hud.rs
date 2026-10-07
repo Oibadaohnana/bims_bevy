@@ -166,6 +166,13 @@ fn droid_line(world: &world::World) -> Option<(String, &'static str)> {
         };
         return Some((words, BREACHES_TIP));
     }
+    // An Evacuation (October 2026): how many are aboard and the flag.
+    if let Some(look) = world.evacuation_look() {
+        return Some((
+            evacuation_line(look.aboard, look.alive, look.carried),
+            EVACUATION_TIP,
+        ));
+    }
     if let Some(defending) = world.defense_here() {
         let waves = defending.wave + defending.waves_left;
         let standing = world.droids_standing();
@@ -237,6 +244,10 @@ fn droid_line(world: &world::World) -> Option<(String, &'static str)> {
             heart_and_waves(&line, &waves)
         };
         return Some((text, HEART_TIP));
+    }
+    // A nest hunt (October 2026): the nests standing.
+    if let Some((standing, total)) = world.nests_standing() {
+        return Some((nests_line(standing, total), NESTS_TIP));
     }
     // A Sabotage (October 2026): its phase's line in place of the waves'.
     if let Some(look) = world.sabotage_look() {
@@ -865,6 +876,24 @@ pub fn counter(world: &world::World, flying: u32) -> Option<Counter> {
             }),
         });
     }
+    // An Evacuation (October 2026): on a clock as well, its line under the
+    // figure how many are aboard.
+    if let Some(look) = world.evacuation_look() {
+        let big = if standing > 0 {
+            up(standing)
+        } else if let Some(due) = world.defense_wave_due() {
+            counting(due)
+        } else {
+            down()
+        };
+        return Some(Counter {
+            big,
+            wave: None,
+            core: None,
+            area: None,
+            objective: Some((evacuation_count(look.aboard, look.alive), theme::HEAL)),
+        });
+    }
     if let Some(defending) = world.defense_here() {
         let waves = defending.wave + defending.waves_left;
         let due = world.defense_wave_due();
@@ -927,6 +956,15 @@ pub fn counter(world: &world::World, flying: u32) -> Option<Counter> {
 /// plant, the hold's clock and the disarming, or the escape's clock.
 fn sabotage_count(world: &world::World) -> Option<(String, egui::Color32)> {
     use world::droid::SabotagePhase;
+    // A nest hunt's (October 2026) the same way.
+    if let Some((standing, total)) = world.nests_standing() {
+        let colour = if standing == 0 {
+            theme::HEAL
+        } else {
+            theme::BAD
+        };
+        return Some((nests_count(standing, total), colour));
+    }
     let look = world.sabotage_look()?;
     let left = crate::format::countdown(look.seconds_left as f64);
     let disarmed = (look.disarmed * 100.0).round() as u32;

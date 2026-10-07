@@ -53,7 +53,12 @@ impl World {
         let roll = worldgen::rng::Rng::new(seed).below(BREACHES_ODDS);
         match kind {
             SiteKind::Defend if roll == 0 => Mission::Breaches,
+            SiteKind::Defend if roll == 1 => Mission::Evacuation,
             SiteKind::Attack if roll == 0 => Mission::Sabotage,
+            // A nest hunt in the tier-three zone alone.
+            SiteKind::Attack if roll == 1 && self.floor_tier_of(star) == Some(Tier::Three) => {
+                Mission::Nests
+            }
             _ => Mission::Plain,
         }
     }
@@ -72,6 +77,10 @@ impl World {
     /// tests and the staged commands (`BIMS_MISSION`). Saved, not hashed.
     pub fn set_mission_for_probe(&mut self, mission: Option<Mission>) {
         self.mission_forced = mission;
+        // The site's room opened again, for an Evacuation's refugees.
+        if let Some(id) = self.ship.state.alongside() {
+            self.reopen_residents(id);
+        }
     }
 
     // --- Seal the breaches -------------------------------------------------

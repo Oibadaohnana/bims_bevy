@@ -73,6 +73,23 @@ pub struct Defense {
     /// `None` at every other defence, and in a save from before.
     #[cfg_attr(feature = "serde", serde(default))]
     pub breaches: Option<Breaches>,
+    /// **Evacuation** (October 2026, `crate::world` `evacuation.rs`):
+    /// `None` at every other defence.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub evacuation: Option<Evacuation>,
+}
+
+/// An Evacuation's state: how many of the site's people there were, which
+/// of them (by body index in the site's room) are aboard the crew's ship,
+/// and the flag — who of the crew carries it, or where on the crew's deck
+/// it was dropped (room units, whole ones).
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Evacuation {
+    pub total: u32,
+    pub aboard: Vec<u32>,
+    pub holder: Option<u32>,
+    pub at: (i32, i32),
 }
 
 /// A Seal the breaches fight's count of its ways in: how many it has, and
@@ -212,6 +229,7 @@ impl Defense {
             lost: false,
             area: None,
             breaches: None,
+            evacuation: None,
         }
     }
 
@@ -229,10 +247,12 @@ impl Defense {
     /// Whether any wave is still to come after the one on the ground —
     /// at an Area defend, while its hold has time to run.
     pub fn more_to_come(&self) -> bool {
-        match (&self.area, &self.breaches) {
-            (Some(area), _) => area.left > 0,
-            (None, Some(breaches)) => breaches.open > 0,
-            (None, None) => self.waves_left > 0,
+        match (&self.area, &self.breaches, &self.evacuation) {
+            (Some(area), _, _) => area.left > 0,
+            (None, Some(breaches), _) => breaches.open > 0,
+            // An Evacuation's waves come until it is over.
+            (None, None, Some(_)) => !self.over(),
+            (None, None, None) => self.waves_left > 0,
         }
     }
 

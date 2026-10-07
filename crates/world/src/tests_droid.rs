@@ -1581,3 +1581,78 @@ fn the_charge_blows_and_only_who_reached_the_way_out_gets_away() {
     // And the crew go home, that very step.
     assert!(!world.in_mission(), "the mission is over");
 }
+
+// --- A nest hunt (October 2026) -----------------------------------------------
+
+/// Every machine but the nests destroyed, where it stands.
+fn wreck_all_but_the_nests(world: &mut World) {
+    let n = room!(world).droid_count() as usize;
+    let room = room_mut!(world);
+    for i in 0..n {
+        if room
+            .droid(i)
+            .is_some_and(|d| d.kind != DroidKind::Fabricator)
+        {
+            room.strike_droid(i, DroidPart::Chassis, 1e6);
+        }
+    }
+}
+
+/// The nests stand at the front of the machines, build a machine each on
+/// their clock and keep the site from clearing while one stands; with
+/// every nest and machine destroyed the site is cleared.
+#[test]
+fn a_nest_hunt_s_nests_build_until_destroyed_and_then_the_site_clears() {
+    let (mut world, station) = held_arena();
+    world.set_mission_for_probe(Some(crate::run::Mission::Nests));
+    world.set_droid_waves_for_probe(1);
+    open_the_room(&mut world);
+    let (standing, total) = world.nests_standing().expect("a nest hunt");
+    assert_eq!((standing, total), (data::NESTS, data::NESTS));
+    assert_eq!(
+        world.nests_look().len(),
+        data::NESTS as usize,
+        "every standing nest marked"
+    );
+    for i in 0..total as usize {
+        assert_eq!(
+            room!(world).droid(i).unwrap().kind,
+            DroidKind::Fabricator,
+            "nest {i} first"
+        );
+    }
+    // The site's wave down, the nests build on.
+    wreck_all_but_the_nests(&mut world);
+    let before = room!(world).droid_count();
+    for _ in 0..(data::NEST_BUILD_STEPS + 10) {
+        world.step(&[]);
+    }
+    assert!(
+        room!(world).droid_count() >= before + total,
+        "every nest built: {} after {before}",
+        room!(world).droid_count()
+    );
+    assert!(
+        !world.infestation(station).unwrap().cleared,
+        "not while a nest stands"
+    );
+    // Every nest destroyed, said, and the deck: cleared.
+    let mut said = 0;
+    for i in 0..total as usize {
+        room_mut!(world).strike_droid(i, DroidPart::Chassis, 1e6);
+    }
+    for _ in 0..600 {
+        wreck_all_but_the_nests(&mut world);
+        said += world
+            .step(&[])
+            .iter()
+            .filter(|e| matches!(e, WorldEvent::NestDestroyed { .. }))
+            .count();
+        if world.infestation(station).unwrap().cleared {
+            break;
+        }
+    }
+    assert_eq!(said, total as usize, "each nest down said once");
+    assert_eq!(world.nests_standing(), Some((0, total)));
+    assert!(world.infestation(station).unwrap().cleared);
+}

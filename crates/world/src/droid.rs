@@ -94,6 +94,23 @@ pub struct Infestation {
     /// other attack. Put back with the rest of this when the crew leave.
     #[cfg_attr(feature = "serde", serde(default))]
     pub sabotage: Option<Sabotage>,
+    /// **A nest hunt** (October 2026, `crate::world` `nests.rs`): the
+    /// nests grown into the site's walls. `None` at every other attack.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub nests: Option<Nests>,
+}
+
+/// A nest hunt's nests: where each is grown (a tile of the site's design,
+/// and the way its bay faces, a unit step), which are destroyed, when the
+/// standing ones next build and how many machines they have built.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Nests {
+    pub spots: Vec<(u32, u32)>,
+    pub facing: Vec<(i32, i32)>,
+    pub down: Vec<bool>,
+    pub next_build: u64,
+    pub built: u32,
 }
 
 /// Where a Sabotage stands: the charge to plant, held, then the run for
@@ -151,6 +168,7 @@ impl Infestation {
             heart: None,
             manufacturers: false,
             sabotage: None,
+            nests: None,
         }
     }
 

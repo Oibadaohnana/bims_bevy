@@ -2869,13 +2869,22 @@ fn frame(
                         .world
                         .sabotage_look()
                         .is_some_and(|s| s.phase == world::droid::SabotagePhase::Plant);
-                    match (game.world.can_plant(slot), game.world.can_weld(slot)) {
-                        (Ok(_), _) => orders.push(Order::Plant),
-                        (_, Ok(_)) => orders.push(Order::Weld),
-                        (Err(why), _) if planting => {
-                            screen.log.push(crate::names::plant_refused(why))
+                    let evacuating = game.world.evacuation_look().is_some();
+                    if evacuating && game.world.can_flag(slot).is_ok() {
+                        orders.push(Order::Flag);
+                    } else if evacuating && game.world.can_weld(slot).is_err() {
+                        if let Err(why) = game.world.can_flag(slot) {
+                            screen.log.push(crate::names::flag_refused(why));
                         }
-                        (_, Err(why)) => screen.log.push(crate::names::weld_refused(why)),
+                    } else {
+                        match (game.world.can_plant(slot), game.world.can_weld(slot)) {
+                            (Ok(_), _) => orders.push(Order::Plant),
+                            (_, Ok(_)) => orders.push(Order::Weld),
+                            (Err(why), _) if planting => {
+                                screen.log.push(crate::names::plant_refused(why))
+                            }
+                            (_, Err(why)) => screen.log.push(crate::names::weld_refused(why)),
+                        }
                     }
                 }
                 // The 1× key (task 119: 1× or paused, nothing else) sets

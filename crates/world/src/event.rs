@@ -251,6 +251,14 @@ pub enum WorldEvent {
     SabotageStage { station: u32, phase: u32 },
     /// Crew member `who` put its hands to a Sabotage's charge.
     Planting { who: u32 },
+    /// Player `who` took up an Evacuation's flag, or — `taken` false — put
+    /// it down (or dropped it, down).
+    FlagCarried { who: u32, taken: bool },
+    /// One more of an Evacuation's people aboard the crew's ship: `aboard`
+    /// of them now.
+    Evacuated { station: u32, aboard: u32 },
+    /// A nest hunt's nest destroyed: `left` of them standing.
+    NestDestroyed { station: u32, left: u32 },
     /// The host said that player has left the game.
     PlayerGone { slot: u32 },
     /// Relics are on offer to the crew (feature 106): `count` of them, off
@@ -672,6 +680,9 @@ pub enum Refusal {
     /// *Back to ship* while a Sabotage's charge is armed: the ship has
     /// cast off and waits at the way out (October 2026).
     ShipCastOff = 138,
+    /// An Evacuation's flag asked for with none to take up within reach,
+    /// or another player carrying it (October 2026).
+    NoFlagNear = 139,
 }
 
 impl Refusal {
@@ -768,6 +779,9 @@ impl WorldEvent {
             WorldEvent::WeldBurnt { .. } => 169,
             WorldEvent::SabotageStage { .. } => 170,
             WorldEvent::Planting { .. } => 171,
+            WorldEvent::FlagCarried { .. } => 172,
+            WorldEvent::Evacuated { .. } => 173,
+            WorldEvent::NestDestroyed { .. } => 174,
             WorldEvent::PlayerGone { .. } => 106,
             WorldEvent::RelicsOffered { .. } => 107,
             WorldEvent::RelicProposed { .. } => 108,
@@ -925,6 +939,9 @@ impl WorldEvent {
             WorldEvent::WeldBurnt { entry } => entry as i64,
             WorldEvent::SabotageStage { phase, .. } => phase as i64,
             WorldEvent::Planting { who } => who as i64,
+            WorldEvent::FlagCarried { who, taken } => (who as i64) + 100 * i64::from(taken),
+            WorldEvent::Evacuated { aboard, .. } => aboard as i64,
+            WorldEvent::NestDestroyed { left, .. } => left as i64,
             // The kind in the hundreds, the player in the units.
             WorldEvent::ItemUsed { who, kind } => (who as i64) + 100 * (kind as i64),
             // The buyer in the units, the kind in the tens, the tier in the

@@ -880,6 +880,90 @@ fn ways_in(list: &mut DrawList, game: &Game, station: u32) {
     }
 }
 
+/// A nest hunt's standing nests (October 2026, `World::nests_look`), in
+/// the station's own frame: a slow red pulse round each, seen through the
+/// fog — the hunt's quarry is known, what guards it is not.
+fn nest_marks(list: &mut DrawList, game: &Game, station: u32) {
+    if game.world.ship.state.alongside() != Some(station) {
+        return;
+    }
+    let t = TILE as f32;
+    let pulse = (game.frame as f32 * 0.06).sin() * 0.5 + 0.5;
+    for at in game.world.nests_look() {
+        let (x, y) = (at.x as f32, at.y as f32);
+        let r = t * (1.1 + 0.3 * pulse);
+        list.push(
+            crate::draw::KIND_ELLIPSE,
+            x,
+            y,
+            r * 2.0,
+            r * 2.0,
+            0.0,
+            0.0,
+            8.0,
+            CHARGE_ARMED.glowing(1.6 + 0.8 * pulse),
+        );
+        list.push(
+            crate::draw::KIND_ELLIPSE,
+            x,
+            y,
+            t * 0.5,
+            t * 0.5,
+            0.0,
+            0.0,
+            0.0,
+            CHARGE_ARMED.glowing(2.0),
+        );
+    }
+}
+
+const FLAG_POLE: Color = Color::rgb(0.80, 0.82, 0.86);
+const FLAG_CLOTH: Color = Color::rgb(0.30, 0.85, 1.0);
+
+/// An Evacuation's flag (October 2026, `World::evacuation_look`), in the
+/// station's own frame: a pole and a cloth that flutters, ringed where it
+/// lies so the people's gathering place reads at a glance; lifted over
+/// its carrier while it is carried.
+fn evacuation_flag(list: &mut DrawList, game: &Game) {
+    let Some(look) = game.world.evacuation_look() else {
+        return;
+    };
+    let t = TILE as f32;
+    let (x, y) = (look.flag.x as f32, look.flag.y as f32);
+    let lift = if look.carried { t * 0.6 } else { 0.0 };
+    if !look.carried {
+        let pulse = (game.frame as f32 * 0.08).sin() * 0.5 + 0.5;
+        let r = t * (1.3 + 0.15 * pulse);
+        list.push(
+            crate::draw::KIND_ELLIPSE,
+            x,
+            y,
+            r * 2.0,
+            r * 2.0,
+            0.0,
+            0.0,
+            7.0,
+            FLAG_CLOTH.glowing(1.3 + 0.5 * pulse),
+        );
+    }
+    let (bx, by) = (x, y - lift);
+    let top = by - t * 1.7;
+    list.line(bx, by, bx, top, 6.0, FLAG_POLE.glowing(1.4));
+    let wave = (game.frame as f32 * 0.2).sin() * 3.0;
+    let w = t * 1.0;
+    list.push(
+        crate::draw::KIND_RECT,
+        bx + w * 0.5,
+        top + t * 0.28 + wave * 0.3,
+        w,
+        t * 0.56,
+        0.0,
+        2.0,
+        0.0,
+        FLAG_CLOTH.glowing(1.9),
+    );
+}
+
 const CHARGE: Color = Color::rgb(1.0, 0.72, 0.20);
 const CHARGE_ARMED: Color = Color::rgb(1.0, 0.25, 0.18);
 const WAY_OUT: Color = Color::rgb(0.45, 0.95, 0.60);
@@ -2073,6 +2157,8 @@ fn stations(
         prop_faces(&mut picture, game, &station.design, station.id);
         ways_in(&mut picture, game, station.id);
         sabotage_marks(&mut picture, game, station.id);
+        evacuation_flag(&mut picture, game);
+        nest_marks(&mut picture, game, station.id);
         // The machines' ship, tied up at the far airlock, or their
         // lander down on the plain beyond a gate (feature 83). Drawn in
         // the station's own frame, so it turns with the station; it is a

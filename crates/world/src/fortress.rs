@@ -391,7 +391,7 @@ impl World {
     /// bay, at tier three and with the wave aboard: a Trooper, a Husk, a
     /// Trooper, a Warden and round again, by how many have been built so
     /// every client builds the same. How many were built.
-    fn fabricate(&mut self, id: u32, built: u32) -> u32 {
+    pub(super) fn fabricate(&mut self, id: u32, built: u32) -> u32 {
         let wave = self.infestation(id).map_or(1, |it| it.wave);
         let toughen = self.enemy_health_factor();
         let Some(residents) = self.residents.as_mut() else {

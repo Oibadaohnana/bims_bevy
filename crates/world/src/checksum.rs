@@ -914,6 +914,18 @@ fn eat_defenses(hash: &mut Fnv, defenses: &[crate::defense::Defense]) {
             hash.eat(u64::from(b.total));
             hash.eat(u64::from(b.open));
         }
+        // An Evacuation's (October 2026), only where it is one.
+        if let Some(e) = &d.evacuation {
+            hash.eat(0x_4556_4143);
+            hash.eat(u64::from(e.total));
+            hash.eat(e.aboard.len() as u64);
+            for &who in &e.aboard {
+                hash.eat(u64::from(who));
+            }
+            hash.eat(e.holder.map_or(u64::MAX, u64::from));
+            hash.eat(e.at.0 as u32 as u64);
+            hash.eat(e.at.1 as u32 as u64);
+        }
     }
 }
 
@@ -928,6 +940,18 @@ fn eat_held_towns(hash: &mut Fnv, towns: &[u32]) {
 fn eat_manufacturers(hash: &mut Fnv, it: &crate::droid::Infestation) {
     if it.manufacturers {
         hash.eat(0x_4D41_4E55);
+    }
+    // A nest hunt's nests (October 2026), only where there are any.
+    if let Some(n) = &it.nests {
+        hash.eat(0x_4E45_5354);
+        hash.eat(n.spots.len() as u64);
+        for (i, &(x, y)) in n.spots.iter().enumerate() {
+            hash.eat(u64::from(x));
+            hash.eat(u64::from(y));
+            hash.eat(u64::from(n.down.get(i).copied().unwrap_or(false)));
+        }
+        hash.eat(n.next_build);
+        hash.eat(u64::from(n.built));
     }
     // A Sabotage (October 2026), only where there is one.
     if let Some(s) = &it.sabotage {

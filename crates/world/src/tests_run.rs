@@ -210,8 +210,16 @@ fn every_role_has_a_round_on_a_sample_of_stations_and_towns() {
     let mut own = [0usize; 4];
     for site in &sites {
         let count = site.residents().max(1);
-        let mut residents =
-            Residents::open(site.id, &site.design, count, &[], site.map_seed, 0.0, &[]);
+        let mut residents = Residents::open(
+            site.id,
+            &site.design,
+            count,
+            0,
+            &[],
+            site.map_seed,
+            0.0,
+            &[],
+        );
         residents.deal_roles(site);
         let room = &mut residents.aboard.room;
         // What the world dealt: everybody a round with somewhere on it.

@@ -483,6 +483,7 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NoWayInNear => "no way in to weld here — stand at an airlock or a gate",
         Refusal::NoChargeNear => "stand at the charge's mark",
         Refusal::ShipCastOff => "the ship has cast off — it waits at the way out",
+        Refusal::NoFlagNear => "the flag is not within reach, or somebody else carries it",
         Refusal::BonusWaveHeld => "Overtime keeps the bonus wave on",
     }
 }
@@ -1880,6 +1881,19 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             )
         }
         WorldEvent::Planting { who: w } => format!("{} is planting the charge.", who(w)),
+        WorldEvent::FlagCarried {
+            who: w,
+            taken: true,
+        } => format!("{} carries the flag: the people follow.", who(w)),
+        WorldEvent::FlagCarried {
+            who: w,
+            taken: false,
+        } => {
+            format!("{} put the flag down: the people hold by it.", who(w))
+        }
+        WorldEvent::Evacuated { aboard, .. } => format!("{aboard} aboard the ship."),
+        WorldEvent::NestDestroyed { left: 0, .. } => "The last nest is destroyed.".into(),
+        WorldEvent::NestDestroyed { left, .. } => format!("A nest destroyed: {left} left."),
         WorldEvent::SabotageStage { phase: 1, .. } => {
             "The charge is planted. The ship casts off: hold it until it arms.".into()
         }
@@ -2521,6 +2535,8 @@ pub fn mission_word(
     match mission {
         world::run::Mission::Breaches => ARRIVE_BREACHES,
         world::run::Mission::Sabotage => ARRIVE_SABOTAGE,
+        world::run::Mission::Evacuation => ARRIVE_EVACUATION,
+        world::run::Mission::Nests => ARRIVE_NESTS,
         world::run::Mission::Plain => mission_kind_word(kind, area),
     }
 }
@@ -3581,6 +3597,46 @@ pub fn breaches_count(open: u32, total: u32) -> String {
 pub const BREACHES_SEALED_COUNT: &str = "Every breach welded";
 /// The map's word for Seal the breaches.
 pub const ARRIVE_BREACHES: &str = "SEAL BREACHES";
+/// The map's word for an Evacuation, its line, its count and its tip.
+pub const ARRIVE_EVACUATION: &str = "EVACUATION";
+pub fn evacuation_line(aboard: u32, alive: u32, carried: bool) -> String {
+    if carried {
+        format!("EVACUATION — {aboard} of {alive} aboard · they follow the flag")
+    } else {
+        format!("EVACUATION — {aboard} of {alive} aboard · take up the flag: V")
+    }
+}
+pub fn evacuation_count(aboard: u32, alive: u32) -> String {
+    format!("Aboard {aboard}/{alive} · flag: V")
+}
+pub const EVACUATION_TIP: &str = "• Take up the flag: V beside it
+• The people follow its carrier, who still shoots
+• V again: put it down, they hold by it
+• Everyone alive aboard the ship: held
+• Reward: the share of them saved
+• A wave every 25 s until then";
+/// And for the flag refused (October 2026).
+pub fn flag_refused(why: world::Refusal) -> String {
+    format!("No flag: {}.", refusal(why))
+}
+/// The map's word for a nest hunt, its line, its count and its tip.
+pub const ARRIVE_NESTS: &str = "NEST HUNT";
+pub fn nests_line(standing: u32, total: u32) -> String {
+    if standing == 0 {
+        "NEST HUNT — every nest destroyed: clear the deck".to_string()
+    } else {
+        format!(
+            "NEST HUNT — {standing} of {total} nests standing · each builds a machine every 20 s"
+        )
+    }
+}
+pub fn nests_count(standing: u32, total: u32) -> String {
+    format!("Nests {standing}/{total}")
+}
+pub const NESTS_TIP: &str = "• Nests grow in the walls: destroy them
+• Each builds a machine every 20 s
+• A fuel drum stands by one of them
+• All nests and machines down: cleared";
 /// The map's word for a Sabotage.
 pub const ARRIVE_SABOTAGE: &str = "SABOTAGE";
 /// A Sabotage's line (October 2026), by its phase: the charge to plant,
@@ -4295,6 +4351,7 @@ mod tests {
             Refusal::NoWayInNear,
             Refusal::NoChargeNear,
             Refusal::ShipCastOff,
+            Refusal::NoFlagNear,
         ] {
             assert!(!refusal(why).is_empty());
         }

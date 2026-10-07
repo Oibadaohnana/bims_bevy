@@ -127,11 +127,26 @@ pub enum Mission {
     /// while the machines make to disarm it — disarmed, the run is lost —
     /// then get out by another airlock before it blows.
     Sabotage,
+    /// **Evacuation** (a defence): the site's people and its refugees
+    /// follow the flag a player carries — or stay by it where it is
+    /// dropped — to the crew's ship; held once every one alive is
+    /// aboard, the reward the share of them saved.
+    Evacuation,
+    /// **A nest hunt** (an attack, tier three): nests grown into the
+    /// site's walls build a machine each on a clock until every one is
+    /// destroyed; cleared with the nests and the deck.
+    Nests,
 }
 
 impl Mission {
     /// Every one, in code order.
-    pub const ALL: [Mission; 3] = [Mission::Plain, Mission::Breaches, Mission::Sabotage];
+    pub const ALL: [Mission; 5] = [
+        Mission::Plain,
+        Mission::Breaches,
+        Mission::Sabotage,
+        Mission::Evacuation,
+        Mission::Nests,
+    ];
 
     /// The number that indexes the name tables.
     pub fn code(self) -> u32 {
@@ -139,6 +154,8 @@ impl Mission {
             Mission::Plain => 0,
             Mission::Breaches => 1,
             Mission::Sabotage => 2,
+            Mission::Evacuation => 3,
+            Mission::Nests => 4,
         }
     }
 }
