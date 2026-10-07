@@ -8565,12 +8565,16 @@ type (`Plain`, `Breaches`; saved nowhere, derived).
 - **Which** (`World::mission_at(star, station, kind, elite)`, the live
   `mission_here`): a roll off the galaxy's seed, the star and the station
   on `MISSION_SALT`, for a **station's** fight (never a town, the Heart, a
-  trader or an elite) **on the floor from the tier-one area on**; a
-  defence is Seal the breaches one time in `BREACHES_ODDS` (3). Off the
-  floor every fight is plain unless `set_mission_for_probe` (saved, not
-  hashed; `BIMS_MISSION=breaches|plain` in the app) forces one.
-  `FloorMark::mission` and `StarMission::mission` carry it to the map
-  (`names::mission_word`, "SEAL BREACHES").
+  trader, an elite or the start at home) **on the floor from its first
+  row on, at every tier** (the player's: "also in tier one those new
+  mission types should appear"); a defence is Seal the breaches one time
+  in `BREACHES_ODDS` (3). Off the floor every fight is plain unless
+  `set_mission_for_probe` (saved, not hashed; `BIMS_MISSION=breaches|plain`
+  in the app; the setup's Dev tab) forces one — only where its kind of
+  fight is, a defence's at a defence, an attack's at an attack.
+  `FloorMark::mission` and `StarMission::mission` carry it, but **the map
+  never says it** (the player's: "this should be a surprise"): a site
+  shows its kind, and the mission is found on arrival.
 - **Seal the breaches** (`Defense::breaches: Option<defense::Breaches {
   total, open }>`, saved, hashed where `Some`): set when the defence
   begins at a site whose mission it is and which has a way in but the
@@ -8709,9 +8713,9 @@ The fourth, the player's "6. is a nice idea and i want that" — nests in
 the walls that bring waves until they are destroyed. `nests.rs` (a child
 of `world`) is the rule; its module note is the whole of it.
 
-- **Which**: `mission_at`'s roll makes a station attack in the
-  **tier-three zone** (`floor_tier_of(star) == Tier::Three`) a nest hunt
-  on 1 (Sabotage keeps 0, at every tier).
+- **Which**: `mission_at`'s roll makes a station attack a nest hunt on 1
+  (Sabotage keeps 0), at every tier since the player asked for the
+  missions in tier one too.
 - `Infestation::nests: Option<droid::Nests { spots, facing, down,
   next_build, built }>` (saved, hashed where `Some`), laid at the first
   dock (`settle_nests`): `data::NESTS` (3), one more a player past the
@@ -8737,7 +8741,7 @@ of `world`) is the rule; its module note is the whole of it.
 - `tests_droid.rs`' `a_nest_hunt_s_nests_build_until_destroyed_and_then_the_site_clears`.
 
 **SAVE_VERSION 127.** Meant to alter play (a third of the station attacks
-in the tier-three zone).
+on the floor).
 
 **Everything used or shot is marked** (October 2026, the player's: "make
 interactable thing clearly visible in the map"): the painter draws the

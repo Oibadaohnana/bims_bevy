@@ -132,7 +132,7 @@ pub enum Mission {
     /// dropped — to the crew's ship; held once every one alive is
     /// aboard, the reward the share of them saved.
     Evacuation,
-    /// **A nest hunt** (an attack, tier three): nests grown into the
+    /// **A nest hunt** (an attack): nests grown into the
     /// site's walls build a machine each on a clock until every one is
     /// destroyed; cleared with the nests and the deck.
     Nests,

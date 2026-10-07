@@ -3,10 +3,13 @@
 //!
 //! **Which** is stateless, like an elite: a roll off the galaxy's seed,
 //! the star and the station on a salt of its own — no stream a fight draws
-//! from — for a station's fight on the floor from the tier-one area on
-//! (area 0 is the easing), never at an elite, the Heart, a trader or a
-//! town. A defence is **Seal the breaches** one time in
-//! [`BREACHES_ODDS`]. Off the floor (the tests, the staged commands) every
+//! from — for a station's fight on the floor from its first row on, at
+//! every tier (the player's: "also in tier one those new mission types
+//! should appear"), never at the start at home, an elite, the Heart, a
+//! trader or a town. A defence is **Seal the breaches** one time in
+//! [`BREACHES_ODDS`] and an **Evacuation** one in as many; an attack a
+//! **Sabotage** or a **nest hunt** the same. The map never says which:
+//! a mission is found on arrival. Off the floor (the tests, the staged commands) every
 //! fight is plain unless a probe forces one ([`World::set_mission_for_probe`]).
 //!
 //! **Seal the breaches**: the site's ways in (`entry.rs`: its airlocks
@@ -51,11 +54,11 @@ impl World {
         if !mapped || elite {
             return Mission::Plain;
         }
-        // On the floor, from the tier-one area on.
+        // On the floor, from its first row on (the start at home plain).
         let Some(row) = self.floor_row_of(star) else {
             return Mission::Plain;
         };
-        if crate::floor::row_day(row) < self.scaling().tier_one_day() {
+        if row == 0 {
             return Mission::Plain;
         }
         let seed = worldgen::rng::mix(self.galaxy_seed ^ MISSION_SALT)
@@ -66,10 +69,7 @@ impl World {
             SiteKind::Defend if roll == 0 => Mission::Breaches,
             SiteKind::Defend if roll == 1 => Mission::Evacuation,
             SiteKind::Attack if roll == 0 => Mission::Sabotage,
-            // A nest hunt in the tier-three zone alone.
-            SiteKind::Attack if roll == 1 && self.floor_tier_of(star) == Some(Tier::Three) => {
-                Mission::Nests
-            }
+            SiteKind::Attack if roll == 1 => Mission::Nests,
             _ => Mission::Plain,
         }
     }
