@@ -698,6 +698,44 @@ pub fn ascension_opened(level: u32) -> String {
 /// dials (`scaling.ron`).
 pub const SETUP_TAB_CREW: &str = "Crew";
 pub const SETUP_TAB_SCALING: &str = "Scaling";
+pub const SETUP_TAB_DEV: &str = "Dev";
+/// The Dev tab (October 2026): what a playtest run sets out with. Every
+/// player's Bim gets the kit; the host picks.
+pub const DEV_NOTE: &str = "For playtesting: every player's Bim sets out with this. Nothing here is the run as it plays.";
+pub const DEV_RESET: &str = "Reset";
+pub const DEV_ON: &str = "DEV";
+pub const DEV_MISSION: &str = "Mission";
+pub const DEV_MISSION_TIP: &str = "• Rolled: as the game plays\n• A defence's mission at every defence, an attack's at every attack\n• Plain: no mission anywhere";
+pub const DEV_ROLLED: &str = "Rolled";
+pub const DEV_AS_PLAYED: &str = "as it plays";
+pub const DEV_EVERY_DEFENCE: &str = "every defence";
+pub const DEV_EVERY_ATTACK: &str = "every attack";
+pub const DEV_NO_MISSION: &str = "none";
+pub const DEV_LEVEL: &str = "Level";
+pub const DEV_LEVEL_TIP: &str = "• The class's level at the start\n• Skill points to spend with it\n• No class: nothing";
+pub const DEV_WEAPON: &str = "Weapon";
+pub const DEV_ARMOUR: &str = "Armour";
+pub const DEV_CLASS_KIT: &str = "Class kit";
+pub const DEV_TIER: &str = "Tier";
+pub const DEV_ITEMS: &str = "Items";
+pub const DEV_ITEMS_TIP: &str = "• Click to buy into the next free slot, free\n• Click a slot to empty it";
+pub const DEV_SLOT_EMPTY: &str = "empty";
+pub const DEV_RELICS: &str = "Relics";
+pub const DEV_RELICS_TIP: &str = "• The crew hold these from the start";
+pub const DEV_ARMORY: &str = "Armory";
+pub const DEV_ARMORY_TIP: &str = "• Every weapon and armour at every tier in each player's armory";
+pub const DEV_ARMORY_FULL: &str = "Full";
+pub const DEV_ARMORY_EMPTY: &str = "As it plays";
+/// A mission's name on the Dev tab.
+pub fn dev_mission_name(mission: world::run::Mission) -> &'static str {
+    match mission {
+        world::run::Mission::Plain => "Plain",
+        world::run::Mission::Breaches => "Seal the breaches",
+        world::run::Mission::Sabotage => "Sabotage",
+        world::run::Mission::Evacuation => "Evacuation",
+        world::run::Mission::Nests => "Nest hunt",
+    }
+}
 pub const SETUP_TITLE: &str = "New run";
 pub const LOBBY_TITLE: &str = "Lobby";
 /// The setup's money choice.
@@ -2525,21 +2563,6 @@ pub fn site_kind_word(kind: world::SiteKind) -> &'static str {
 /// A defence that is an Area defend (October 2026): a town's, holding its
 /// FOB — its own word on the map and its own mark.
 pub const ARRIVE_AREA_DEFEND: &str = "AREA DEFEND";
-/// A mission's word with what the map shapes (October 2026): Seal the
-/// breaches', else its kind's or an Area defend's.
-pub fn mission_word(
-    kind: world::SiteKind,
-    area: bool,
-    mission: world::run::Mission,
-) -> &'static str {
-    match mission {
-        world::run::Mission::Breaches => ARRIVE_BREACHES,
-        world::run::Mission::Sabotage => ARRIVE_SABOTAGE,
-        world::run::Mission::Evacuation => ARRIVE_EVACUATION,
-        world::run::Mission::Nests => ARRIVE_NESTS,
-        world::run::Mission::Plain => mission_kind_word(kind, area),
-    }
-}
 /// A mission's word: its kind's, or an Area defend's.
 pub fn mission_kind_word(kind: world::SiteKind, area: bool) -> &'static str {
     if area && kind == world::SiteKind::Defend {
@@ -3595,10 +3618,7 @@ pub fn breaches_count(open: u32, total: u32) -> String {
     format!("Breaches open {open}/{total} · weld: V")
 }
 pub const BREACHES_SEALED_COUNT: &str = "Every breach welded";
-/// The map's word for Seal the breaches.
-pub const ARRIVE_BREACHES: &str = "SEAL BREACHES";
-/// The map's word for an Evacuation, its line, its count and its tip.
-pub const ARRIVE_EVACUATION: &str = "EVACUATION";
+/// An Evacuation's line, its count and its tip.
 pub fn evacuation_line(aboard: u32, alive: u32, carried: bool) -> String {
     if carried {
         format!("EVACUATION — {aboard} of {alive} aboard · they follow the flag")
@@ -3628,8 +3648,7 @@ pub const USE_WELD: &str = "weld shut";
 pub fn flag_refused(why: world::Refusal) -> String {
     format!("No flag: {}.", refusal(why))
 }
-/// The map's word for a nest hunt, its line, its count and its tip.
-pub const ARRIVE_NESTS: &str = "NEST HUNT";
+/// A nest hunt's line, its count and its tip.
 pub fn nests_line(standing: u32, total: u32) -> String {
     if standing == 0 {
         "NEST HUNT — every nest destroyed: clear the deck".to_string()
@@ -3646,8 +3665,6 @@ pub const NESTS_TIP: &str = "• Nests grow in the walls: destroy them
 • Each builds a machine every 20 s
 • A fuel drum stands by one of them
 • All nests and machines down: cleared";
-/// The map's word for a Sabotage.
-pub const ARRIVE_SABOTAGE: &str = "SABOTAGE";
 /// A Sabotage's line (October 2026), by its phase: the charge to plant,
 /// held with the machines' disarming, the escape's clock.
 pub const SABOTAGE_PLANT: &str = "SABOTAGE — reach the charge (amber mark) and plant it: V";

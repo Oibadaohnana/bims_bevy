@@ -192,6 +192,9 @@ pub struct Settings {
     /// (`profile::ascension_open`): how far the picker goes. Never
     /// crosses the wire — a guest only watches the host's pick.
     pub ascension_open: u32,
+    /// The Dev tab's picks (`super::devtab`), the host's, dealt with the
+    /// rest; the default is the run as it plays.
+    pub dev: super::devtab::DevSetup,
 }
 
 impl Default for Settings {
@@ -217,6 +220,7 @@ impl Default for Settings {
             auto_shoot: crate::dev::auto_shoot(),
             ascension: crate::profile::ascension_reached(),
             ascension_open: crate::profile::ascension_open(),
+            dev: Default::default(),
         }
     }
 }
@@ -347,6 +351,8 @@ enum SetupTab {
     #[default]
     Crew,
     Scaling,
+    /// What a playtest run sets out with (`super::devtab`).
+    Dev,
 }
 
 pub struct BuilderPlugin;
@@ -1165,6 +1171,14 @@ fn run_summary(ui: &mut egui::Ui, screen: &BuilderScreen, settings: &Settings) {
             .size(16.0)
             .color(theme::MONEY),
     );
+    if settings.dev.any() {
+        ui.label(
+            egui::RichText::new(DEV_ON)
+                .size(16.0)
+                .strong()
+                .color(theme::WARN),
+        );
+    }
 }
 
 /// A section's title: small, upper case, spaced, with a gold tick before
@@ -1185,7 +1199,7 @@ fn section_title(ui: &mut egui::Ui, text: &str) -> egui::Response {
 }
 
 /// A card of the crew page, its title along the top.
-fn section(ui: &mut egui::Ui, title: &str, tip: Option<&str>, body: impl FnOnce(&mut egui::Ui)) {
+pub(super) fn section(ui: &mut egui::Ui, title: &str, tip: Option<&str>, body: impl FnOnce(&mut egui::Ui)) {
     egui::Frame::new()
         .fill(SECTION_FILL)
         .stroke(egui::Stroke::new(1.0, theme::LINE))
@@ -1219,6 +1233,7 @@ fn tool(
         for (tab, name) in [
             (SetupTab::Crew, SETUP_TAB_CREW),
             (SetupTab::Scaling, SETUP_TAB_SCALING),
+            (SetupTab::Dev, SETUP_TAB_DEV),
         ] {
             if tab_button(ui, name, screen.tab == tab).clicked() {
                 screen.tab = tab;
@@ -1238,6 +1253,7 @@ fn tool(
         .auto_shrink([false, false])
         .show(ui, |ui| match screen.tab {
             SetupTab::Crew => crew_page(ui, screen, settings, online, editable),
+            SetupTab::Dev => super::devtab::dev_page(ui, &mut settings.dev, editable),
             SetupTab::Scaling => {
                 let players = (online.peers.len() as u32).max(1);
                 difficulty_rows(

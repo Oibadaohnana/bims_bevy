@@ -5142,7 +5142,7 @@ fn chart_mission_line(ui: &mut egui::Ui, mission: &world::run::StarMission) {
         }
         let word = format!(
             "{} {}",
-            mission_word(mission.kind, mission.area, mission.mission),
+            mission_kind_word(mission.kind, mission.area),
             site_place_word(mission.site.station)
         );
         ui.label(egui::RichText::new(word).strong().color(colour));

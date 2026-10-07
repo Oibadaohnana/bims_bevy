@@ -772,6 +772,8 @@ pub fn build_run(s: &Settings, size: Vec2) -> Session {
     }
     // And the relic dials, on the `game` command as on any other.
     crate::dev::relic_dials(&mut session);
+    // And the setup's Dev tab, on every machine alike.
+    super::devtab::apply(&s.dev, &mut session);
     // The ready check: every mission with a fight in it — this first one
     // too — waits for every player's *Ready* (`BIMS_READY=0` says not).
     if let Some(game) = &mut session.game {

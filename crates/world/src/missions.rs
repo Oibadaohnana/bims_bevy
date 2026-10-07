@@ -35,7 +35,18 @@ impl World {
             && !heart::is_heart(station)
             && kind != SiteKind::Trader;
         if let Some(forced) = self.mission_forced {
-            return if mapped { forced } else { Mission::Plain };
+            // A mission only where its kind of fight is: a defence's at a
+            // defence, an attack's at an attack.
+            let fits = match forced {
+                Mission::Plain => true,
+                Mission::Breaches | Mission::Evacuation => kind == SiteKind::Defend,
+                Mission::Sabotage | Mission::Nests => kind == SiteKind::Attack,
+            };
+            return if mapped && fits {
+                forced
+            } else {
+                Mission::Plain
+            };
         }
         if !mapped || elite {
             return Mission::Plain;
@@ -73,8 +84,11 @@ impl World {
         )
     }
 
-    /// Every station fight made `mission` (`None`: the roll again), for the
-    /// tests and the staged commands (`BIMS_MISSION`). Saved, not hashed.
+    /// Every station fight of `mission`'s kind made it — a defence's at
+    /// every defence, an attack's at every attack, the rest plain; `Plain`
+    /// every fight plain; `None` the roll again — for the tests, the
+    /// staged commands (`BIMS_MISSION`) and the game setup's Dev tab.
+    /// Saved, not hashed.
     pub fn set_mission_for_probe(&mut self, mission: Option<Mission>) {
         self.mission_forced = mission;
         // The site's room opened again, for an Evacuation's refugees.

@@ -422,6 +422,8 @@ pub struct SettingsWire {
     pub end_day: u32,
     /// The run's ascension as the host picked it (`world::ascension`).
     pub ascension: u32,
+    /// The Dev tab's picks (`screens::devtab`).
+    pub dev: crate::screens::devtab::DevSetup,
 }
 
 impl SettingsWire {
@@ -439,6 +441,7 @@ impl SettingsWire {
             end: settings.end,
             end_day: settings.end_day,
             ascension: settings.ascension,
+            dev: settings.dev,
         }
     }
 
@@ -458,6 +461,7 @@ impl SettingsWire {
         settings.end = self.end;
         settings.end_day = self.end_day;
         settings.ascension = self.ascension;
+        settings.dev = self.dev;
     }
 }
 

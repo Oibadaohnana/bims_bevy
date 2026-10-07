@@ -5184,6 +5184,25 @@ impl World {
         }
     }
 
+    /// The game setup's Dev tab (October 2026): crew member `who` handed
+    /// `weapon` (a kind never made that low at its own lowest tier) and a
+    /// fresh armour at `armour`, each where `Some`, whatever it had — the
+    /// old thing gone, not into the armory. For the app's dev runs and the
+    /// probes, never a run's own.
+    pub fn kit_out_for_probe(&mut self, who: u32, weapon: Option<Weapon>, armour: Option<Tier>) {
+        if who >= self.aboard.crew_count() {
+            return;
+        }
+        let mut gear = self.aboard.room.gear(who as usize);
+        if let Some(weapon) = weapon {
+            gear.weapon = Some(weapon.kind.at(weapon.tier.max(weapon.kind.min_tier())));
+        }
+        if let Some(tier) = armour {
+            gear.armour = Some(self.holdings.new_piece(ArmourKind::Armour, tier));
+        }
+        self.aboard.room.issue(who as usize, gear);
+    }
+
     /// Every weapon and every piece of armour there is, one of each kind
     /// at every tier it is made at (`WeaponKind::ALL`, the carried kinds,
     /// each by `made_at`, and `ArmourKind::ALL`), put into every player's
