@@ -1341,6 +1341,11 @@ pub fn mission() -> Option<world::run::Mission> {
         "sabotage" => Some(world::run::Mission::Sabotage),
         "evacuation" => Some(world::run::Mission::Evacuation),
         "nests" => Some(world::run::Mission::Nests),
+        "overseer" => Some(world::run::Mission::Overseer),
+        "heist" => Some(world::run::Mission::Heist),
+        "prison" => Some(world::run::Mission::Prison),
+        "fuelrun" => Some(world::run::Mission::FuelRun),
+        "salvage" => Some(world::run::Mission::Salvage),
         "plain" => Some(world::run::Mission::Plain),
         _ => None,
     }

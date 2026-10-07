@@ -644,3 +644,48 @@ fn most_stations_have_a_combat_room_and_the_pieces_turn_up() {
         assert!(crates > 0 && drums > 0 && windows > 0, "{kind:?}");
     }
 }
+
+/// A station built for a mission's feature (October 2026): most seeds of
+/// every kind keep the contract with the feature's rooms where it says,
+/// and none of them lands in the reactor room or a role's room.
+#[test]
+fn a_station_is_built_for_its_mission_s_rooms() {
+    use crate::stationgen::{Feature, generate_fitted};
+    let features = [
+        Feature::Office,
+        Feature::Servers,
+        Feature::Brig,
+        Feature::FuelRun,
+        Feature::Cargo,
+    ];
+    for kind in [
+        StationKind::Relay,
+        StationKind::MiningOutpost,
+        StationKind::Derelict,
+        StationKind::Refinery,
+        StationKind::Orbital,
+    ] {
+        for feature in features {
+            let mut built = 0;
+            for seed in 0..12u64 {
+                if let Some((g, fitted)) = generate_fitted(kind, 1000 + seed * 7919, feature) {
+                    built += 1;
+                    assert_eq!(fitted.feature, feature);
+                    let want = match feature {
+                        Feature::Office | Feature::Brig => 1,
+                        Feature::Servers => 3,
+                        Feature::FuelRun | Feature::Cargo => 2,
+                    };
+                    assert_eq!(fitted.rooms.len(), want, "{kind:?} {feature:?}");
+                    assert_eq!(fitted.door.is_some(), feature == Feature::Brig);
+                    let side = g.placer.design.build_area;
+                    for r in &fitted.rooms {
+                        assert!(r[0] <= r[2] && r[1] <= r[3] && r[2] < side && r[3] < side);
+                    }
+                }
+            }
+            println!("{kind:?} {feature:?}: {built} of 12");
+            assert!(built >= 6, "{kind:?} {feature:?}: only {built} of 12");
+        }
+    }
+}

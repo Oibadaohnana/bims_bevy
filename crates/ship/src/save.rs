@@ -326,7 +326,10 @@ use crate::game::Game;
 /// 125: a Sabotage on an `Infestation` (`world::droid::Sabotage`).
 /// 126: an Evacuation on a `Defense` (`world::defense::Evacuation`).
 /// 127: a nest hunt's nests on an `Infestation` (`world::droid::Nests`).
-pub const SAVE_VERSION: u32 = 127;
+/// 128: the second set of attacks (`world::objective::Objective` on an
+/// `Infestation`), a station laid out for its mission (`Station::fitted`)
+/// and a cell's sealed door (`bims::door::Door::sealed`).
+pub const SAVE_VERSION: u32 = 128;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

@@ -73,7 +73,7 @@ impl World {
     }
 
     /// Whether a point of the crew's deck is on the crew's ship.
-    fn on_the_ship(&self, at: bims::math::Vec2) -> bool {
+    pub(super) fn on_the_ship(&self, at: bims::math::Vec2) -> bool {
         let (foreign, p) = self.aboard.design_of(dvec2(at.x as f64, at.y as f64));
         if foreign {
             return false;

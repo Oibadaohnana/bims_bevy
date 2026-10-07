@@ -136,17 +136,57 @@ pub enum Mission {
     /// site's walls build a machine each on a clock until every one is
     /// destroyed; cleared with the nests and the deck.
     Nests,
+    /// **Kill the Overseer** (an attack): one of theirs in an office deep
+    /// in the site, slow on his feet, keeps the waves coming while he
+    /// lives; hurt, he makes for an airlock far away, and gone out of it
+    /// he takes the bounty with him.
+    Overseer,
+    /// **A data heist** (an attack): terminals spread over the site, each
+    /// a hold of the Use key; every one taken raises the alarm.
+    Heist,
+    /// **A prison break** (an attack): people of the Republic locked in a
+    /// cell deep inside, the door to be cut open; out, they join the crew.
+    Prison,
+    /// **A fuel run** (an attack): drums carried from the depot to the
+    /// site's reactor by hands that cannot shoot, a drum hit going up.
+    FuelRun,
+    /// **A salvage sweep** (an attack): cargo carried back to the ship,
+    /// each paying, each bringing a bigger wave.
+    Salvage,
 }
 
 impl Mission {
     /// Every one, in code order.
-    pub const ALL: [Mission; 5] = [
+    pub const ALL: [Mission; 10] = [
         Mission::Plain,
         Mission::Breaches,
         Mission::Sabotage,
         Mission::Evacuation,
         Mission::Nests,
+        Mission::Overseer,
+        Mission::Heist,
+        Mission::Prison,
+        Mission::FuelRun,
+        Mission::Salvage,
     ];
+
+    /// The attacks' missions, the roll's order (October 2026): a station
+    /// attack is one of these, each as likely.
+    pub const ATTACKS: [Mission; 7] = [
+        Mission::Sabotage,
+        Mission::Nests,
+        Mission::Overseer,
+        Mission::Heist,
+        Mission::Prison,
+        Mission::FuelRun,
+        Mission::Salvage,
+    ];
+
+    /// Whether it is an attack's mission (rather than a defence's or the
+    /// plain fight).
+    pub fn is_attack(self) -> bool {
+        Mission::ATTACKS.contains(&self)
+    }
 
     /// The number that indexes the name tables.
     pub fn code(self) -> u32 {
@@ -156,6 +196,11 @@ impl Mission {
             Mission::Sabotage => 2,
             Mission::Evacuation => 3,
             Mission::Nests => 4,
+            Mission::Overseer => 5,
+            Mission::Heist => 6,
+            Mission::Prison => 7,
+            Mission::FuelRun => 8,
+            Mission::Salvage => 9,
         }
     }
 }

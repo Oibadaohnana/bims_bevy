@@ -239,7 +239,7 @@ fn usage() -> ! {
 /// — the one list, printed by [`list`] and nothing else. A new command is
 /// a row here and an arm in `main`; the classes' commands are not written
 /// out, since [`class_words`] reads them off `Class::ALL`.
-const COMMANDS: [(&str, &str); 28] = [
+const COMMANDS: [(&str, &str); 33] = [
     (
         "game",
         "The whole game in order: menu, setup or lobby, world and station, then the run: a mission where you docked, on the default ship, 5 000 a Bim in the pool",
@@ -313,6 +313,26 @@ const COMMANDS: [(&str, &str); 28] = [
     (
         "nests",
         "A nest hunt: the droids arena held by the machines, nests in its walls (ringed red) building a machine each every 20 s until they are destroyed",
+    ),
+    (
+        "overseer",
+        "Kill the Overseer: the dock laid out with his office deep inside; waves while he lives, and hurt he walks for a far airlock with the bounty",
+    ),
+    (
+        "heist",
+        "A data heist: the dock laid out with three server rooms; hold V at each terminal, every one taken bringing the waves sooner and bigger",
+    ),
+    (
+        "prison",
+        "A prison break: the dock laid out with a cell; cut its door open (V) and the prisoners follow the crew as bots",
+    ),
+    (
+        "fuelrun",
+        "A fuel run: the dock laid out with a depot and a reactor; carry drums (V) to the reactor, the carrier unable to shoot and a hit blowing the drum",
+    ),
+    (
+        "salvage",
+        "A salvage sweep: the dock laid out with cargo holds; carry crates (V) aboard the ship for money, each taken bringing a bigger wave",
     ),
     (
         "relics",
@@ -446,6 +466,11 @@ fn main() {
         Some("sabotage") => Launch::Mission(world::run::Mission::Sabotage),
         Some("evacuation") => Launch::Mission(world::run::Mission::Evacuation),
         Some("nests") => Launch::Mission(world::run::Mission::Nests),
+        Some("overseer") => Launch::Mission(world::run::Mission::Overseer),
+        Some("heist") => Launch::Mission(world::run::Mission::Heist),
+        Some("prison") => Launch::Mission(world::run::Mission::Prison),
+        Some("fuelrun") => Launch::Mission(world::run::Mission::FuelRun),
+        Some("salvage") => Launch::Mission(world::run::Mission::Salvage),
         Some("heart") => Launch::Heart,
         Some("manufacturers") => Launch::Manufacturers,
         Some("end") => match std::env::args().nth(2).as_deref() {

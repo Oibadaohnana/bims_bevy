@@ -155,6 +155,12 @@ pub struct Station {
     /// with the town, so a save that has none reads back empty.
     #[cfg_attr(feature = "serde", serde(default))]
     pub gates: Vec<crate::surface::Gate>,
+    /// The rooms of a station built for its mission (October 2026,
+    /// [`Station::fit`]): where its office, its servers, its cell, its
+    /// depot and reactor or its holds are. `None` for every station as the
+    /// generator built it.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub fitted: Option<crate::stationgen::Fitted>,
 }
 
 impl Station {
@@ -188,6 +194,7 @@ impl Station {
             bias: blueprint.bias,
             hostile: blueprint.hostile,
             gates: Vec::new(),
+            fitted: None,
         }
     }
 
@@ -215,6 +222,34 @@ impl Station {
         self.population = plan.residents(self.kind);
         let half = self.design.build_area as f64 * TILE as f64 / 2.0;
         self.anchor = centre.sub(angle::rotate_design(dvec2(half, half), 0.0));
+    }
+
+    /// Lay the station out again **built for a mission's feature**
+    /// (October 2026, `stationgen::generate_fitted`), standing where it
+    /// stood, its rooms on [`Station::fitted`]. False, and nothing moved,
+    /// where no attempt kept the contract or the station is no generated
+    /// one (the spawn's hub, a fortress, a town) — unless `any_plan` says
+    /// so (the probes', whose dock is the arena).
+    pub fn fit(&mut self, feature: crate::stationgen::Feature, any_plan: bool) -> bool {
+        if self.fitted.as_ref().is_some_and(|f| f.feature == feature) {
+            return true;
+        }
+        if !matches!(self.plan, Plan::Generated) && !any_plan {
+            return false;
+        }
+        let Some((generated, fitted)) =
+            crate::stationgen::generate_fitted(self.kind, self.map_seed, feature)
+        else {
+            return false;
+        };
+        let centre = self.centre();
+        self.plan = Plan::Generated;
+        self.design = generated.placer.design;
+        self.population = self.plan.residents(self.kind);
+        let half = self.design.build_area as f64 * TILE as f64 / 2.0;
+        self.anchor = centre.sub(angle::rotate_design(dvec2(half, half), 0.0));
+        self.fitted = Some(fitted);
+        true
     }
 
     /// How many people live here: [`Station::population`] — the plan's

@@ -439,6 +439,48 @@ pub const NESTS_MOST: u32 = 5;
 pub const NEST_HEALTH: [f32; 4] = [180.0, 260.0, 360.0, 480.0];
 pub const NEST_BUILD_STEPS: u64 = 1_200;
 pub const EVAC_WAVE_STEPS: u64 = 1_500;
+/// **Kill the Overseer** (October 2026): his health by the area the fight
+/// is in (area 0 to tier three, the player's: "scaling hp with tier
+/// areas"), his pace (the player's: "30% of a normal walk speed"), the
+/// share of his health he flees under, how near the inside of his airlock
+/// counts as out, and how often a wave lands while he lives.
+pub const OVERSEER_HEALTH: [f32; 4] = [400.0, 650.0, 1_000.0, 1_500.0];
+pub const OVERSEER_PACE: f32 = 0.3;
+pub const OVERSEER_FLEES_UNDER: f32 = 0.5;
+pub const OVERSEER_OUT_TILES: f32 = 1.5;
+pub const OVERSEER_WAVE_STEPS: u64 = 1_800;
+/// **A data heist**: how many terminals, how long each is a hold of the
+/// Use key (an engineer's twice as quick), and how soon the next wave
+/// lands after one, by how many are taken — every terminal taken the
+/// alarm a step higher: sooner, and a quarter bigger a terminal.
+pub const HEIST_TERMINALS: u32 = 3;
+pub const HACK_SECONDS: u32 = 10;
+pub const HEIST_WAVE_STEPS: [u64; 4] = [2_400, 1_800, 1_200, 900];
+pub const HEIST_WAVE_GROWTH_PERCENT: u32 = 25;
+/// **A prison break**: how many are held, and how long the cell's door
+/// takes to cut (an engineer's twice as quick).
+pub const PRISONERS: u32 = 3;
+pub const CUT_SECONDS: u32 = 8;
+/// **A fuel run**: the drums in the depot, how many the reactor wants,
+/// how near its core one is put in, how soon a drum lost is stood again
+/// in the depot, and how often a wave lands until it goes critical.
+pub const FUEL_DRUMS: u32 = 4;
+pub const FUEL_NEEDED: u32 = 3;
+pub const REACTOR_REACH_TILES: f32 = 3.0;
+pub const FUEL_RESTOCK_STEPS: u64 = 1_200;
+pub const FUEL_WAVE_STEPS: u64 = 1_800;
+/// **A salvage sweep**: the crates, what each carried home pays (a share
+/// of the site's money), and how much bigger the wave each taken up
+/// brings.
+pub const SALVAGE_CRATES: u32 = 6;
+pub const SALVAGE_PAY_PERCENT: u64 = 12;
+pub const SALVAGE_WAVE_GROWTH_PERCENT: u32 = 20;
+/// About how many waves an attack whose waves come on a clock is fought
+/// over (the Overseer, a heist, a fuel run): what its experience and its
+/// money are shared out over.
+pub const OBJECTIVE_WAVES: u32 = 4;
+/// How near a drum or a crate a Bim takes it up, in tiles.
+pub const LOAD_REACH_TILES: f32 = 1.5;
 pub const FLAG_REACH_TILES: f32 = 1.75;
 /// How many of a defended town's surviving people join the crew when the
 /// last wave is destroyed: two, not more and not less, whatever the

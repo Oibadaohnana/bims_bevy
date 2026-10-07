@@ -136,6 +136,15 @@ const ALCOVE_STEP: u32 = 5;
 /// One room left over in so many is a store rather than a combat room,
 /// where it is big enough for one.
 const COMBAT_ODDS: u32 = 6;
+/// The mission rooms' least decks (October 2026).
+pub const OFFICE_MIN: (u32, u32) = (7, 6);
+pub const SERVER_MIN: (u32, u32) = (6, 6);
+pub const BRIG_MIN: (u32, u32) = (6, 5);
+pub const DEPOT_MIN: (u32, u32) = (6, 5);
+pub const REACTOR_MIN: (u32, u32) = (8, 8);
+pub const CARGO_MIN: (u32, u32) = (7, 6);
+/// The salt a station built for a mission is drawn off, beside its own.
+const FIT_SALT: u64 = 0x_4649_5454_4544;
 /// One room in so many — and one combat room in two — has windows onto
 /// its corridor in place of its walls.
 const WINDOW_ODDS: u32 = 5;
@@ -285,6 +294,21 @@ enum Role {
     /// walls, a lane down the middle to snipe along and corners to peek
     /// round.
     Gallery,
+    /// A mission's rooms (October 2026, `Feature`): what the attack the
+    /// site rolled wants of its map, dealt before every other role to the
+    /// rooms farthest from the port. The Overseer's office.
+    Office,
+    /// A server room: racks in rows, a heist's terminal among them.
+    Server,
+    /// A cell: one door, windows onto the corridor, the prisoners inside.
+    Brig,
+    /// A fuel depot, the near end of a fuel run: drums in its corners.
+    Depot,
+    /// The reactor the fuel is carried to: a core railed off in the
+    /// middle.
+    Reactor,
+    /// A cargo hold: crates stacked in rows, the salvage among them.
+    Cargo,
 }
 
 impl Role {
@@ -300,8 +324,56 @@ impl Role {
             Role::Hangar => HANGAR_MIN,
             Role::Shaft => SHAFT_MIN,
             Role::Gallery => GALLERY_MIN,
+            Role::Office => OFFICE_MIN,
+            Role::Server => SERVER_MIN,
+            Role::Brig => BRIG_MIN,
+            Role::Depot => DEPOT_MIN,
+            Role::Reactor => REACTOR_MIN,
+            Role::Cargo => CARGO_MIN,
         }
     }
+}
+
+/// The rooms an attack's mission wants of its map (October 2026, the
+/// player's: "also make maps fitting to that"): a generated station built
+/// for the mission its site rolled (`World::fit_the_site`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum Feature {
+    /// The Overseer's office, the room farthest from the port.
+    Office,
+    /// Three server rooms, spread as far apart as the station allows.
+    Servers,
+    /// A cell with one door, the room farthest from the port.
+    Brig,
+    /// A depot the nearest room to the port and a reactor the farthest.
+    FuelRun,
+    /// Two cargo holds, far from the port.
+    Cargo,
+}
+
+impl Feature {
+    /// The roles, in the order [`Fitted::rooms`] lists their rooms.
+    fn roles(self) -> &'static [Role] {
+        match self {
+            Feature::Office => &[Role::Office],
+            Feature::Servers => &[Role::Server, Role::Server, Role::Server],
+            Feature::Brig => &[Role::Brig],
+            Feature::FuelRun => &[Role::Depot, Role::Reactor],
+            Feature::Cargo => &[Role::Cargo, Role::Cargo],
+        }
+    }
+}
+
+/// What a station built for a mission has where (`Station::fitted`): its
+/// feature, each mission room's deck (inner tiles, inclusive, in
+/// [`Feature::roles`]' order) and a cell's one door's first tile.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Fitted {
+    pub feature: Feature,
+    pub rooms: Vec<[u32; 4]>,
+    pub door: Option<(u32, u32)>,
 }
 
 /// A station drawn but not yet furnished: the blocks and the port's row.
@@ -876,7 +948,13 @@ fn side_for(kind: StationKind, sketch: &Sketch) -> Result<u32, Fail> {
 /// The roles dealt to a sketch's rooms, in its room order: the demanding
 /// first, each to the smallest room it fits, the lab and the rec room where
 /// a room is left for them, and every room left over a store.
-fn deal(kind: StationKind, rooms: &[Block], rng: &mut Rng) -> Option<Vec<Role>> {
+fn deal(
+    kind: StationKind,
+    rooms: &[Block],
+    feature: Option<Feature>,
+    py: i32,
+    rng: &mut Rng,
+) -> Option<Vec<Role>> {
     let residents = residents_of(kind);
     let size = |b: &Block| (b.x1 - b.x0 - 1, b.y1 - b.y0 - 1);
     let fits = |role: Role, b: &Block| {
@@ -885,6 +963,11 @@ fn deal(kind: StationKind, rooms: &[Block], rng: &mut Rng) -> Option<Vec<Role>> 
         w >= mw && h >= mh && (role != Role::Quarters || bunks_in(w, h) >= residents + 2)
     };
     let mut roles: Vec<Option<Role>> = vec![None; rooms.len()];
+    // A mission's rooms first (October 2026), by where they lie: no draw
+    // on the stream, so a station built for none is the one it was.
+    if let Some(feature) = feature {
+        deal_feature(feature, rooms, py, &fits, &mut roles)?;
+    }
     let mut want = vec![Role::Quarters, Role::Mess, Role::Research];
     if one_in(rng, 3) {
         want.push(Role::Rec);
@@ -935,6 +1018,42 @@ fn deal(kind: StationKind, rooms: &[Block], rng: &mut Rng) -> Option<Vec<Role>> 
             .map(|r| r.unwrap_or(Role::Store))
             .collect(),
     )
+}
+
+/// A mission's rooms dealt (October 2026): the depot to the room nearest
+/// the port that takes it, and every other to the room farthest from the
+/// port and from the mission's rooms already dealt. `None` where a role
+/// finds no room.
+fn deal_feature(
+    feature: Feature,
+    rooms: &[Block],
+    py: i32,
+    fits: &dyn Fn(Role, &Block) -> bool,
+    roles: &mut [Option<Role>],
+) -> Option<()> {
+    let middle = |b: &Block| ((b.x0 + b.x1) as f64 / 2.0, (b.y0 + b.y1) as f64 / 2.0);
+    let port = (1.0, py as f64 + 0.5);
+    let dist = |a: (f64, f64), b: (f64, f64)| (a.0 - b.0).hypot(a.1 - b.1);
+    let mut chosen: Vec<(f64, f64)> = Vec::new();
+    for &role in feature.roles() {
+        let free = (0..rooms.len()).filter(|&i| roles[i].is_none() && fits(role, &rooms[i]));
+        let score = |i: usize| {
+            let m = middle(&rooms[i]);
+            chosen.iter().fold(dist(m, port), |d, &c| d.min(dist(m, c)))
+        };
+        let pick = if role == Role::Depot {
+            free.min_by(|&a, &b| {
+                dist(middle(&rooms[a]), port)
+                    .total_cmp(&dist(middle(&rooms[b]), port))
+                    .then(a.cmp(&b))
+            })
+        } else {
+            free.max_by(|&a, &b| score(a).total_cmp(&score(b)).then(b.cmp(&a)))
+        }?;
+        roles[pick] = Some(role);
+        chosen.push(middle(&rooms[pick]));
+    }
+    Some(())
 }
 
 /// Whether a role is one of the combat rooms.
@@ -1098,6 +1217,76 @@ fn room_pieces(room: Block, role: Role, rng: &mut Rng) -> Vec<(PartKind, (u32, u
                 }
                 far = !far;
                 a += ALCOVE_STEP;
+            }
+        }
+        Role::Server => {
+            // Racks: rows of shelves along the long way, two tiles from
+            // every wall, two-wide aisles between them.
+            let long_x = w >= h;
+            let (long, across) = if long_x { (w, h) } else { (h, w) };
+            let mut a = 2;
+            while a + 2 < across {
+                for b in 2..long.saturating_sub(2) {
+                    out.push((
+                        PartKind::Shelf,
+                        if long_x {
+                            (x0 + b, y0 + a)
+                        } else {
+                            (x0 + a, y0 + b)
+                        },
+                    ));
+                }
+                a += 3;
+            }
+        }
+        Role::Office => {
+            // A desk of two crates in the middle, a plant in a corner.
+            let (cx, cy) = (x0 + w / 2, y0 + h / 2);
+            out.push((PartKind::Crate, (cx - 1, cy)));
+            out.push((PartKind::Crate, (cx, cy)));
+            out.push((PartKind::BigPlant, (x1 - 2, y0 + 2)));
+        }
+        Role::Depot => {
+            // A drum in each corner two tiles in: the fuel stood up here.
+            for at in [
+                (x0 + 2, y0 + 2),
+                (x1 - 2, y0 + 2),
+                (x0 + 2, y1 - 2),
+                (x1 - 2, y1 - 2),
+            ] {
+                if !out.iter().any(|&(_, t)| t == at) {
+                    out.push((PartKind::FuelTank, at));
+                }
+            }
+        }
+        Role::Reactor => {
+            // The core: two by two of wall in the middle, railed off a
+            // tile out all round.
+            let (cx, cy) = (x0 + (w - 2) / 2, y0 + (h - 2) / 2);
+            for dy in 0..2 {
+                for dx in 0..2 {
+                    out.push((PartKind::Wall, (cx + dx, cy + dy)));
+                }
+            }
+            for y in cy - 1..=cy + 2 {
+                for x in cx - 1..=cx + 2 {
+                    if x == cx - 1 || x == cx + 2 || y == cy - 1 || y == cy + 2 {
+                        out.push((PartKind::Railing, (x, y)));
+                    }
+                }
+            }
+        }
+        Role::Cargo => {
+            // Crate pairs on a grid, lanes between them.
+            let mut y = y0 + 2;
+            while y + 2 <= y1 {
+                let mut x = x0 + 2;
+                while x + 3 <= x1 {
+                    out.push((PartKind::Crate, (x, y)));
+                    out.push((PartKind::Crate, (x + 1, y)));
+                    x += 4;
+                }
+                y += 3;
             }
         }
         _ => {}
@@ -1664,7 +1853,7 @@ pub fn generate(kind: StationKind, map_seed: u64) -> Option<Generated> {
     let base = Rng::new(map_seed ^ GEN_SALT);
     for attempt in 0..ATTEMPTS {
         let mut rng = base.branch(attempt as u64);
-        if let Ok((placer, tally)) = attempt_once(kind, map_seed, &mut rng) {
+        if let Ok((placer, tally, _)) = attempt_once(kind, map_seed, None, &mut rng) {
             return Some(Generated {
                 placer,
                 tally,
@@ -1684,7 +1873,7 @@ pub(crate) fn attempts(kind: StationKind, map_seed: u64) -> Vec<Result<Tally, Fa
     let mut out = Vec::new();
     for attempt in 0..ATTEMPTS {
         let mut rng = base.branch(attempt as u64);
-        let outcome = attempt_once(kind, map_seed, &mut rng).map(|(_, tally)| tally);
+        let outcome = attempt_once(kind, map_seed, None, &mut rng).map(|(_, tally, _)| tally);
         let done = outcome.is_ok();
         out.push(outcome);
         if done {
@@ -1695,10 +1884,43 @@ pub(crate) fn attempts(kind: StationKind, map_seed: u64) -> Vec<Result<Tally, Fa
 }
 
 /// One candidate, drawn, furnished and checked.
-fn attempt_once(kind: StationKind, map_seed: u64, rng: &mut Rng) -> Result<(Placer, Tally), Fail> {
-    let (placer, floor, side_on) = candidate(kind, map_seed, rng)?;
+fn attempt_once(
+    kind: StationKind,
+    map_seed: u64,
+    feature: Option<Feature>,
+    rng: &mut Rng,
+) -> Result<(Placer, Tally, Option<Fitted>), Fail> {
+    let (placer, floor, side_on, fitted) = candidate(kind, map_seed, feature, rng)?;
     let tally = check(&placer, &floor, kind, side_on)?;
-    Ok((placer, tally))
+    Ok((placer, tally, fitted))
+}
+
+/// The station a kind and a seed generate **built for a mission's
+/// feature** (October 2026): drawn off the seed with a salt of its own,
+/// so it is another building than [`generate`]'s, with the feature's rooms
+/// where [`Feature`] says. `None` when every attempt failed.
+pub fn generate_fitted(
+    kind: StationKind,
+    map_seed: u64,
+    feature: Feature,
+) -> Option<(Generated, Fitted)> {
+    let base = Rng::new(map_seed ^ GEN_SALT ^ FIT_SALT);
+    for attempt in 0..ATTEMPTS {
+        let mut rng = base.branch(attempt as u64);
+        if let Ok((placer, tally, Some(fitted))) =
+            attempt_once(kind, map_seed, Some(feature), &mut rng)
+        {
+            return Some((
+                Generated {
+                    placer,
+                    tally,
+                    attempt,
+                },
+                fitted,
+            ));
+        }
+    }
+    None
 }
 
 /// Attempt `attempt`'s candidate for a kind and a seed, furnished but not
@@ -1710,15 +1932,16 @@ pub(crate) fn candidate_at(
     attempt: u32,
 ) -> Result<(Placer, Floor, bool), Fail> {
     let mut rng = Rng::new(map_seed ^ GEN_SALT).branch(attempt as u64);
-    candidate(kind, map_seed, &mut rng)
+    candidate(kind, map_seed, None, &mut rng).map(|(p, f, s, _)| (p, f, s))
 }
 
 /// A candidate drawn and furnished, before it is checked.
 fn candidate(
     kind: StationKind,
     map_seed: u64,
+    feature: Option<Feature>,
     rng: &mut Rng,
-) -> Result<(Placer, Floor, bool), Fail> {
+) -> Result<(Placer, Floor, bool, Option<Fitted>), Fail> {
     // The drawing and the roles are cheap next to a furnishing, so a
     // drawing the wrong size or with no room for a role is drawn again
     // off the same stream, up to `SKETCHES` times, before the attempt is
@@ -1737,7 +1960,7 @@ fn candidate(
             }
         };
         let rooms: Vec<Block> = sketch.rooms.iter().map(|r| r.block()).collect();
-        match deal(kind, &rooms, rng) {
+        match deal(kind, &rooms, feature, sketch.py, rng) {
             Some(roles) => {
                 drawn = Some((sketch, side, rooms, roles));
                 break;
@@ -1764,10 +1987,16 @@ fn candidate(
     let trial = furnish_placer(side, trial_floor, map_seed);
     let locks = airlocks(kind, &raster, &sketch, &trial, array, rng);
     let mut doors = Vec::new();
-    for room in &rooms {
+    let mut brig_door = None;
+    for (room, &role) in rooms.iter().zip(&roles) {
         let sites = door_sites(*room, &raster, &trial);
         let first = *rng.pick(&sites).ok_or(Fail::NoDoor)?;
         doors.push(first);
+        // A cell has the one door (October 2026).
+        if role == Role::Brig {
+            brig_door = Some(first.0);
+            continue;
+        }
         // Now and then a second, on another wall: a room to go through.
         if one_in(rng, 4) {
             let other: Vec<_> = sites
@@ -1792,7 +2021,8 @@ fn candidate(
     // other room's one in `WINDOW_ODDS`.
     for (room, &role) in rooms.iter().zip(&roles) {
         let odds = if is_combat(role) { 2 } else { WINDOW_ODDS };
-        if one_in(rng, odds) {
+        // A cell is always seen into: the prisoners behind its windows.
+        if role == Role::Brig || one_in(rng, odds) {
             combat.extend(
                 windows_of(*room, &raster, &doors)
                     .into_iter()
@@ -1802,7 +2032,33 @@ fn candidate(
     }
     let floor = floor_of(&sketch, &roles, &doors, &locks, array, &bags, &combat);
     let placer = furnish_placer(side, floor.clone(), map_seed);
-    Ok((placer, floor, sketch.side_on))
+    let fitted = feature.map(|feature| {
+        let mut rooms_of = Vec::new();
+        for &want in feature.roles() {
+            // Each role's rooms in order: the n-th server room the n-th.
+            let taken = rooms_of.len();
+            let found = roles
+                .iter()
+                .zip(&rooms)
+                .filter(|(r, _)| **r == want)
+                .map(|(_, b)| b.inner())
+                .nth(
+                    feature.roles()[..taken]
+                        .iter()
+                        .filter(|&&r| r == want)
+                        .count(),
+                );
+            if let Some(b) = found {
+                rooms_of.push([b.x0, b.y0, b.x1, b.y1]);
+            }
+        }
+        Fitted {
+            feature,
+            rooms: rooms_of,
+            door: brig_door,
+        }
+    });
+    Ok((placer, floor, sketch.side_on, fitted))
 }
 
 /// Why a candidate was thrown away.

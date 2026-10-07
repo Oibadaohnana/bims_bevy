@@ -129,6 +129,11 @@ pub struct Door {
     /// alone — never saved, never hashed; [`Door::set_seen`].
     #[cfg_attr(feature = "serde", serde(skip))]
     shown: Option<f32>,
+    /// A cell's door, sealed (October 2026, a prison break): locked, and
+    /// no panel order and no body's smashing lifts it — the world's weld
+    /// cuts it open (`Game::seal_door`).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub sealed: bool,
 }
 
 impl Door {
@@ -155,6 +160,7 @@ impl Door {
             moving: 0,
             time: 0.0,
             shown: None,
+            sealed: false,
         }
     }
 
@@ -227,6 +233,10 @@ impl Door {
     /// menu says — and locking one takes its hold off: a locked door held
     /// open is not locked.
     pub fn order(&mut self, order: Order) {
+        // A sealed cell answers no panel.
+        if self.sealed {
+            return;
+        }
         match order {
             Order::Open => {
                 if !self.locked {
@@ -251,6 +261,9 @@ impl Door {
     }
 
     pub fn unlock(&mut self) {
+        if self.sealed {
+            return;
+        }
         if self.locked {
             self.changed = true;
         }
@@ -286,6 +299,10 @@ impl Door {
     /// heard at its own cadence whatever the rate; only the progress
     /// goes faster.
     pub fn smash_at(&mut self, by: usize, dt: f32, rate: f32) -> Option<Cue> {
+        if self.sealed {
+            self.smash = None;
+            return None;
+        }
         if !self.locked {
             self.smash = None;
             return None;

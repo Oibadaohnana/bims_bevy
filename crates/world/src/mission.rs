@@ -768,6 +768,9 @@ impl World {
         };
         self.ship.state = ShipState::Docked { station };
         self.ship.frame = Frame::Local(node);
+        // A site whose mission wants a map of its own laid out for it
+        // (October 2026), before the rooms are joined on it.
+        self.fit_the_site(station);
         self.dock_at(station);
         self.settle_residents();
         self.mark_visited();
@@ -1234,7 +1237,10 @@ impl World {
         if amount == 0 {
             return;
         }
-        if self.mission_cleared() || !self.rewards.bounty_waits_for_clear {
+        // A salvage sweep (October 2026) pays as it goes: the crew may
+        // leave it whenever they like.
+        if self.mission_cleared() || !self.rewards.bounty_waits_for_clear || self.pays_as_it_goes()
+        {
             self.money = self.money.saturating_add(amount);
             events.push(WorldEvent::Bounty { amount });
         } else {
@@ -1331,6 +1337,8 @@ impl World {
         self.aboard.room.adopt(everybody, bims::math::Vec2::ZERO);
         self.aboard.crew = self.aboard.room.crew_count();
         self.ship.crew_count = self.aboard.crew;
+        // A prison break's prisoners are crew indices too (October 2026).
+        self.prisoners_after_drop(who);
         if index < self.crew_down.len() {
             self.crew_down.remove(index);
         }
@@ -1687,6 +1695,8 @@ impl World {
         self.run.weld_work.clear();
         // The commanders' reinforcements off the crew first, alive or not
         // (task 129): nothing of theirs is left behind, paid for or kept.
+        // A prison break's prisoners never freed go with the cell.
+        self.leave_the_prisoners();
         self.send_reinforcements_home();
         self.bring_home();
         for who in self.left_behind() {

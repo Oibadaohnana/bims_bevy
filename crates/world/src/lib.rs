@@ -70,6 +70,7 @@ pub mod loading;
 pub mod manufacturer;
 pub mod medic;
 pub mod memory;
+pub mod objective;
 pub mod orders;
 pub mod relic;
 pub mod rewards;
@@ -107,8 +108,8 @@ pub use station::{Berth, Plan, Station, layout_surface};
 pub use surface::{Biome, Surface, landable, surface_body, surface_id};
 pub use tank::Tank;
 pub use world::{
-    Command, FloorMark, Ship, ShipState, StartError, World, spawn, spawn_anywhere,
-    spawn_with_ground,
+    Command, FloorMark, Interaction, Mark, MarkKind, ObjectiveLook, Ship, ShipState, StartError,
+    World, spawn, spawn_anywhere, spawn_with_ground,
 };
 
 #[cfg(test)]
@@ -117,6 +118,8 @@ mod tests;
 mod tests_area;
 #[cfg(test)]
 mod tests_ascension;
+#[cfg(test)]
+mod tests_attacks;
 #[cfg(test)]
 mod tests_commander;
 #[cfg(test)]

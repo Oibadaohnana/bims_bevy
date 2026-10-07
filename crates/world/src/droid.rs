@@ -98,6 +98,11 @@ pub struct Infestation {
     /// nests grown into the site's walls. `None` at every other attack.
     #[cfg_attr(feature = "serde", serde(default))]
     pub nests: Option<Nests>,
+    /// The second set of attack missions (October 2026,
+    /// [`crate::objective`]): the Overseer, the heist, the prison break,
+    /// the fuel run or the salvage sweep. `None` at every other attack.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub objective: Option<crate::objective::Objective>,
 }
 
 /// A nest hunt's nests: where each is grown (a tile of the site's design,
@@ -169,6 +174,7 @@ impl Infestation {
             manufacturers: false,
             sabotage: None,
             nests: None,
+            objective: None,
         }
     }
 

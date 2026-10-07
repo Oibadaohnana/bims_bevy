@@ -2886,7 +2886,17 @@ fn frame(
                         .sabotage_look()
                         .is_some_and(|s| s.phase == world::droid::SabotagePhase::Plant);
                     let evacuating = game.world.evacuation_look().is_some();
-                    if evacuating && game.world.can_flag(slot).is_ok() {
+                    // The second set of attacks (October 2026) first: a
+                    // terminal, a cell door, a drum or a crate.
+                    let objective = game.world.objective_look().is_some();
+                    let interact = game.world.can_interact(slot);
+                    if interact.is_ok() {
+                        orders.push(Order::Interact);
+                    } else if objective && game.world.can_weld(slot).is_err() {
+                        if let Err(why) = interact {
+                            screen.log.push(crate::names::use_refused(why));
+                        }
+                    } else if evacuating && game.world.can_flag(slot).is_ok() {
                         orders.push(Order::Flag);
                     } else if evacuating && game.world.can_weld(slot).is_err() {
                         if let Err(why) = game.world.can_flag(slot) {
@@ -4413,12 +4423,21 @@ fn frame(
         let deed = if busy {
             None
         } else {
-            match game.world.can_flag(slot) {
-                Ok(true) => Some(USE_TAKE_FLAG),
-                Ok(false) => Some(USE_DROP_FLAG),
-                Err(_) if game.world.can_plant(slot).is_ok() => Some(USE_PLANT),
-                Err(_) if game.world.can_weld(slot).is_ok() => Some(USE_WELD),
-                Err(_) => None,
+            let carrying_drums = game
+                .world
+                .objective_look()
+                .is_some_and(|l| l.mission == world::run::Mission::FuelRun);
+            match (game.world.can_interact(slot), game.world.can_flag(slot)) {
+                (Ok(world::Interaction::Hack(_)), _) => Some(USE_HACK),
+                (Ok(world::Interaction::Cut), _) => Some(USE_CUT),
+                (Ok(world::Interaction::Take(_)), _) if carrying_drums => Some(USE_TAKE_DRUM),
+                (Ok(world::Interaction::Take(_)), _) => Some(USE_TAKE_CRATE),
+                (Ok(world::Interaction::Drop), _) => Some(USE_PUT_DOWN),
+                (_, Ok(true)) => Some(USE_TAKE_FLAG),
+                (_, Ok(false)) => Some(USE_DROP_FLAG),
+                _ if game.world.can_plant(slot).is_ok() => Some(USE_PLANT),
+                _ if game.world.can_weld(slot).is_ok() => Some(USE_WELD),
+                _ => None,
             }
         };
         if let Some(deed) = deed

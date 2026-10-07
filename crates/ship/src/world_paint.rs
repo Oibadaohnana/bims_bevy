@@ -944,6 +944,231 @@ fn nest_marks(list: &mut DrawList, game: &Game, station: u32) {
     }
 }
 
+const TERMINAL_SCREEN: Color = Color::rgb(0.30, 0.85, 1.0);
+const DONE_GREEN: Color = Color::rgb(0.40, 0.95, 0.55);
+const DRUM_RED: Color = Color::rgb(0.85, 0.30, 0.18);
+const CRATE_BROWN: Color = Color::rgb(0.62, 0.45, 0.26);
+const SALVAGE_GOLD: Color = Color::rgb(1.0, 0.82, 0.30);
+const OVERSEER_GOLD: Color = Color::rgb(1.0, 0.78, 0.25);
+
+/// The second set of attacks' marks (October 2026, `World::objective_look`),
+/// in the station's own frame and glowing so they read through the fog: a
+/// terminal's console, cyan to hack and green once taken, its hacking a
+/// bar under it; the cell, an amber ring, and its door a red bar sealed,
+/// green cut; a drum, red with an amber hazard ring, and a crate, brown
+/// with a gold ring — smaller and lifted while carried; the reactor's core,
+/// cyan rings filling with the drums in, red and throbbing critical; the
+/// Overseer, a gold ring and crown over him, his health beside it, red
+/// while he flees, and his airlock a red ring and cross.
+fn objective_marks(list: &mut DrawList, game: &Game, station: u32) {
+    use world::MarkKind;
+    if game.world.ship.state.alongside() != Some(station) {
+        return;
+    }
+    let Some(look) = game.world.objective_look() else {
+        return;
+    };
+    let t = TILE as f32;
+    let pulse = (game.frame as f32 * 0.1).sin() * 0.5 + 0.5;
+    let ring = |list: &mut DrawList, x: f32, y: f32, r: f32, w: f32, c: Color| {
+        list.push(
+            crate::draw::KIND_ELLIPSE,
+            x,
+            y,
+            r * 2.0,
+            r * 2.0,
+            0.0,
+            0.0,
+            w,
+            c,
+        );
+    };
+    let disc = |list: &mut DrawList, x: f32, y: f32, r: f32, c: Color| {
+        list.push(
+            crate::draw::KIND_ELLIPSE,
+            x,
+            y,
+            r * 2.0,
+            r * 2.0,
+            0.0,
+            0.0,
+            0.0,
+            c,
+        );
+    };
+    let bar = |list: &mut DrawList, x: f32, y: f32, share: f32, c: Color| {
+        let w = 1.6 * t;
+        let x0 = x - w / 2.0;
+        list.line(x0, y, x0 + w, y, 6.0, Color::rgba(0.0, 0.0, 0.0, 0.6));
+        list.line(x0, y, x0 + w * share.clamp(0.0, 1.0), y, 6.0, c);
+    };
+    for m in &look.marks {
+        let (x, y) = (m.at.x as f32, m.at.y as f32);
+        match m.kind {
+            MarkKind::Terminal { taken } => {
+                let screen = if taken { DONE_GREEN } else { TERMINAL_SCREEN };
+                list.rect(x, y, t * 0.9, t * 0.65, 4.0, Color::rgb(0.10, 0.12, 0.15));
+                list.rect(x, y - t * 0.05, t * 0.7, t * 0.4, 2.0, screen.glowing(1.5));
+                if !taken {
+                    ring(
+                        list,
+                        x,
+                        y,
+                        t * (0.85 + 0.12 * pulse),
+                        5.0,
+                        screen.glowing(1.2 + 0.6 * pulse),
+                    );
+                    if m.progress > 0.0 {
+                        bar(list, x, y + t * 0.85, m.progress, screen.glowing(1.3));
+                    }
+                }
+            }
+            MarkKind::Cell => {
+                ring(list, x, y, t * 1.4, 4.0, CHARGE.glowing(0.9 + 0.4 * pulse));
+            }
+            MarkKind::CellDoor { open } => {
+                let c = if open { DONE_GREEN } else { CHARGE_ARMED };
+                ring(list, x, y, t * 0.8, 6.0, c.glowing(1.3 + 0.5 * pulse));
+                if !open && m.progress > 0.0 {
+                    bar(list, x, y + t * 1.0, m.progress, CHARGE.glowing(1.3));
+                }
+            }
+            MarkKind::Drum { carried } => {
+                let (r, lift) = if carried {
+                    (t * 0.28, t * 0.55)
+                } else {
+                    (t * 0.38, 0.0)
+                };
+                disc(list, x, y - lift, r, DRUM_RED);
+                ring(
+                    list,
+                    x,
+                    y - lift,
+                    r * 0.6,
+                    3.0,
+                    Color::rgb(0.30, 0.10, 0.06),
+                );
+                ring(
+                    list,
+                    x,
+                    y - lift,
+                    r + t * 0.2,
+                    4.0,
+                    CHARGE.glowing(1.2 + 0.6 * pulse),
+                );
+            }
+            MarkKind::Crate { carried } => {
+                let (s, lift) = if carried {
+                    (t * 0.5, t * 0.55)
+                } else {
+                    (t * 0.7, 0.0)
+                };
+                list.rect(x, y - lift, s, s, 3.0, CRATE_BROWN);
+                list.line(
+                    x - s / 2.0,
+                    y - lift - s / 2.0,
+                    x + s / 2.0,
+                    y - lift + s / 2.0,
+                    3.0,
+                    Color::rgb(0.35, 0.24, 0.12),
+                );
+                ring(
+                    list,
+                    x,
+                    y - lift,
+                    s * 0.75 + t * 0.15,
+                    4.0,
+                    SALVAGE_GOLD.glowing(1.2 + 0.6 * pulse),
+                );
+            }
+            MarkKind::Reactor { critical } => {
+                if critical {
+                    let blink = ((game.frame / 6) % 2) as f32;
+                    ring(list, x, y, t * 2.4, 8.0, CHARGE_ARMED.glowing(1.5 + blink));
+                    disc(list, x, y, t * 0.9, CHARGE_ARMED.glowing(1.8 + blink));
+                } else {
+                    disc(
+                        list,
+                        x,
+                        y,
+                        t * 0.7,
+                        TERMINAL_SCREEN.glowing(1.2 + 0.5 * pulse),
+                    );
+                    ring(
+                        list,
+                        x,
+                        y,
+                        t * 2.2,
+                        5.0,
+                        TERMINAL_SCREEN.glowing(0.9 + 0.4 * pulse),
+                    );
+                    ring(
+                        list,
+                        x,
+                        y,
+                        t * 2.2 * m.progress.max(0.05),
+                        4.0,
+                        CHARGE.glowing(1.5),
+                    );
+                }
+            }
+            MarkKind::Overseer { fleeing } => {
+                let c = if fleeing { CHARGE_ARMED } else { OVERSEER_GOLD };
+                ring(
+                    list,
+                    x,
+                    y,
+                    t * (0.9 + 0.1 * pulse),
+                    6.0,
+                    c.glowing(1.4 + 0.6 * pulse),
+                );
+                // A crown over his head.
+                let top = y - t * 1.2;
+                for k in [-1.0, 0.0, 1.0] {
+                    let px = x + k * t * 0.25;
+                    list.line(px, top, px, top - t * 0.3, 5.0, OVERSEER_GOLD.glowing(1.6));
+                }
+                list.line(
+                    x - t * 0.3,
+                    top,
+                    x + t * 0.3,
+                    top,
+                    6.0,
+                    OVERSEER_GOLD.glowing(1.6),
+                );
+                bar(list, x, y + t * 1.1, m.progress, c.glowing(1.3));
+            }
+            MarkKind::Escape => {
+                ring(
+                    list,
+                    x,
+                    y,
+                    t * 1.0,
+                    6.0,
+                    CHARGE_ARMED.glowing(1.0 + 0.6 * pulse),
+                );
+                let arm = t * 0.4;
+                list.line(
+                    x - arm,
+                    y - arm,
+                    x + arm,
+                    y + arm,
+                    5.0,
+                    CHARGE_ARMED.glowing(1.3),
+                );
+                list.line(
+                    x - arm,
+                    y + arm,
+                    x + arm,
+                    y - arm,
+                    5.0,
+                    CHARGE_ARMED.glowing(1.3),
+                );
+            }
+        }
+    }
+}
+
 const FLAG_POLE: Color = Color::rgb(0.80, 0.82, 0.86);
 const FLAG_CLOTH: Color = Color::rgb(0.30, 0.85, 1.0);
 
@@ -2187,6 +2412,7 @@ fn stations(
         sabotage_marks(&mut picture, game, station.id);
         evacuation_flag(&mut picture, game);
         nest_marks(&mut picture, game, station.id);
+        objective_marks(&mut picture, game, station.id);
         // The machines' ship, tied up at the far airlock, or their
         // lander down on the plain beyond a gate (feature 83). Drawn in
         // the station's own frame, so it turns with the station; it is a

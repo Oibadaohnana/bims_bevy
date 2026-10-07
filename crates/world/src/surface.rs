@@ -501,6 +501,7 @@ impl Surface {
                 bias: self.bias,
                 hostile: self.hostile,
                 gates,
+                fitted: None,
             }
         })
     }

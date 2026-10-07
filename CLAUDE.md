@@ -46,6 +46,7 @@ The main ones:
 | `tier2_test`, `tier3_test` | `droids` with everything at that tier |
 | `droids_planet`, `defense` | a town held by / attacked by the machines |
 | `crisis`, `jammer`, `guardian`, `bomber`, `lancer`, `conductor`, `relics`, `heart`, `manufacturers` | one mechanic each, staged |
+| `breaches`, `sabotage`, `evacuation`, `nests`, `overseer`, `heist`, `prison`, `fuelrun`, `salvage` | the combat crew in that mission (the second set's dock laid out for it); the game setup's Dev tab forces one in a run |
 | `end` | the Heart with company: a lobby at code `THEEND`, Start once a second player joins, ten plain classless bots, tier-three kit, the setup's difficulty on the Heart's day 33 (`BIMS_END_DAY`, in days gone: 32), the first mission not eased; `end offline` is it alone from the game setup, no relay |
 | `stationbuilder [name]` | a sketch tool for station layouts |
 

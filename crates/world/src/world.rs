@@ -147,6 +147,11 @@ mod evacuation;
 // A nest hunt (October 2026), a mission the map shapes.
 #[path = "nests.rs"]
 mod nests;
+// The second set of attack missions (October 2026): the Overseer, a heist,
+// a prison break, a fuel run and a salvage sweep.
+#[path = "attacks.rs"]
+mod attacks;
+pub use attacks::{CUT_CODE, HACK_CODE, Interaction, Mark, MarkKind, ObjectiveLook};
 pub use entry::{EntryLook, WELD_CODE};
 pub use evacuation::EvacuationLook;
 pub use missions::BREACHES_ODDS;
@@ -314,6 +319,14 @@ pub enum Command {
     /// within reach, or puts down the one it carries where it stands
     /// (October 2026, the Use key). Refused `OutOfReach` and `NoFlagNear`.
     Flag {
+        slot: u32,
+    },
+    /// That player's own Bim puts its hands to what the attack's mission
+    /// has within reach (October 2026, the Use key, `attacks.rs`): a
+    /// heist's terminal, a cell's door, a drum or a crate taken up — or
+    /// the one it carries put down. Refused `OutOfReach` and
+    /// `NothingToUse`.
+    Interact {
         slot: u32,
     },
     /// Take one of that player's own engineer's mines or Healing Sentries
@@ -1534,6 +1547,8 @@ impl World {
         self.sabotage_step(&mut events);
         //    And a nest hunt's nests building (October 2026).
         self.nests_step(&mut events);
+        //    And the second set of attacks' objectives (October 2026).
+        self.objective_step(&mut events);
         //    And, at a **threatened town the crew have landed at**
         //    (feature 94), the same clock again for a fight that is the
         //    town's rather than the machines': the first wave an hour
@@ -1718,6 +1733,7 @@ impl World {
             | Command::Weld { slot }
             | Command::Plant { slot }
             | Command::Flag { slot }
+            | Command::Interact { slot }
             | Command::PackUp { slot, .. }
             | Command::StunShot { slot, .. }
             | Command::Throw { slot, .. }
@@ -1931,6 +1947,11 @@ impl World {
                 Ok(taken) => events.push(WorldEvent::FlagCarried { who: slot, taken }),
                 Err(why) => events.push(refused(slot, why)),
             },
+            Command::Interact { .. } => {
+                if let Err(why) = self.interact(slot, events) {
+                    events.push(refused(slot, why));
+                }
+            }
             Command::Plant { .. } => match self.plant(slot) {
                 Ok(()) => events.push(WorldEvent::Planting { who: slot }),
                 Err(why) => events.push(refused(slot, why)),
@@ -2835,7 +2856,7 @@ impl World {
         // 2026): who stands in a smoke cloud, nobody's target, and every
         // decoy's ghost, after the sentries.
         let in_smoke: Vec<bool> = (0..self.aboard.crew_count())
-            .map(|who| self.in_smoke(who))
+            .map(|who| self.in_smoke(who) || self.is_captive(who))
             .collect();
         let ghost_targets = self.ghost_targets();
         let sentry_targets: Vec<Option<(DVec2, Weapon)>> = self
@@ -6091,7 +6112,9 @@ impl World {
     pub fn crew_bots(&self) -> u32 {
         let room = &self.aboard.room;
         (self.players()..room.crew_count())
-            .filter(|&who| room.is_alive(who as usize) && !self.is_reinforcement(who))
+            .filter(|&who| {
+                room.is_alive(who as usize) && !self.is_reinforcement(who) && !self.is_captive(who)
+            })
             .count() as u32
     }
 
@@ -6696,13 +6719,15 @@ impl World {
             self.settle_sabotage(id);
             self.settle_nests(id);
             self.settle_droids();
+            // And the second set's objective, after the first wave.
+            self.settle_objective(id);
         }
         let standing = self.droids_standing();
         // The mission clock (feature 103): a wave is timed from the
         // arrival, whatever day it is.
         let now = self.run.mission_steps;
         let reinforce = self.reinforce_steps_here(id);
-        let nest_stands = self.a_nest_stands(id);
+        let nest_stands = self.a_nest_stands(id) || self.objective_holds(id);
         let mut arrive = false;
         let mut last = false;
         let mut cleared = false;
@@ -7215,7 +7240,14 @@ impl World {
             // worked (October 2026); nothing anywhere else.
             let spots = match self.ship.state.station() {
                 Some(id) if self.is_breaches(id) => self.breach_objectives(id),
-                Some(_) => self.sabotage_objectives(),
+                Some(_) => {
+                    let spots = self.sabotage_objectives();
+                    if spots.is_empty() {
+                        self.objective_spots()
+                    } else {
+                        spots
+                    }
+                }
                 None => Vec::new(),
             };
             if let Some(residents) = &mut self.residents {
@@ -7902,7 +7934,11 @@ impl World {
         }
         for who in 0..self.aboard.crew_count() as usize {
             let mut gear = self.aboard.room.gear(who);
-            if gear.weapon.is_some() || !self.aboard.room.is_alive(who) {
+            // A prisoner still in its cell is armed when it is let out.
+            if gear.weapon.is_some()
+                || !self.aboard.room.is_alive(who)
+                || self.is_captive(who as u32)
+            {
                 continue;
             }
             gear.weapon = Some(self.draw_pistol(who as u32));
@@ -9222,6 +9258,10 @@ impl World {
         // And its items (October 2026): a Steady Grip, a Long Barrel, an
         // Ablative Shell on.
         self.lift_by_items(who, &mut skill);
+        // A drum or a crate in the arms (October 2026): both hands full.
+        if self.carries_a_load(who) {
+            skill.holds_fire = true;
+        }
         // And the run's ascension: every hit on the crew harder
         // (`ascension::enemy_damage`).
         let harder = crate::ascension::enemy_damage(self.ascension);

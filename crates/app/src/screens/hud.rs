@@ -245,6 +245,10 @@ fn droid_line(world: &world::World) -> Option<(String, &'static str)> {
         };
         return Some((text, HEART_TIP));
     }
+    // The second set of attacks (October 2026): the objective's line.
+    if let Some(look) = world.objective_look() {
+        return Some((objective_line(&look), objective_tip(look.mission)));
+    }
     // A nest hunt (October 2026): the nests standing.
     if let Some((standing, total)) = world.nests_standing() {
         return Some((nests_line(standing, total), NESTS_TIP));
@@ -942,7 +946,10 @@ pub fn counter(world: &world::World, flying: u32) -> Option<Counter> {
     };
     // A Sabotage's charge armed (October 2026): its waves come on a clock,
     // no "of how many".
-    let armed = world.ship_cast_off();
+    let armed = world.ship_cast_off()
+        || world
+            .objective_look()
+            .is_some_and(|look| look.wave_in.is_some());
     Some(Counter {
         big,
         wave: (!armed).then_some((wave, waves)),
@@ -956,6 +963,17 @@ pub fn counter(world: &world::World, flying: u32) -> Option<Counter> {
 /// plant, the hold's clock and the disarming, or the escape's clock.
 fn sabotage_count(world: &world::World) -> Option<(String, egui::Color32)> {
     use world::droid::SabotagePhase;
+    // The second set of attacks' (October 2026): done in green.
+    if let Some(look) = world.objective_look() {
+        let done = match look.mission {
+            world::run::Mission::Overseer => look.phase >= 2,
+            world::run::Mission::Prison => look.phase == 1,
+            world::run::Mission::FuelRun => look.phase == 1,
+            _ => look.done >= look.total,
+        };
+        let colour = if done { theme::HEAL } else { theme::CAUTION };
+        return Some((objective_count(&look), colour));
+    }
     // A nest hunt's (October 2026) the same way.
     if let Some((standing, total)) = world.nests_standing() {
         let colour = if standing == 0 {

@@ -44,6 +44,11 @@ impl World {
     /// defend's as many as land in its hold ([`defense::area_waves`]).
     fn site_waves(&self, id: u32) -> u32 {
         if let Some(it) = self.infestation(id) {
+            // The Overseer, a heist and a fuel run land waves on a clock
+            // until their objective is done (October 2026): about so many.
+            if self.objective_on_a_clock(id) {
+                return data::OBJECTIVE_WAVES;
+            }
             return it.wave.saturating_add(it.waves_left).max(1);
         }
         match self.defense(id) {
@@ -213,8 +218,13 @@ impl World {
         if self.run.won || self.site_cleared(id) || heart::is_heart(id) {
             return false;
         }
+        // A prison break and a salvage sweep keep the site's counted
+        // waves (October 2026), so they may have one more.
         let attack = self.infestation(id).is_some_and(|it| it.heart.is_none())
-            && self.mission_here(id) == crate::run::Mission::Plain;
+            && matches!(
+                self.mission_here(id),
+                crate::run::Mission::Plain | crate::run::Mission::Prison | crate::run::Mission::Salvage
+            );
         // Not at an Area defend nor a mission the map shapes, which run
         // on a clock rather than a count of waves.
         let defence = self.site_threatened(id)

@@ -259,6 +259,16 @@ pub enum WorldEvent {
     Evacuated { station: u32, aboard: u32 },
     /// A nest hunt's nest destroyed: `left` of them standing.
     NestDestroyed { station: u32, left: u32 },
+    /// The second set of attack missions moved on (October 2026,
+    /// `objective.rs`): `what` says how —
+    /// 1 a terminal taken (`n` left), 2 the alarm's wave, 3 a crate taken
+    /// up, 4 a crate home (`n` home), 5 a drum taken up, 6 a drum gone up
+    /// in somebody's arms, 7 a drum in the reactor (`n` in), 8 the
+    /// reactor critical, 9 the cell cut open (`n` prisoners), 10 the
+    /// Overseer fleeing, 11 the Overseer out, 12 the Overseer down, 13 a
+    /// drum stood again in the depot — and `who` the crew member it was,
+    /// `u32::MAX` for nobody.
+    Objective { station: u32, what: u32, n: u32, who: u32 },
     /// The host said that player has left the game.
     PlayerGone { slot: u32 },
     /// Relics are on offer to the crew (feature 106): `count` of them, off
@@ -683,6 +693,9 @@ pub enum Refusal {
     /// An Evacuation's flag asked for with none to take up within reach,
     /// or another player carrying it (October 2026).
     NoFlagNear = 139,
+    /// The Use key with nothing of an attack's mission within reach — no
+    /// terminal, no cell door, no drum or crate (October 2026).
+    NothingToUse = 140,
 }
 
 impl Refusal {
@@ -782,6 +795,7 @@ impl WorldEvent {
             WorldEvent::FlagCarried { .. } => 172,
             WorldEvent::Evacuated { .. } => 173,
             WorldEvent::NestDestroyed { .. } => 174,
+            WorldEvent::Objective { .. } => 175,
             WorldEvent::PlayerGone { .. } => 106,
             WorldEvent::RelicsOffered { .. } => 107,
             WorldEvent::RelicProposed { .. } => 108,
@@ -942,6 +956,7 @@ impl WorldEvent {
             WorldEvent::FlagCarried { who, taken } => (who as i64) + 100 * i64::from(taken),
             WorldEvent::Evacuated { aboard, .. } => aboard as i64,
             WorldEvent::NestDestroyed { left, .. } => left as i64,
+            WorldEvent::Objective { what, n, .. } => (what as i64) * 1_000 + n as i64,
             // The kind in the hundreds, the player in the units.
             WorldEvent::ItemUsed { who, kind } => (who as i64) + 100 * (kind as i64),
             // The buyer in the units, the kind in the tens, the tier in the

@@ -164,6 +164,9 @@ pub enum Order {
     Weld,
     /// A Sabotage's charge planted — `Command::Plant`, the V key.
     Plant,
+    /// What the second set of attacks has within reach — a terminal, a
+    /// cell door, a drum or a crate — `Command::Interact`, the V key.
+    Interact,
     /// An Evacuation's flag taken up or put down — `Command::Flag`, the V
     /// key.
     Flag,
@@ -544,6 +547,7 @@ impl Net {
                         Order::Detonate => Command::Detonate { slot },
                         Order::Weld => Command::Weld { slot },
                         Order::Plant => Command::Plant { slot },
+                        Order::Interact => Command::Interact { slot },
                         Order::Flag => Command::Flag { slot },
                         Order::PackUp(id) => Command::PackUp { slot, id },
                         Order::StunShot { x, y } => Command::StunShot { slot, x, y },

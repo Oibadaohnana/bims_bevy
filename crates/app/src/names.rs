@@ -484,6 +484,7 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NoChargeNear => "stand at the charge's mark",
         Refusal::ShipCastOff => "the ship has cast off — it waits at the way out",
         Refusal::NoFlagNear => "the flag is not within reach, or somebody else carries it",
+        Refusal::NothingToUse => "nothing to use within reach",
         Refusal::BonusWaveHeld => "Overtime keeps the bonus wave on",
     }
 }
@@ -701,7 +702,8 @@ pub const SETUP_TAB_SCALING: &str = "Scaling";
 pub const SETUP_TAB_DEV: &str = "Dev";
 /// The Dev tab (October 2026): what a playtest run sets out with. Every
 /// player's Bim gets the kit; the host picks.
-pub const DEV_NOTE: &str = "For playtesting: every player's Bim sets out with this. Nothing here is the run as it plays.";
+pub const DEV_NOTE: &str =
+    "For playtesting: every player's Bim sets out with this. Nothing here is the run as it plays.";
 pub const DEV_RESET: &str = "Reset";
 pub const DEV_ON: &str = "DEV";
 pub const DEV_MISSION: &str = "Mission";
@@ -712,13 +714,15 @@ pub const DEV_EVERY_DEFENCE: &str = "every defence";
 pub const DEV_EVERY_ATTACK: &str = "every attack";
 pub const DEV_NO_MISSION: &str = "none";
 pub const DEV_LEVEL: &str = "Level";
-pub const DEV_LEVEL_TIP: &str = "• The class's level at the start\n• Skill points to spend with it\n• No class: nothing";
+pub const DEV_LEVEL_TIP: &str =
+    "• The class's level at the start\n• Skill points to spend with it\n• No class: nothing";
 pub const DEV_WEAPON: &str = "Weapon";
 pub const DEV_ARMOUR: &str = "Armour";
 pub const DEV_CLASS_KIT: &str = "Class kit";
 pub const DEV_TIER: &str = "Tier";
 pub const DEV_ITEMS: &str = "Items";
-pub const DEV_ITEMS_TIP: &str = "• Click to buy into the next free slot, free\n• Click a slot to empty it";
+pub const DEV_ITEMS_TIP: &str =
+    "• Click to buy into the next free slot, free\n• Click a slot to empty it";
 pub const DEV_SLOT_EMPTY: &str = "empty";
 pub const DEV_RELICS: &str = "Relics";
 pub const DEV_RELICS_TIP: &str = "• The crew hold these from the start";
@@ -734,6 +738,11 @@ pub fn dev_mission_name(mission: world::run::Mission) -> &'static str {
         world::run::Mission::Sabotage => "Sabotage",
         world::run::Mission::Evacuation => "Evacuation",
         world::run::Mission::Nests => "Nest hunt",
+        world::run::Mission::Overseer => "Kill the Overseer",
+        world::run::Mission::Heist => "Data heist",
+        world::run::Mission::Prison => "Prison break",
+        world::run::Mission::FuelRun => "Fuel run",
+        world::run::Mission::Salvage => "Salvage sweep",
     }
 }
 pub const SETUP_TITLE: &str = "New run";
@@ -1333,6 +1342,10 @@ pub fn detonate_refused(why: world::Refusal) -> String {
 pub fn weld_refused(why: world::Refusal) -> String {
     format!("Cannot weld: {}.", refusal(why))
 }
+/// The Use key refused at the second set of attacks (October 2026).
+pub fn use_refused(why: world::Refusal) -> String {
+    format!("Nothing to do here: {}.", refusal(why))
+}
 /// And for a Stun Shot refused (October 2026).
 pub fn stun_shot_refused(why: world::Refusal) -> String {
     format!("Cannot fire a Stun Shot: {}.", refusal(why))
@@ -1930,6 +1943,9 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             format!("{} put the flag down: the people hold by it.", who(w))
         }
         WorldEvent::Evacuated { aboard, .. } => format!("{aboard} aboard the ship."),
+        WorldEvent::Objective {
+            what, n, who: w, ..
+        } => objective_event(what, n, w),
         WorldEvent::NestDestroyed { left: 0, .. } => "The last nest is destroyed.".into(),
         WorldEvent::NestDestroyed { left, .. } => format!("A nest destroyed: {left} left."),
         WorldEvent::SabotageStage { phase: 1, .. } => {
@@ -3644,6 +3660,130 @@ pub const USE_TAKE_FLAG: &str = "take the flag";
 pub const USE_DROP_FLAG: &str = "put the flag down";
 pub const USE_PLANT: &str = "plant the charge";
 pub const USE_WELD: &str = "weld shut";
+pub const USE_HACK: &str = "hack the terminal";
+pub const USE_CUT: &str = "cut the cell open";
+pub const USE_TAKE_DRUM: &str = "take up the drum";
+pub const USE_TAKE_CRATE: &str = "take up the crate";
+pub const USE_PUT_DOWN: &str = "put it down";
+
+/// The log's line for the second set of attacks moving on (October 2026,
+/// `WorldEvent::Objective`, its `what` codes).
+pub fn objective_event(what: u32, n: u32, w: u32) -> String {
+    let by = || {
+        if w == u32::MAX {
+            String::new()
+        } else {
+            crew_name(w)
+        }
+    };
+    match what {
+        1 if n == 0 => "Every terminal taken: the data is ours. Clear the deck.".into(),
+        1 => format!("A terminal taken: {n} left. The alarm is louder."),
+        3 => format!("{} took up a crate: a wave is coming for it.", by()),
+        4 => format!("A crate is aboard: {n} home."),
+        5 => format!("{} took up a drum: no shooting with it.", by()),
+        6 => format!("The drum in {}'s arms went up!", by()),
+        7 => format!("A drum in the reactor: {n} in."),
+        8 => "The reactor is critical. Clear the deck.".into(),
+        9 => format!("The cell is cut open: {n} of the Republic's are out and follow the crew."),
+        10 => "The Overseer is hurt and running for his airlock!".into(),
+        11 => "The Overseer got away, and the bounty with him.".into(),
+        12 => "The Overseer is down.".into(),
+        13 => "A fresh drum stands in the depot.".into(),
+        _ => String::new(),
+    }
+}
+
+/// The threat line of the second set of attacks (October 2026).
+pub fn objective_line(look: &world::ObjectiveLook) -> String {
+    use world::run::Mission;
+    let wave = look
+        .wave_in
+        .map(|s| format!(" · next wave {}", crate::format::countdown(s as f64)))
+        .unwrap_or_default();
+    match look.mission {
+        Mission::Overseer => match look.phase {
+            0 => format!("KILL THE OVERSEER — in his office, slow on his feet{wave}"),
+            1 => format!("THE OVERSEER IS FLEEING — stop him before his airlock{wave}"),
+            2 => "The Overseer got away with the bounty: clear the deck".into(),
+            _ => "The Overseer is down: clear the deck".into(),
+        },
+        Mission::Heist if look.done < look.total => format!(
+            "DATA HEIST — {} of {} terminals · V at one, 10 s{wave}",
+            look.done, look.total
+        ),
+        Mission::Heist => "DATA HEIST — every terminal taken: clear the deck".into(),
+        Mission::Prison if look.phase == 0 => {
+            "PRISON BREAK — cut the cell open: V at its door, 8 s".into()
+        }
+        Mission::Prison => format!("PRISON BREAK — {} out: keep them alive", look.done),
+        Mission::FuelRun if look.phase == 0 => format!(
+            "FUEL RUN — {} of {} drums in the reactor · V to carry, a hit and it blows{wave}",
+            look.done, look.total
+        ),
+        Mission::FuelRun => "FUEL RUN — the reactor is critical: clear the deck".into(),
+        Mission::Salvage => format!(
+            "SALVAGE — {} of {} crates aboard · each taken brings a wave",
+            look.done, look.total
+        ),
+        _ => String::new(),
+    }
+}
+
+/// The count under the top's (October 2026): what is done of how much.
+pub fn objective_count(look: &world::ObjectiveLook) -> String {
+    use world::run::Mission;
+    match look.mission {
+        Mission::Overseer => match look.phase {
+            0 => "Overseer in his office".into(),
+            1 => "Overseer fleeing".into(),
+            2 => "Overseer escaped".into(),
+            _ => "Overseer down".into(),
+        },
+        Mission::Heist => format!("Terminals {}/{}", look.done, look.total),
+        Mission::Prison if look.phase == 0 => "Cell sealed · V".into(),
+        Mission::Prison => format!("Prisoners out {}/{}", look.done, look.total),
+        Mission::FuelRun if look.phase == 0 => format!("Drums {}/{}", look.done, look.total),
+        Mission::FuelRun => "Reactor critical".into(),
+        Mission::Salvage => format!("Salvage aboard {}/{}", look.done, look.total),
+        _ => String::new(),
+    }
+}
+
+/// The tip of the second set's threat line (October 2026).
+pub fn objective_tip(mission: world::run::Mission) -> &'static str {
+    use world::run::Mission;
+    match mission {
+        Mission::Overseer => {
+            "• Kill him: waves keep coming while he lives
+• He walks slowly; hurt, he runs for a far airlock
+• Out of it, the bounty goes with him"
+        }
+        Mission::Heist => {
+            "• Hold V at a terminal, 10 s (engineer: 5 s)
+• Each taken: waves sooner and bigger
+• All taken and the deck clear: done"
+        }
+        Mission::Prison => {
+            "• Hold V at the cell door, 8 s (engineer: 4 s)
+• Freed prisoners follow as armed bots
+• Alive and aboard at the end: they join the crew"
+        }
+        Mission::FuelRun => {
+            "• V takes up a drum; the carrier can't shoot
+• A hit on the carrier: the drum blows
+• Three in the reactor: it goes critical
+• A lost drum comes back in the depot"
+        }
+        Mission::Salvage => {
+            "• V takes up a crate; the carrier can't shoot
+• Each taken brings a bigger wave at once
+• Carried aboard the ship: paid at once
+• Leave whenever you like"
+        }
+        _ => "",
+    }
+}
 /// And for the flag refused (October 2026).
 pub fn flag_refused(why: world::Refusal) -> String {
     format!("No flag: {}.", refusal(why))
@@ -4378,6 +4518,7 @@ mod tests {
             Refusal::NoChargeNear,
             Refusal::ShipCastOff,
             Refusal::NoFlagNear,
+            Refusal::NothingToUse,
         ] {
             assert!(!refusal(why).is_empty());
         }

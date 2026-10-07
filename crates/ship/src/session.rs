@@ -558,7 +558,9 @@ impl Session {
         session
     }
 
-    /// The `breaches`, `sabotage`, `evacuation` and `nests` commands
+    /// The `breaches`, `sabotage`, `evacuation` and `nests` commands, and
+    /// the second set's `overseer`, `heist`, `prison`, `fuelrun` and
+    /// `salvage` (the dock laid out for the mission)
     /// (October 2026, the missions the map shapes), for a playtest: the
     /// combat ship and its sixteen crew, a gun in every hand, and the fight
     /// made that mission. An attack — Sabotage, a nest hunt — is
@@ -577,8 +579,7 @@ impl Session {
         width: f32,
         height: f32,
     ) -> Session {
-        use world::run::Mission;
-        let attack = matches!(mission, Mission::Sabotage | Mission::Nests);
+        let attack = mission.is_attack();
         let mut session = if attack {
             Session::droids(seed, tier, reinforce, wave_max, waves, width, height)
         } else {
@@ -593,6 +594,9 @@ impl Session {
         };
         if let Some(game) = session.game.as_mut() {
             game.world.set_mission_for_probe(Some(mission));
+            // The second set's (October 2026): the dock laid out for the
+            // mission, its rooms where the mission wants them.
+            game.world.fit_dock_for_probe();
         }
         session
     }

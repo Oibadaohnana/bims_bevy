@@ -43,7 +43,7 @@ impl World {
             let fits = match forced {
                 Mission::Plain => true,
                 Mission::Breaches | Mission::Evacuation => kind == SiteKind::Defend,
-                Mission::Sabotage | Mission::Nests => kind == SiteKind::Attack,
+                attack => kind == SiteKind::Attack && attack.is_attack(),
             };
             return if mapped && fits {
                 forced
@@ -64,13 +64,19 @@ impl World {
         let seed = worldgen::rng::mix(self.galaxy_seed ^ MISSION_SALT)
             ^ worldgen::rng::mix(u64::from(star))
             ^ worldgen::rng::mix(u64::from(station).wrapping_add(0x_5354));
-        let roll = worldgen::rng::Rng::new(seed).below(BREACHES_ODDS);
+        let mut rng = worldgen::rng::Rng::new(seed);
         match kind {
-            SiteKind::Defend if roll == 0 => Mission::Breaches,
-            SiteKind::Defend if roll == 1 => Mission::Evacuation,
-            SiteKind::Attack if roll == 0 => Mission::Sabotage,
-            SiteKind::Attack if roll == 1 => Mission::Nests,
-            _ => Mission::Plain,
+            SiteKind::Defend => match rng.below(BREACHES_ODDS) {
+                0 => Mission::Breaches,
+                1 => Mission::Evacuation,
+                _ => Mission::Plain,
+            },
+            // Every station attack is a mission, each as likely (October
+            // 2026, the player's: "drop the plain … it is to boring").
+            SiteKind::Attack => {
+                Mission::ATTACKS[rng.below(Mission::ATTACKS.len() as u32) as usize]
+            }
+            SiteKind::Trader => Mission::Plain,
         }
     }
 

@@ -8761,3 +8761,74 @@ flag", "put the flag down", "plant the charge", "weld shut"
 (`names::use_prompt`; nothing while its hands are already on a weld or
 the charge). `BIMS_FLAG=1` puts an Evacuation's flag in the player's
 hands for a look.
+
+## The second set of attacks, on maps built for them (October 2026)
+
+The player's words: "A1: The Overseer should walk at 30% of a normal walk
+speed and have an airlock very far away. He should have scaling hp with
+tier areas", "A2 … A5: I like", "also make maps fitting to that", "drop
+the plain just run in and kill the wave mission … it is to boring", and
+the odds "the same … each new type taking a share next to the current
+two". `attacks.rs` (a child of `world`) is the rule — its module note is
+the whole of it; `crate::objective` the states, on `Infestation::objective`
+(saved, hashed only where `Some`).
+
+- **Which**: a station attack is **always** a mission now —
+  `Mission::ATTACKS`, seven, each one in seven (`mission_at`): Sabotage,
+  the nest hunt, **Kill the Overseer**, **a data heist**, **a prison
+  break**, **a fuel run**, **a salvage sweep**. Elites, a planet town's
+  attack, the Heart and the start at home stay plain; a defence keeps its
+  one-in-three Breaches / Evacuation / plain.
+- **The map**: `stationgen::Feature` (Office, Servers, Brig, FuelRun,
+  Cargo) and `generate_fitted(kind, seed, feature)` — the station drawn
+  off `FIT_SALT` with the feature's rooms dealt first to the rooms
+  farthest from the port (`deal_feature`; the depot to the nearest),
+  furnished by `room_pieces` (racks of shelves, a desk of crates, drums in
+  a depot's corners, a railed two-by-two core, crate rows), a cell with
+  one door and windows always. `Station::fit(feature, any_plan)` lays a
+  generated station out so, standing where it stood, its rooms on
+  `Station::fitted` (saved). `World::fit_the_site` does it in `arrive_at`
+  before the rooms are joined; `fit_dock_for_probe` is the commands'.
+  Built for no feature the generator draws exactly what it did. Over 12
+  seeds every kind builds every feature 11 or 12 times
+  (`a_station_is_built_for_its_mission_s_rooms`); a station that cannot
+  has its spots found on its plain layout.
+- **The Use key** is one command for all five, `Command::Interact`
+  (`can_interact` → `Interaction::{Hack, Cut, Take, Drop}`,
+  `Refusal::NothingToUse` 140); a hack and a cut are the room's deploy
+  errand of `HACK_CODE` 102 / `CUT_CODE` 103, counted by the world
+  (`hands_on`, an engineer's two a step). A carrier `holds_fire`.
+- **The clear**: a fight won freezes the deck, so each holds it until its
+  objective is done (`objective_holds`, read in `droid_waves` beside the
+  nests): the Overseer down or out, every terminal taken, the reactor
+  critical, the cell cut, every crate home or gone up. The Overseer, the
+  heist and the fuel run land their waves on their own clock (the site's
+  own count set to nought; `clock_wave` lands one only while fewer than a
+  wave stand) and are priced over `data::OBJECTIVE_WAVES`; a prison and a
+  salvage keep the site's waves and may have a bonus wave.
+- **The Overseer** is one of the Manufacturers' laid in his office
+  (`stand_people`), his bar `OVERSEER_HEALTH` by area times the enemy
+  health factor, his pace `OVERSEER_PACE` said to the residents' room's
+  skills every step, walked by `set_objectives` (office, then the airlock
+  farthest from it, `sabotage::extraction_of`); out of it he is killed off
+  the deck unpaid (`xp_down` set first) and `pending_bounty` is nought.
+- **The prisoners** are crew bots enlisted through
+  `Game::enlist_reinforcement`, posted in the cell, unarmed
+  (`arm_the_empty_handed` skips a captive), `None` on the enemy's list,
+  never counted in `crew_bots`; the cell's door is **sealed**
+  (`bims::door::Door::sealed`, `Game::seal_door`: no panel order and no
+  smash lifts it), said every step, cut from the corridor tile outside it
+  (`Prison::outside`). Freed: a pistol each, the post lifted. Never freed:
+  dropped at the mission's end (`leave_the_prisoners`);
+  `prisoners_after_drop` keeps the indices through `drop_crew_member`.
+- **A carried drum** goes up when its carrier's `hits_taken` passes the
+  count at the pick-up (`Game::burst_drum`, the drums' own burst); a lost
+  drum is stood again in the depot after `FUEL_RESTOCK_STEPS`.
+- **A salvage sweep pays as it goes** (`pays_as_it_goes` in
+  `earn_bounty`), each crate aboard `SALVAGE_PAY_PERCENT` of
+  `site_money_here` into the takings, each taken up a wave at once a fifth
+  bigger.
+- `WorldEvent::Objective { station, what, n, who }` (175) says every step
+  of them (`what` codes in `event.rs`); `World::objective_look` is the
+  app's (marks for `world_paint::objective_marks`, the HUD's line and
+  count). `tests_attacks.rs` plays each through. **`SAVE_VERSION` 128.**

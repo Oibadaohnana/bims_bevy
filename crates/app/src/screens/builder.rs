@@ -1199,7 +1199,12 @@ fn section_title(ui: &mut egui::Ui, text: &str) -> egui::Response {
 }
 
 /// A card of the crew page, its title along the top.
-pub(super) fn section(ui: &mut egui::Ui, title: &str, tip: Option<&str>, body: impl FnOnce(&mut egui::Ui)) {
+pub(super) fn section(
+    ui: &mut egui::Ui,
+    title: &str,
+    tip: Option<&str>,
+    body: impl FnOnce(&mut egui::Ui),
+) {
     egui::Frame::new()
         .fill(SECTION_FILL)
         .stroke(egui::Stroke::new(1.0, theme::LINE))

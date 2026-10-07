@@ -965,6 +965,84 @@ fn eat_manufacturers(hash: &mut Fnv, it: &crate::droid::Infestation) {
         hash.eat(s.left);
         hash.eat(s.next_wave);
     }
+    // The second set of attacks' objectives (October 2026), only where
+    // there is one.
+    if let Some(o) = &it.objective {
+        eat_objective(hash, o);
+    }
+}
+
+/// An attack's objective of the second set (October 2026,
+/// `crate::objective`), its kind first.
+fn eat_objective(hash: &mut Fnv, o: &crate::objective::Objective) {
+    use crate::objective::{Load, Objective};
+    let eat_load = |hash: &mut Fnv, l: &Load| {
+        hash.eat(l.at.0 as i64 as u64);
+        hash.eat(l.at.1 as i64 as u64);
+        hash.eat(l.carrier.map_or(u64::MAX, u64::from));
+        hash.eat(l.state as u64);
+        hash.eat(u64::from(l.hits));
+    };
+    match o {
+        Objective::Overseer(v) => {
+            hash.eat(0x_4F56_5253);
+            hash.eat(v.body.map_or(u64::MAX, u64::from));
+            hash.eat(u64::from(v.office.0));
+            hash.eat(u64::from(v.office.1));
+            hash.eat(u64::from(v.airlock));
+            hash.eat(u64::from(v.phase.code()));
+            hash.eat(v.next_wave);
+        }
+        Objective::Heist(h) => {
+            hash.eat(0x_4845_4953);
+            for (i, &(x, y)) in h.terminals.iter().enumerate() {
+                hash.eat(u64::from(x));
+                hash.eat(u64::from(y));
+                hash.eat(u64::from(h.work.get(i).copied().unwrap_or(0)));
+                hash.eat(u64::from(h.taken.get(i).copied().unwrap_or(false)));
+            }
+            hash.eat(h.next_wave);
+        }
+        Objective::Prison(p) => {
+            hash.eat(0x_5052_4953);
+            hash.eat(
+                p.door
+                    .map_or(u64::MAX, |(x, y)| u64::from(x) << 32 | u64::from(y)),
+            );
+            hash.eat(
+                p.outside
+                    .map_or(u64::MAX, |(x, y)| u64::from(x) << 32 | u64::from(y)),
+            );
+            hash.eat(u64::from(p.cell.0) << 32 | u64::from(p.cell.1));
+            hash.eat(u64::from(p.cut));
+            hash.eat(u64::from(p.open));
+            for &w in &p.prisoners {
+                hash.eat(u64::from(w));
+            }
+        }
+        Objective::FuelRun(f) => {
+            hash.eat(0x_4655_454C);
+            for d in &f.drums {
+                eat_load(hash, d);
+            }
+            hash.eat(f.depot.0 as i64 as u64);
+            hash.eat(f.depot.1 as i64 as u64);
+            hash.eat(f.reactor.0 as i64 as u64);
+            hash.eat(f.reactor.1 as i64 as u64);
+            hash.eat(u64::from(f.delivered));
+            hash.eat(u64::from(f.critical));
+            hash.eat(f.next_wave);
+            hash.eat(f.restock_at.unwrap_or(u64::MAX));
+        }
+        Objective::Salvage(v) => {
+            hash.eat(0x_5341_4C56);
+            for c in &v.crates {
+                eat_load(hash, c);
+            }
+            hash.eat(u64::from(v.taken));
+            hash.eat(u64::from(v.home));
+        }
+    }
 }
 
 /// The Machine Heart's fight on its fortress's infestation (feature 108):

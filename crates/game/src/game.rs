@@ -7988,6 +7988,39 @@ impl Game {
         }
     }
 
+    /// Seal door `i` shut, or cut it open (October 2026, a prison
+    /// break's cell): sealed it is locked and answers no panel and no
+    /// smashing; cut, it is unlocked. Said by the world every step, since
+    /// a room built afresh starts every door unsealed.
+    pub fn seal_door(&mut self, i: usize, sealed: bool) {
+        let Some(door) = self.room.doors.get_mut(i) else {
+            return;
+        };
+        if door.sealed == sealed {
+            return;
+        }
+        if sealed {
+            door.lock(door::Locker::Body(usize::MAX));
+            door.sealed = true;
+        } else {
+            door.sealed = false;
+            door.unlock();
+        }
+        door.changed = false;
+    }
+
+    /// Whether door `i` is sealed.
+    pub fn door_sealed(&self, i: usize) -> bool {
+        self.room.doors.get(i).is_some_and(|d| d.sealed)
+    }
+
+    /// A fuel drum carried and hit bursting where it is (October 2026, a
+    /// fuel run): the drums' own burst, on everybody near
+    /// (`Combat::burst_tank`), nobody's bolt.
+    pub fn burst_drum(&mut self, at: Vec2) {
+        self.combat.burst_tank(crate::combat::NOBODY, at, 0.0);
+    }
+
     /// Lock door `i` as `by` would, or unlock it, without the walk. For
     /// the probes.
     pub fn set_door_locked_for_probe(&mut self, i: usize, by: Option<door::Locker>) {
@@ -9271,6 +9304,14 @@ impl Game {
     /// experience until task 119.
     pub fn hits_taken(&self, who: usize) -> u32 {
         self.bims.get(who).map_or(0, |b| b.hits_taken)
+    }
+
+    /// One enemy hit counted on that body, nothing taken off it — for the
+    /// tests of what a hit sets off (a fuel run's drum in the arms).
+    pub fn note_hit_for_probe(&mut self, who: usize) {
+        if let Some(bim) = self.bims.get_mut(who) {
+            bim.hits_taken = bim.hits_taken.saturating_add(1);
+        }
     }
 
     /// How many shots a body has fired (feature 106, `Bim::shots`).
