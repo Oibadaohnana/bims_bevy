@@ -7612,6 +7612,16 @@ impl Game {
             }
         }
         for m in &self.markers {
+            // A bot's walk is never pinged, whoever sent it — the people
+            // following the flag, a bot ordered with its player: only a
+            // player's own Bim wears a tint (`set_tints`).
+            if m.by.is_some_and(|w| {
+                self.bims
+                    .get(w)
+                    .is_none_or(|b| b.character.tint().is_none())
+            }) {
+                continue;
+            }
             let t = (m.age / MARKER_LIFE).clamp(0.0, 1.0);
             // Whose colour it is when it is another player's own Bim's.
             let theirs =
@@ -11219,13 +11229,13 @@ impl Game {
         }
 
         // The walks waiting their turn — the Shift-clicks on the deck —
-        // for the viewer's own crew member and whoever it has selected: a
+        // for the viewer's own crew member alone (never a bot's): a
         // dashed thread from where the Bim is bound now through each spot
         // in turn, a pip at every one, so what was queued can be read off
         // the deck until it is walked. In the ping's colour, since a
         // queued walk is a ping that stays.
         for (who, bim) in self.bims.iter().enumerate() {
-            if who != self.viewer as usize && !bim.character.is_selected_by(self.viewer) {
+            if who != self.viewer as usize || bim.character.tint().is_none() {
                 continue;
             }
             let mut from = bim.character.destination().unwrap_or(bim.character.pos);

@@ -302,7 +302,12 @@ closing on the spot from the corners with a ring drawing in behind them,
 a dark edge under every stroke, lit past white while fresh — drawn **over
 the fog** now, after the shots, and aged on the host's real clock
 (`Game::fade`) wherever it fades the fight's lights, so a ping lasts
-`MARKER_LIFE` whatever the speed.
+`MARKER_LIFE` whatever the speed. **A bot's walk is never pinged**
+(October 2026, the player's word: "I never want to see move markers of
+any bots ever"): `draw_pings` skips a marker whose `by` has no tint —
+only a player's own Bim wears one (`set_tints`) — so the people walking
+after an Evacuation's flag, a bot sent anywhere and a station's people
+leave no ping. A marker loaded without `by` is still drawn.
 `an_attack_move_stops_to_shoot_and_walks_on_when_nothing_is_left` pins
 the order.
 
@@ -364,8 +369,8 @@ for a word; it went with the chat in feature 104.)
 
 **The queued walks are drawn**: `render` threads a dashed line from where
 the Bim is bound now through every `Kind::Walk` on its queue, a pip and a
-ring at each in the ping's `ACCENT`, for the viewer's own Bim and whoever
-it has selected; `queued_walks(who)` is the same list for the probes and
+ring at each in the ping's `ACCENT`, for the viewer's own Bim alone (never
+a bot's, October 2026); `queued_walks(who)` is the same list for the probes and
 `ordered_count(who)` how many orders wait. The agenda shows the rest
 under `JOB_WALK` = 27 ("Walking over"). Adding the flag to `Saved` is
 `SAVE_VERSION` 13; `world::Command::CrewLater` and the app's
