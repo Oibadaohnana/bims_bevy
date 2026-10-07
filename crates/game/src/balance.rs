@@ -752,7 +752,7 @@ pub const LANCER_PACE: f32 = 0.9;
 /// bolt's.
 /// 135 a slug before the tier's factor (45 before October 2026; tripled).
 pub const RAIL: WeaponStats = WeaponStats {
-    range: MAX_RANGE,
+    range: LANCER_RANGE,
     sweet: 10.0,
     accuracy: 1.0,
     accuracy_far: 1.0,
@@ -772,9 +772,16 @@ pub const LANCER_TRACK: f32 = 0.8;
 pub const LANCER_LOCK: f32 = 0.4;
 pub const LANCER_COOLDOWN: f32 = 3.0;
 pub const LANCER_CANCELLED: f32 = 4.0;
+/// How far the rail flies, in tiles: as far as anybody sees
+/// (`sight::VIEW_RANGE`), past the game view's [`MAX_RANGE`] — the one
+/// gun let fire from off it (October 2026, the player's: "increase
+/// lancers shooting range"; [`MAX_RANGE`] before), its charge line
+/// showing where it will go.
+pub const LANCER_RANGE: f32 = 14.0;
 /// How far ahead of its mark a Lancer begins a charge: within this many
-/// tiles of where it stands, with a clear line from its own eye.
-pub const LANCER_REACH: f32 = 12.0;
+/// tiles of where it stands, with a clear line from its own eye — half a
+/// tile inside [`LANCER_RANGE`] (twelve before October 2026).
+pub const LANCER_REACH: f32 = 13.5;
 /// Where a Lancer stands: back off a body of the crew's side that comes
 /// within [`LANCER_SHY`] tiles.
 pub const LANCER_SHY: f32 = 6.0;

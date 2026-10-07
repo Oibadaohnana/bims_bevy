@@ -508,15 +508,17 @@ pub struct Weapon {
 impl Weapon {
     /// The kind's numbers scaled by the tier: damage and accuracy (the
     /// odds clamped to one), and the range with its sweet spot, never
-    /// past [`balance::MAX_RANGE`]. Every
+    /// past [`balance::MAX_RANGE`] — or the kind's own range where it is
+    /// further (the Lancer's rail, [`balance::LANCER_RANGE`]). Every
     /// curve, the tactics and the tooltips read this and know nothing of
     /// tiers.
     pub fn stats(self) -> WeaponStats {
         let base = self.kind.stats();
         let (damage, accuracy, range) = self.tier.weapon_factors();
+        let cap = balance::MAX_RANGE.max(base.range);
         WeaponStats {
-            range: (base.range * range).min(balance::MAX_RANGE),
-            sweet: (base.sweet * range).min(balance::MAX_RANGE),
+            range: (base.range * range).min(cap),
+            sweet: (base.sweet * range).min(cap),
             accuracy: (base.accuracy * accuracy).min(1.0),
             accuracy_far: (base.accuracy_far * accuracy).min(1.0),
             damage: base.damage * damage,
@@ -1082,7 +1084,7 @@ impl Skill {
             // runs out to, never past [`balance::MAX_RANGE`].
             damage: base.damage * self.damage,
             damage_far: base.damage_far * self.damage,
-            range: (base.range + self.range).min(balance::MAX_RANGE),
+            range: (base.range + self.range).min(balance::MAX_RANGE.max(base.range)),
             ..base
         }
     }
@@ -1845,7 +1847,7 @@ impl Bolt {
     pub fn stats(&self) -> WeaponStats {
         let base = self.weapon.stats();
         WeaponStats {
-            range: (base.range + self.range).min(balance::MAX_RANGE),
+            range: (base.range + self.range).min(balance::MAX_RANGE.max(base.range)),
             ..base
         }
     }
@@ -5521,13 +5523,19 @@ mod tests {
 
     /// Nothing shoots past the game view's reach (October 2026): every
     /// weapon at every tier, a machine's built-in arm included, and a
-    /// skill's or a bolt's added tiles on top, is held to `MAX_RANGE`.
+    /// skill's or a bolt's added tiles on top, is held to `MAX_RANGE` —
+    /// all but the Lancer's rail, held to its own `LANCER_RANGE`.
     #[test]
     fn nothing_reaches_past_the_view() {
         for kind in WeaponKind::EVERY {
+            let cap = if kind == WeaponKind::Rail {
+                crate::balance::LANCER_RANGE
+            } else {
+                MAX_RANGE
+            };
             for tier in Tier::ALL {
                 let s = Weapon { kind, tier }.stats();
-                assert!(s.range <= MAX_RANGE, "{kind:?} {tier:?} {}", s.range);
+                assert!(s.range <= cap, "{kind:?} {tier:?} {}", s.range);
                 assert!(s.sweet <= s.range, "{kind:?} {tier:?}");
             }
         }
