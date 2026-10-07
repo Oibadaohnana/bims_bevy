@@ -61,6 +61,15 @@ pub fn apply(dev: &DevSetup, session: &mut ship::Session) {
     };
     let world = &mut game.world;
     if let Some(mission) = dev.mission {
+        // The run opens straight into the mission picked (the player's:
+        // "if i pick anything in the dev it should do that mission"): the
+        // dock it opens at is a defence, so an attack's has it taken by
+        // the machines first.
+        if mission.is_attack()
+            && let Some(id) = world.ship.state.station()
+        {
+            world.infest(id);
+        }
         world.set_mission_for_probe(Some(mission));
         // The dock the run opens at laid out for the mission, where it
         // wants a map of its own (a vault, a cell, …): the first fight is

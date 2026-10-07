@@ -502,3 +502,73 @@ fn a_mission_forced_as_the_dev_tab_does_is_laid_where_the_floor_takes_the_crew()
         }
     }
 }
+
+/// What the Dev tab does at Start with a mission picked (October 2026,
+/// the player's: "if i pick anything in the dev it should do that
+/// mission"): the run's opening dock — a defence — taken by the machines
+/// for an attack's, the mission forced, the dock laid out for it; and the
+/// first steps begin that very mission there.
+#[test]
+fn a_mission_picked_in_the_dev_tab_is_the_run_s_first_fight() {
+    for mission in [
+        Mission::Overseer,
+        Mission::Heist,
+        Mission::Prison,
+        Mission::FuelRun,
+        Mission::Salvage,
+        Mission::Sabotage,
+        Mission::Nests,
+        Mission::Bombs,
+        Mission::Doors,
+        Mission::Chief,
+        Mission::Breaches,
+        Mission::Evacuation,
+    ] {
+        let galaxy = worldgen::Galaxy::new(data::DEFAULT_SEED, GalaxyType::SpiralTwoArm);
+        let (star, station) = crate::spawn(&galaxy).unwrap();
+        let mut world = World::start(
+            shipdesign::fixture::flyer(2),
+            REFERENCE_MONEY,
+            1,
+            data::DEFAULT_SEED,
+            GalaxyType::SpiralTwoArm,
+            star,
+            station,
+        )
+        .unwrap();
+        world.set_floor(true);
+        let id = world.ship.state.station().unwrap();
+        // The Dev tab's apply.
+        if mission.is_attack() {
+            world.infest(id);
+        }
+        world.set_mission_for_probe(Some(mission));
+        world.fit_dock_for_probe();
+        assert_eq!(world.mission_here(id), mission, "{mission:?}");
+        let mut begun = false;
+        for _ in 0..400 {
+            world.step(&[]);
+            begun = world.objective_look().is_some()
+                || world.sabotage_look().is_some()
+                || world.nests_standing().is_some()
+                || world.breaches_open().is_some()
+                || world.evacuation_look().is_some();
+            if begun {
+                break;
+            }
+        }
+        assert!(begun, "{mission:?}: the first fight is the mission");
+        if let Some(feature) = crate::world::feature_of(mission) {
+            assert_eq!(
+                world
+                    .station(id)
+                    .unwrap()
+                    .fitted
+                    .as_ref()
+                    .map(|f| f.feature),
+                Some(feature),
+                "{mission:?}: laid out for it"
+            );
+        }
+    }
+}
