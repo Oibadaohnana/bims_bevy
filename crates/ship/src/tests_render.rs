@@ -8,15 +8,15 @@
 //! buffers — every float, bit for bit — and their cut at the fog have to
 //! be one. The decks: the simulation, docked at its spawn with the
 //! station's people about; the fight, the ship at the droids' arena; a
-//! town on a planet, whose picture is the ground's; the system map, which
-//! builds nothing; and the yard, which has no rooms at all. `PICTURES` in
+//! town on a planet, whose picture is the ground's; and the system map,
+//! which builds nothing. `PICTURES` in
 //! `tests_survivors` is the other half: that the serial buffer is the one
 //! the painter always drew.
 
 use crate::fork::{self, Join};
 use crate::game::ViewMode;
-use crate::session::{galaxy_type, pick_ground};
-use crate::{Preset, Session, world_paint};
+use crate::session::pick_ground;
+use crate::{Session, world_paint};
 
 const W: f32 = 1400.0;
 const H: f32 = 900.0;
@@ -111,23 +111,6 @@ fn the_shape_buffer_is_the_same_however_its_two_jobs_are_run() {
         !alike("map", map(), map(), 5, 10),
         "the map builds no station's picture"
     );
-
-    let yard = || {
-        let spawn = world::spawn(&worldgen::Galaxy::new(seed, galaxy_type(0)));
-        Session::design(
-            shipdesign::fixture::AREA,
-            100_000,
-            1,
-            0,
-            seed,
-            0,
-            spawn,
-            Preset::Playtest,
-            W,
-            H,
-        )
-    };
-    assert!(!alike("yard", yard(), yard(), 3, 0), "the yard has no game");
 }
 
 /// The same frame drawn from nothing: [`world_paint::paint`], which keeps

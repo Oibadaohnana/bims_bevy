@@ -1,14 +1,14 @@
 //! The front of the game: the start menu, the setup screen, and the lobby.
 //!
 //! The first screens a player meets, and deliberately separate from the
-//! room and the designer: the builder deals in settings and has no `Game`,
+//! room: the builder deals in settings and has no `Game`,
 //! and the room deals in a `Game` and has no menus. The galaxy is never
 //! shown (October 2026: the map is the floor): `crates/lobby` only rolls
 //! the start in it.
 //!
 //! The multiplayer half (feature 59) is `crate::net`: the lobby is a room
 //! at the relay, the host's settings go to everybody in it, and the
-//! host's Start takes the whole room into the yard. The screen reads the
+//! host's Start takes the whole room into the run. The screen reads the
 //! room — who is in it, whose it is — off the `Online` resource and never
 //! past it, which is what made the wire a change to that one object rather
 //! than to the screens.
@@ -57,11 +57,6 @@ const GALAXIES: [(&str, &str); 4] = [
 ];
 
 const DEFAULT_MONEY: u64 = world::data::START_MONEY_PER_BIM;
-/// The yard's build area, which the `game` flow no longer opens (feature
-/// 102): kept on the settings and the wire for the `design` command, and
-/// no longer offered on the setup tab, since a run is always the default
-/// ship.
-const DEFAULT_SHIP: u32 = 40;
 const DEFAULT_GALAXY: u32 = 0;
 
 /// Berths in a lobby. Four is a guess at the eventual crew ceiling.
@@ -136,7 +131,6 @@ fn lobby_said() -> String {
 #[derive(Resource, Clone, Debug)]
 pub struct Settings {
     pub money_per_bim: u64,
-    pub ship: u32,
     pub seed: u64,
     pub galaxy: u32,
     pub spawn: Option<(u32, u32)>,
@@ -174,7 +168,7 @@ pub struct Settings {
     pub weapons: Option<bims::balance::WeaponDamage>,
     /// The `end` command's run (`crate::Launch::End`): the lobby's run
     /// opened at the Machine Heart with ten classed bots at the top level
-    /// in tier-three kit (`designer::build_run`). Dealt with the rest.
+    /// in tier-three kit (`run::build_run`). Dealt with the rest.
     pub end: bool,
     /// The world clock's day the `end` run opens on, so its waves are a
     /// run's that far on (`dev::end_day`, the host's, dealt with the rest).
@@ -201,7 +195,6 @@ impl Default for Settings {
     fn default() -> Settings {
         Settings {
             money_per_bim: DEFAULT_MONEY,
-            ship: DEFAULT_SHIP,
             seed: crate::screens::rand_seed(),
             galaxy: DEFAULT_GALAXY,
             spawn: None,
@@ -686,7 +679,7 @@ fn frame(
                             if let (Some(d), Some(game)) = (dealt, &mut loaded.game) {
                                 d.onto(&mut game.world);
                             }
-                            commands.insert_resource(crate::screens::designer::ShipSession(loaded));
+                            commands.insert_resource(crate::screens::run::ShipSession(loaded));
                             screen.loading = false;
                             go = Some(Screen::Game);
                         }
@@ -829,7 +822,7 @@ fn frame(
                     });
                     match read {
                         Ok(loaded) => {
-                            commands.insert_resource(crate::screens::designer::ShipSession(loaded));
+                            commands.insert_resource(crate::screens::run::ShipSession(loaded));
                             screen.loading = false;
                             go = Some(Screen::Game);
                         }
@@ -1074,8 +1067,8 @@ fn frame(
             settings.classes = vec![screen.bim_class];
             settings.tints = vec![screen.bim_tint];
         }
-        // Straight into the run (feature 102): no design phase, the default
-        // ship docked at the station picked.
+        // Straight into the run (feature 102): the default ship docked at
+        // the station picked.
         let size = Vec2::new(window.width().max(64.0), window.height().max(64.0));
         loading.start_run(&mut commands, settings, size);
     }

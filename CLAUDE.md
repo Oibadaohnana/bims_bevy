@@ -39,7 +39,6 @@ The main ones:
 | --- | --- |
 | `game` | the whole run: menu, lobby, then the first mission |
 | `simulation` | straight into the world on the playtest ship |
-| `design` | the ship designer (yard) |
 | `test` / `test_planet` | a random station / planet settlement, combat ship |
 | `droids` | the fight: 16 crew vs droid waves in the arena |
 | `combat_droids_<class>` | `droids` with that class at the top level (20), every skill point unspent (`BIMS_RANKS=q,c,e,r` buys ranks) |
@@ -242,7 +241,7 @@ plus `wire` and `server` (the relay, `bims-server`).
   shows at a far zoom. Surfaces are drawn 20% towards grey
   (`SURFACE_SATURATION`). **Objects** wear a texture too: a plain kind
   `+ 8` (`KIND_TEXTURED`, set by `DrawList::textured_from` over what a
-  painter drew of the objects — `hull_tiles`, `Room::draw`, the yard,
+  painter drew of the objects — `hull_tiles`, `Room::draw`,
   the deployables, the plain's wild) lays `object.png` (wear, grime) over
   a fill, `+ 64` (`KIND_FOLIAGE`, `foliage_from`) lays `foliage.png`
   (leaves), `+ 128` (`KIND_CLOTH`, the room's `clothed_from` over a
@@ -344,7 +343,7 @@ a seam wants both sides read.
 | --- | --- |
 | `crates/game/CLAUDE.md` | the room: routes, doors, sight, the fight, machines, the classes' room halves |
 | `crates/world/CLAUDE.md` | the world: clocks, the run, travel and missions, stations, the crisis, classes, relics, traders |
-| `crates/ship/CLAUDE.md` | the designer and the game view: cameras, painters, `Session` |
+| `crates/ship/CLAUDE.md` | the game view: cameras, painters, `Session` |
 | `crates/shipdesign/CLAUDE.md` | parts, layers, power, cargo, the hash, the validator |
 | `crates/worldgen/CLAUDE.md` | the generator and its checksum |
 | `crates/flight/CLAUDE.md`, `crates/lobby/CLAUDE.md` | trip plans; the lobby's galaxy |

@@ -17,7 +17,7 @@
 use bevy_egui::egui;
 use world::{World, WorldEvent};
 
-use super::designer::Order;
+use super::run::Order;
 use crate::format::{euros, grouped};
 use crate::names::*;
 use crate::theme;

@@ -4,11 +4,9 @@
 //! rather than a key written into the screen, so the Controls page of the
 //! Esc sheet can rebind any of them: click the key beside an action, press
 //! the one you want, Esc to think again. Two actions may share a key —
-//! Turn shares R with the ultimate by default (task 123; the reload had
-//! R from October 2026 until it went to Space), and is read only in the
-//! yard, where no ability is used —
-//! so nothing refuses a binding; the page says where a key is used
-//! twice. Esc itself is not an action: it is what closes the
+//! the reload shares Space with Propose by default, which is read only
+//! where no shot is fired — so nothing refuses a binding; the page says
+//! where a key is used twice. Esc itself is not an action: it is what closes the
 //! sheet and cancels a rebind, and a key that could be bound away from
 //! that is a sheet that cannot be closed.
 //!
@@ -48,8 +46,7 @@ pub enum Action {
     /// nothing new picked — a yes to the trip on the table; and the
     /// fight-won window's *Back to ship* and the ready check's *Ready*.
     /// On Space, shared with the reload (the ultimate's until October
-    /// 2026), which none of those three reads while it is up (as Turn
-    /// shares R with the ultimate).
+    /// 2026), which none of those three reads while it is up.
     Propose,
     /// Head up or north up.
     NorthUp,
@@ -62,7 +59,7 @@ pub enum Action {
     /// Walk the Bim you steer up the screen (task 144): the camera
     /// follows the Bim, and the keys walk it. The four pan keys that
     /// shared W, A, S and D, and V's free camera, went in October 2026:
-    /// the yard and the map pan with a middle drag or the window's edge.
+    /// the map pans with a middle drag or the window's edge.
     WalkUp,
     WalkDown,
     WalkLeft,
@@ -73,9 +70,6 @@ pub enum Action {
     /// Recruit them, or let them go. On L since the fourth ability slot
     /// took R (task 123).
     Recruit,
-    /// Turn the part in hand in the yard. Read only there, so it shares R
-    /// with the ultimate (task 123; with the reload while it was on R).
-    Turn,
     /// Open and close the inventory of the crew member you steer.
     Inventory,
     /// The steered crew member's first ability slot, on Q (task 123;
@@ -185,7 +179,7 @@ impl Action {
         Action::Item6,
     ];
 
-    pub const ALL: [Action; 32] = [
+    pub const ALL: [Action; 31] = [
         Action::Map,
         Action::Propose,
         Action::NorthUp,
@@ -197,7 +191,6 @@ impl Action {
         Action::WalkRight,
         Action::Select,
         Action::Recruit,
-        Action::Turn,
         Action::Inventory,
         Action::Ability1,
         Action::Ability2,
@@ -240,11 +233,9 @@ impl Action {
             Action::WalkLeft => Key::A,
             Action::WalkRight => Key::D,
             // C and R were the second and fourth ability slots (task
-            // 123), so Select went to F1 and Recruit to L. Turn keeps
-            // R: it is read only in the yard, where no ability is used (R is the ultimate since October 2026).
+            // 123), so Select went to F1 and Recruit to L.
             Action::Select => Key::F1,
             Action::Recruit => Key::L,
-            Action::Turn => Key::R,
             Action::Inventory => Key::Tab,
             Action::Ability1 => Key::Q,
             // F since October 2026, when C became the ping (F was the
@@ -291,7 +282,6 @@ impl Action {
             Action::WalkRight => "walk-right",
             Action::Select => "select",
             Action::Recruit => "recruit",
-            Action::Turn => "turn",
             Action::Inventory => "inventory",
             Action::Ability1 => "ability-1",
             Action::Ability2 => "ability-2",
@@ -337,9 +327,6 @@ impl Action {
                 "Select the crew member you steer, and put them in the middle of the view."
             }
             Action::Recruit => "Recruit the crew member you steer, or let them go.",
-            Action::Turn => {
-                "Turn the part in hand in the yard. Read only there, so it shares R with the ultimate."
-            }
             Action::Inventory => "Open and close the inventory of the crew member you steer.",
             Action::Ability1 => {
                 "The first ability slot, by the crew member you steer: an engineer lays a mine on the deck tile under the pointer, which goes off when an enemy comes within a tile of it; a soldier throws a grenade at it; a medic drops a Heal Drone; a tank raises or puts down his Riot Shield; a commander calls a Battle Cry. With Ctrl held, it is ranked up instead."
@@ -478,7 +465,7 @@ pub struct Keys {
     /// The action whose key is being chosen: the next key pressed is it.
     pub listening: Option<Action>,
     /// How fast the camera pans with the pointer against the window's
-    /// edge (task 123), in tenths of `designer::PAN_SPEED`: nought is
+    /// edge (task 123), in tenths of `canvas::PAN_SPEED`: nought is
     /// off. Tenths, since the slider steps by them and so the bindings
     /// stay `Eq`. Local to this player, never sent anywhere.
     pub edge_scroll: u8,
@@ -630,7 +617,7 @@ impl Keys {
         })
     }
 
-    /// The edge-scroll speed as a factor of `designer::PAN_SPEED`.
+    /// The edge-scroll speed as a factor of `canvas::PAN_SPEED`.
     pub fn edge_scroll_speed(&self) -> f32 {
         f32::from(self.edge_scroll) / 10.0
     }
@@ -729,8 +716,8 @@ impl Keys {
         // And one from before the reload took Space and the ultimate R
         // (October 2026) — no version line — has those two the other way
         // round: an ultimate on Space and a reload on R go to their new
-        // keys rather than the reload sharing R with Turn and the ultimate
-        // Space with Propose. A key moved off them keeps its word.
+        // keys rather than the reload sharing R with the ultimate and the
+        // ultimate Space with Propose. A key moved off them keeps its word.
         let old_reload = !text.lines().any(|l| {
             l.split_once('=').is_some_and(|(n, v)| {
                 n.trim() == VERSION_NAME && v.trim().parse::<u32>().is_ok_and(|v| v >= VERSION)
@@ -1008,8 +995,7 @@ mod tests {
         // The four ability slots are Q, F, E and R (task 123; the
         // ultimate left R for G and G for Space in October 2026, and Space
         // for R again, and the second slot C for F, C being the ping's
-        // since), none but the ultimate bound to anything else: R is
-        // shared with Turn, which only the yard reads.
+        // since), none bound to anything else.
         assert_eq!(keys.key(Action::Ability1), egui::Key::Q);
         assert_eq!(keys.key(Action::Ability2), egui::Key::F);
         assert_eq!(keys.key(Action::Ability3), egui::Key::E);
@@ -1019,16 +1005,15 @@ mod tests {
         assert!(keys.shared_with(Action::Ability3).is_empty());
         assert_eq!(keys.key(Action::Ping), egui::Key::C);
         assert!(keys.shared_with(Action::Ping).is_empty());
-        assert_eq!(keys.shared_with(Action::Ability4), vec![Action::Turn]);
+        assert!(keys.shared_with(Action::Ability4).is_empty());
         // The reload shares Space with Propose, which only the map
         // between missions, the fight-won window and the ready check
         // read (October 2026).
         assert_eq!(keys.key(Action::Reload), egui::Key::Space);
         assert_eq!(keys.shared_with(Action::Reload), vec![Action::Propose]);
-        // So Select left C for F1 and Recruit left R for L; Turn stays.
+        // So Select left C for F1 and Recruit left R for L.
         assert_eq!(keys.key(Action::Select), egui::Key::F1);
         assert_eq!(keys.key(Action::Recruit), egui::Key::L);
-        assert_eq!(keys.key(Action::Turn), egui::Key::R);
         assert!(keys.shared_with(Action::Select).is_empty());
         assert!(keys.shared_with(Action::Recruit).is_empty());
         // And the walk is WASD, nothing else's since the pan keys went
@@ -1195,7 +1180,7 @@ mod tests {
         let keys = Keys::default();
         assert_eq!(keys.key(Action::Reload), egui::Key::Space);
         assert_eq!(keys.key(Action::Revive), egui::Key::T);
-        assert_eq!(keys.shared_with(Action::Ability4), vec![Action::Turn]);
+        assert!(keys.shared_with(Action::Ability4).is_empty());
         assert!(keys.shared_with(Action::Revive).is_empty());
         let mut before = keys;
         before.set(Action::Ability4, egui::Key::R);

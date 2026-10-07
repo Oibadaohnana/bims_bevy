@@ -161,8 +161,8 @@ impl Output {
     }
 }
 
-/// Furthest in and out the ship view will go. The same three-times-life-size
-/// ceiling the design phase has, so the two look like one game.
+/// Furthest in and out the ship view will go: three times life size at
+/// the most.
 const SHIP_MIN_SCALE: f32 = 0.02;
 const SHIP_MAX_SCALE: f32 = 3.0;
 

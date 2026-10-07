@@ -20,9 +20,9 @@ use ship::game::ViewMode;
 use wire::{PeerId, To};
 use world::{Refusal, ShipState, Speed, WorldEvent};
 
-use super::designer::{Net, Order, ShipSession};
 use super::hud::{self, GAP, MARGIN};
 use super::loading::{Apply, Loading};
+use super::run::{Net, Order, ShipSession};
 use crate::ability_icons::{self, Glyph};
 use crate::canvas::{
     Pointer, canvas_painter, edge_pan_now, egui_rect, rect_of, root_ui, zoom_factor,
@@ -655,11 +655,11 @@ fn open(
             } else {
                 remember_beginning(&mut commands, &session.0);
             }
-            (session.0.editor.local, session.0.editor.players)
+            (session.0.local, session.0.players)
         }
         None => {
-            // No design phase in front of this: the simulation, on the
-            // playtest ship. The `test` command is the same somewhere else
+            // Nothing in front of this: the simulation, on the playtest
+            // ship. The `test` command is the same somewhere else
             // each time — a random seed, and a dock somebody lives on picked
             // at random across that galaxy.
             // `test_planet` is the same roll made among the systems with
@@ -920,7 +920,7 @@ fn open(
             // made at — for trying any kit on aboard before stepping off.
             if !matches!(
                 *launch,
-                Launch::Game | Launch::Simulation | Launch::Design | Launch::StationBuilder
+                Launch::Game | Launch::Simulation | Launch::StationBuilder
             ) {
                 session.stock_the_armory_for_probe();
             }
@@ -1099,7 +1099,7 @@ fn open(
             {
                 game.world.set_ready_check(true);
             }
-            let out = (session.editor.local, session.editor.players);
+            let out = (session.local, session.players);
             crate::names::set_crew_names(&session.crew_names);
             floor_on(&mut session);
             remember_beginning(&mut commands, &session);
@@ -1156,10 +1156,10 @@ fn floor_on(session: &mut Session) {
 /// The run as it began, kept for the Esc sheet's Restart (feature 79):
 /// the world written out the moment the screen opened, whatever opened
 /// it — a command of its own (`droids`, `combat_droids_medic`,
-/// `test_planet`), the lobby's Start or the yard's last Accept. A restart stands a session up from it
+/// `test_planet`) or the lobby's Start. A restart stands a session up from it
 /// again the way a load does, so what is kept here is exactly the
 /// situation the run started in. Nothing is kept where there is no world
-/// to write, which is the design phase alone.
+/// to write.
 fn remember_beginning(commands: &mut Commands, session: &Session) {
     if let Some(text) = session.save() {
         commands.insert_resource(crate::save::Beginning(text));
@@ -1319,7 +1319,7 @@ fn frame(
     let keys_now = *bindings;
     let auto_shoot = setup.is_some_and(|s| s.auto_shoot);
     let now = ctx.input(|i| i.time);
-    let dt = time.delta_secs().min(super::designer::MAX_FRAME_DT) as f64;
+    let dt = time.delta_secs().min(super::run::MAX_FRAME_DT) as f64;
     let mut root = root_ui(&ctx);
     // A trip being built behind the loading screen, or one this end's own
     // order set off last frame (`screens::loading`): the frame is the
@@ -1396,16 +1396,11 @@ fn frame(
     while let Some(event) = drained.next() {
         match event {
             Event::Packet { from, packet } => match packet {
-                Packet::Ask { at, message, stamp } => {
+                Packet::Ask { order, stamp } => {
                     if let Some(slot) = online.slot_of(from) {
                         let host = screen.net.wire.as_ref().is_some_and(|w| w.host);
-                        if host && Loading::travels(session, slot, &message) {
-                            let apply = Apply::Asked {
-                                from: slot,
-                                at,
-                                message,
-                                peer: from,
-                            };
+                        if host && Loading::travels(session, slot, &order) {
+                            let apply = Apply::Asked { from: slot, order };
                             loading.trip(&screen.net, session, apply);
                             loading.stash(drained.by_ref());
                             break;
@@ -1416,36 +1411,29 @@ fn frame(
                             (g.world.steps, g.world.effective_speed().multiplier() > 0)
                         });
                         let ready = if host {
-                            screen
-                                .held
-                                .arrive(slot, from, at, message, stamp, now, running)
+                            screen.held.arrive(slot, order, stamp, now, running)
                         } else {
                             Some(None)
                         };
                         if let Some(asked) = ready {
-                            screen.net.asked(session, slot, at, message, from, asked);
+                            screen.net.asked(session, slot, order, asked);
                         }
                     }
                 }
-                Packet::Applied {
-                    from,
-                    at,
-                    message,
-                    asked,
-                } => {
-                    if !screen.net.is_clock() && Loading::travels(session, from, &message) {
-                        loading.trip(&screen.net, session, Apply::Applied { from, at, message });
+                Packet::Applied { from, order, asked } => {
+                    if !screen.net.is_clock() && Loading::travels(session, from, &order) {
+                        loading.trip(&screen.net, session, Apply::Applied { from, order });
                         loading.stash(drained.by_ref());
                         break;
                     }
                     let net = &screen.net;
                     screen
                         .rollback
-                        .confirm(session, |s| net.applied(s, from, at, message));
+                        .confirm(session, |s| net.applied(s, from, order));
                     let step = session.game.as_ref().map_or(0, |g| g.world.steps);
                     screen
                         .rollback
-                        .applied(screen.net.slot, from, at, message, asked, step);
+                        .applied(screen.net.slot, from, order, asked, step);
                 }
                 // A line another player drew on the floor's chart, or
                 // rubbed out; one from nobody dealt a slot is nobody's.
@@ -1455,14 +1443,6 @@ fn frame(
                     {
                         screen.sketches.put(slot, id, points);
                     }
-                }
-                Packet::Refused { why } => {
-                    let line = if why == 0 {
-                        ACCEPT_STALE
-                    } else {
-                        edit_line(why)
-                    };
-                    screen.log.push(line.to_string());
                 }
                 Packet::Steps { n, checksum } if !screen.net.is_clock() => {
                     for _ in 0..n {
@@ -1551,7 +1531,7 @@ fn frame(
                     let size = screen.size.max(Vec2::splat(64.0));
                     match Session::restore_as(&save, online.my_slot(), size.x, size.y) {
                         Ok(mut loaded) => {
-                            let (slot, players) = (loaded.editor.local, loaded.editor.players);
+                            let (slot, players) = (loaded.local, loaded.players);
                             // This player's own Bim keeps what its
                             // player called it, whatever the host's
                             // copy says (task 145).
@@ -3968,7 +3948,7 @@ fn frame(
             });
             match read {
                 Ok((loaded, text)) => {
-                    let (slot, players) = (loaded.editor.local, loaded.editor.players);
+                    let (slot, players) = (loaded.local, loaded.players);
                     if let Some(wire) = &screen.net.wire
                         && wire.host
                     {
@@ -4957,24 +4937,15 @@ fn apply_held(
     if loading.busy() {
         return;
     }
-    if Loading::travels(session, ask.from, &ask.message) {
+    if Loading::travels(session, ask.from, &ask.order) {
         let apply = Apply::Asked {
             from: ask.from,
-            at: ask.at,
-            message: ask.message,
-            peer: ask.peer,
+            order: ask.order,
         };
         loading.trip(net, session, apply);
         return;
     }
-    net.asked(
-        session,
-        ask.from,
-        ask.at,
-        ask.message,
-        ask.peer,
-        Some(ask.asked),
-    );
+    net.asked(session, ask.from, ask.order, Some(ask.asked));
 }
 
 /// The host's steps since it last said how many (`said`, the world's step

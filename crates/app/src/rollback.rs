@@ -75,11 +75,10 @@ use std::sync::{Arc, Mutex};
 use bims::order::CrewOrder;
 use ship::Session;
 use ship::game::{Output, Timeline};
-use wire::PeerId;
 use world::{World, WorldEvent};
 
-use crate::screens::designer::{Message, Net, Order};
 use crate::screens::loading::Loading;
+use crate::screens::run::{Net, Order};
 
 /// Steps ahead of the confirmed world aimed at before the host has said
 /// anything: a hundred milliseconds at 1×.
@@ -146,8 +145,7 @@ pub struct Asked {
 struct Pending {
     seq: u32,
     step: u64,
-    at: u64,
-    message: Message,
+    order: Order,
     /// How far the shown world was past the confirmed one when it went.
     ahead: u64,
 }
@@ -170,22 +168,13 @@ pub struct Ledger {
 pub type Shared = Arc<Mutex<Ledger>>;
 
 /// An order of this end's own, played on the shown world at once and
-/// stamped, when this end is guessing (`Net::send`, a guest's): `None`
-/// when it is not — off, no world, an edit rather than an order, or the
-/// trip, which is the host's to set off — and the ask goes unstamped, to
-/// be applied when the host says so.
-pub fn predict(
-    ledger: &Shared,
-    session: &mut Session,
-    slot: u32,
-    at: u64,
-    message: Message,
-) -> Option<Stamp> {
-    if !matches!(message, Message::Order(_)) {
-        return None;
-    }
+/// stamped, when this end is guessing (`Net::order`, a guest's): `None`
+/// when it is not — off, no world, or the trip, which is the host's to
+/// set off — and the ask goes unstamped, to be applied when the host says
+/// so.
+pub fn predict(ledger: &Shared, session: &mut Session, slot: u32, order: Order) -> Option<Stamp> {
     let mut ledger = ledger.lock().ok()?;
-    if !ledger.on || Loading::travels(session, slot, &message) {
+    if !ledger.on || Loading::travels(session, slot, &order) {
         return None;
     }
     let game = session.game.as_mut()?;
@@ -193,7 +182,7 @@ pub fn predict(
     let mark = game.out_mark();
     let seq = ledger.next;
     ledger.next = ledger.next.wrapping_add(1);
-    Net::receive(session, slot, at, message);
+    Net::receive(session, slot, order);
     if let Some(game) = session.game.as_mut() {
         let out = game.out_since(mark);
         ledger.heard.push((step + 1, out));
@@ -202,8 +191,7 @@ pub fn predict(
     ledger.pending.push(Pending {
         seq,
         step,
-        at,
-        message,
+        order,
         ahead,
     });
     Some(Stamp { step, seq })
@@ -279,7 +267,7 @@ pub struct Rollback {
     drifted: bool,
     /// Those orders, from whom and as said, to be played on the shown
     /// world this frame if it is not rolled back.
-    drift: Vec<(u32, u64, Message)>,
+    drift: Vec<(u32, Order)>,
     /// The shown world's step when it was last rolled back, or guessing
     /// began.
     rolled_at: u64,
@@ -375,19 +363,10 @@ impl Rollback {
         self.news.extend(news);
     }
 
-    /// The host applied an order: from player `from` (a slot), said at
-    /// `at`, with what it said of a stamped ask, at `step` of the
-    /// confirmed world. Called after it was applied to the session's,
+    /// The host applied an order: from player `from` (a slot), with what
+    /// it said of a stamped ask, at `step` of the confirmed world. Called after it was applied to the session's,
     /// between `enter` and `leave`.
-    pub fn applied(
-        &mut self,
-        me: u32,
-        from: u32,
-        at: u64,
-        message: Message,
-        asked: Option<Asked>,
-        step: u64,
-    ) {
+    pub fn applied(&mut self, me: u32, from: u32, order: Order, asked: Option<Asked>, step: u64) {
         if !self.inside {
             return;
         }
@@ -396,14 +375,9 @@ impl Rollback {
         };
         // Somebody else's walk and aim: played on the shown world at once
         // and rolled back for now and then ([`DRIFT_STEPS`]).
-        if from != me
-            && matches!(
-                message,
-                Message::Order(Order::Crew(CrewOrder::Control { .. }))
-            )
-        {
+        if from != me && matches!(order, Order::Crew(CrewOrder::Control { .. })) {
             self.drifted = true;
-            self.drift.push((from, at, message));
+            self.drift.push((from, order));
             return;
         }
         let mine = (from == me).then_some(asked).flatten();
@@ -501,9 +475,9 @@ impl Rollback {
             self.drift.clear();
             self.roll_back(session, me);
         } else {
-            for (from, at, message) in std::mem::take(&mut self.drift) {
+            for (from, order) in std::mem::take(&mut self.drift) {
                 self.again(session, |s| {
-                    Net::receive(s, from, at, message);
+                    Net::receive(s, from, order);
                 });
             }
         }
@@ -569,7 +543,7 @@ impl Rollback {
                 self.tally.replayed += 1;
             }
             self.again(session, |s| {
-                Net::receive(s, me, p.at, p.message);
+                Net::receive(s, me, p.order);
             });
         }
         while steps(session) < target && running(session) {
@@ -681,9 +655,7 @@ pub fn hand_dials(from: &World, to: &mut World) {
 #[derive(Clone, Copy, Debug)]
 pub struct HeldAsk {
     pub from: u32,
-    pub peer: PeerId,
-    pub at: u64,
-    pub message: Message,
+    pub order: Order,
     pub stamp: Stamp,
     /// What the host says of it when it is applied.
     pub asked: Asked,
@@ -702,13 +674,10 @@ impl Held {
     /// be applied if its step is here or gone, if it is no stamped ask,
     /// if the world is not running or if it is stamped implausibly far
     /// ahead; else held.
-    #[allow(clippy::too_many_arguments)]
     pub fn arrive(
         &mut self,
         from: u32,
-        peer: PeerId,
-        at: u64,
-        message: Message,
+        order: Order,
         stamp: Option<Stamp>,
         now: u64,
         running: bool,
@@ -726,9 +695,7 @@ impl Held {
         }
         self.asks.push(HeldAsk {
             from,
-            peer,
-            at,
-            message,
+            order,
             stamp,
             asked,
         });
@@ -762,18 +729,14 @@ impl Held {
 mod tests {
     use super::*;
     use crate::net::{Packet, Wire};
-    use crate::screens::designer::Order;
+    use crate::screens::run::Order;
     use bims::order::CrewOrder;
-    use ship::Preset;
     use std::collections::VecDeque;
     use std::sync::mpsc::{Receiver, channel};
     use wire::{ClientCtl, To, decode};
 
     const HOST: usize = 0;
     const GUEST: usize = 1;
-    /// The host's peer id, and the guest's, as the host's screen keeps them.
-    const GUEST_PEER: PeerId = 2;
-
     /// One end: its session and seam, what it posts, what is on its way
     /// to it — each packet with the frame it lands on — and its halves of
     /// the scheme, as the game screen keeps them.
@@ -786,25 +749,23 @@ mod tests {
         held: Held,
     }
 
-    /// A host and a guest in one world, the combat ship's, opened by both
-    /// accepting the way the yard opens it.
+    /// A host and a guest in one world, opened from the same numbers the
+    /// way a run opens it.
     fn pair() -> [End; 2] {
         let spawn = ship::session::pick_dock(world::data::DEFAULT_SEED, 0, 0);
-        let mut ends: Vec<End> = (0..2u32)
+        let ends: Vec<End> = (0..2u32)
             .map(|slot| {
-                let mut session = Session::design(
-                    shipdesign::fixture::AREA,
+                let session = Session::run(
                     100_000,
                     2,
                     slot,
                     world::data::DEFAULT_SEED,
                     0,
                     spawn,
-                    Preset::Empty,
+                    &[],
                     800.0,
                     600.0,
                 );
-                session.editor.give(shipdesign::fixture::combat_ship());
                 let (tx, rx) = channel();
                 let rollback = Rollback::default();
                 End {
@@ -822,11 +783,7 @@ mod tests {
                 }
             })
             .collect();
-        for end in ends.iter_mut() {
-            for slot in 0..2 {
-                let at = end.session.editor.hash();
-                Net::receive(&mut end.session, slot, at, Message::Accept(true));
-            }
+        for end in &ends {
             assert!(end.session.playing());
         }
         let [host, guest]: [End; 2] = ends.try_into().ok().unwrap();
@@ -875,14 +832,10 @@ mod tests {
     fn host_frame(end: &mut End, frame: u32, n: u32) {
         while end.inbox.front().is_some_and(|(due, _)| *due <= frame) {
             let (_, packet) = end.inbox.pop_front().unwrap();
-            if let Packet::Ask { at, message, stamp } = packet {
+            if let Packet::Ask { order, stamp } = packet {
                 let now = steps(end);
-                if let Some(asked) = end
-                    .held
-                    .arrive(1, GUEST_PEER, at, message, stamp, now, true)
-                {
-                    end.net
-                        .asked(&mut end.session, 1, at, message, GUEST_PEER, asked);
+                if let Some(asked) = end.held.arrive(1, order, stamp, now, true) {
+                    end.net.asked(&mut end.session, 1, order, asked);
                 }
             }
         }
@@ -892,14 +845,8 @@ mod tests {
             if !due.is_empty() {
                 say(end, &mut said);
                 for ask in due {
-                    end.net.asked(
-                        &mut end.session,
-                        ask.from,
-                        ask.at,
-                        ask.message,
-                        ask.peer,
-                        Some(ask.asked),
-                    );
+                    end.net
+                        .asked(&mut end.session, ask.from, ask.order, Some(ask.asked));
                 }
             }
             end.session.world_step();
@@ -915,17 +862,12 @@ mod tests {
         while end.inbox.front().is_some_and(|(due, _)| *due <= frame) {
             let (_, packet) = end.inbox.pop_front().unwrap();
             match packet {
-                Packet::Applied {
-                    from,
-                    at,
-                    message,
-                    asked,
-                } => {
+                Packet::Applied { from, order, asked } => {
                     let net = &end.net;
                     end.rollback
-                        .confirm(&mut end.session, |s| net.applied(s, from, at, message));
+                        .confirm(&mut end.session, |s| net.applied(s, from, order));
                     let step = steps(end);
-                    end.rollback.applied(1, from, at, message, asked, step);
+                    end.rollback.applied(1, from, order, asked, step);
                 }
                 Packet::Steps { n, checksum } => {
                     for _ in 0..n {
@@ -1117,19 +1059,19 @@ mod tests {
     /// together go by step and then in the order they came.
     #[test]
     fn the_host_holds_a_stamped_ask_to_its_step() {
-        let message = Message::Accept(true);
+        let order = Order::Detonate;
         let stamp = |step, seq| Some(Stamp { step, seq });
         let mut held = Held::default();
-        assert_eq!(held.arrive(1, 9, 0, message, None, 50, true), Some(None));
-        let late = held.arrive(1, 9, 0, message, stamp(48, 0), 50, true);
+        assert_eq!(held.arrive(1, order, None, 50, true), Some(None));
+        let late = held.arrive(1, order, stamp(48, 0), 50, true);
         assert_eq!(late, Some(Some(Asked { seq: 0, early: -2 })));
-        let stopped = held.arrive(1, 9, 0, message, stamp(60, 1), 50, false);
+        let stopped = held.arrive(1, order, stamp(60, 1), 50, false);
         assert_eq!(stopped, Some(Some(Asked { seq: 1, early: 10 })));
-        let wild = held.arrive(1, 9, 0, message, stamp(50 + MAX_HOLD + 1, 2), 50, true);
+        let wild = held.arrive(1, order, stamp(50 + MAX_HOLD + 1, 2), 50, true);
         assert!(wild.is_some());
-        assert_eq!(held.arrive(1, 9, 0, message, stamp(55, 3), 50, true), None);
-        assert_eq!(held.arrive(2, 8, 0, message, stamp(53, 0), 50, true), None);
-        assert_eq!(held.arrive(1, 9, 0, message, stamp(55, 4), 51, true), None);
+        assert_eq!(held.arrive(1, order, stamp(55, 3), 50, true), None);
+        assert_eq!(held.arrive(2, order, stamp(53, 0), 50, true), None);
+        assert_eq!(held.arrive(1, order, stamp(55, 4), 51, true), None);
         assert!(held.due(52).is_empty());
         let due: Vec<(u32, u32, i32)> = held
             .due(55)
@@ -1138,7 +1080,7 @@ mod tests {
             .collect();
         assert_eq!(due, vec![(2, 0, 3), (1, 3, 5), (1, 4, 4)]);
         assert!(held.is_empty());
-        assert_eq!(held.arrive(1, 9, 0, message, stamp(70, 5), 60, true), None);
+        assert_eq!(held.arrive(1, order, stamp(70, 5), 60, true), None);
         assert_eq!(held.all().len(), 1);
     }
     /// What another player does is news to the guest, rolled back onto or

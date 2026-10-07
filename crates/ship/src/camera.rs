@@ -16,12 +16,10 @@
 //! fact rather than by anything in here. This camera still never rotates;
 //! `Game::camera_turn` is the whole of the difference.
 //!
-//! The transform is the same one the design phase's [`crate::view::View`]
-//! hands out (`screen = world * scale + offset`), so `crates/app` paints
-//! either page with one loop. The difference is what the origin is: the design
-//! phase's is the corner of the build area, and this one is **the ship** —
-//! everything in the ship view is drawn in the camera's units about the
-//! ship's centre of mass.
+//! The transform is `screen = world * scale + offset`, which `crates/app`
+//! hands straight to the canvas. Its origin is **the ship**: everything in
+//! the ship view is drawn in the camera's units about the ship's centre of
+//! mass.
 //!
 //! What sits in the *middle* of the window is a different question, and it
 //! is [`Camera::focus`]: a point in those same units that the pan is
@@ -42,7 +40,17 @@
 //!
 //! [`loose`]: Camera::set_loose
 
-use crate::view::clamp;
+/// Branchless, and deliberately not `f32::clamp`: that one panics when its
+/// bounds cross. Same reason `crates/game/src/math.rs` has its own.
+pub fn clamp(v: f32, lo: f32, hi: f32) -> f32 {
+    if v < lo {
+        lo
+    } else if v > hi {
+        hi
+    } else {
+        v
+    }
+}
 
 /// One camera: how far in, and how far the player has shoved it.
 pub struct Camera {

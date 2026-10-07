@@ -55,8 +55,8 @@
 //! the run exits. It wants `BIMS_SMOKE_FREE=1` with it, a paced frame
 //! being a sixtieth however heavy it is.
 //!
-//! `BIMS_AUTO=create` and `BIMS_AUTO=join:<code>` play the lobby and the
-//! yard with nobody at the keyboard, against the relay `BIMS_SERVER` names
+//! `BIMS_AUTO=create` and `BIMS_AUTO=join:<code>` play the lobby with
+//! nobody at the keyboard, against the relay `BIMS_SERVER` names
 //! — how a game with company is looked at from a terminal ([`auto`]).
 //! `BIMS_BIM_NAME` fills the setup's name field for such a run ([`bim_name`])
 //! and `BIMS_BIM_HAIR` its hair chooser ([`bim_hair`]). `BIMS_DESYNC_AT=<steps>`
@@ -514,8 +514,7 @@ pub fn smoke_frames() -> Option<u32> {
 /// deals one; `BIMS_AUTO=join:<code>` walks into it. Then the host, once
 /// `BIMS_AUTO_PLAYERS` (default 2) are in the lobby, picks a random start
 /// and presses Start, and the run opens on all of them — straight into
-/// the world since feature 102, with no yard to accept in (the `design`
-/// command still presses Accept a second in). With it on, the game prints
+/// the world. With it on, the game prints
 /// `checksum: <steps> <hash>` at every checksum a guest matched, and
 /// `desync` if one did not.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -665,8 +664,8 @@ pub fn bim_tint() -> bims::character::Tint {
 /// place in `Class::ALL` or its name from `names.rs` (`engineer`), else
 /// none (the setup then starts on the soldier) — so a run with nobody at
 /// the keyboard opens as an engineer (feature 74). `BIMS_CLASS` reaches
-/// the simulation and the fight too: `dev::class_crew` puts it on slot 0 of a session opened without a
-/// design phase.
+/// the simulation and the fight too: `dev::class_crew` puts it on slot 0 of a session opened without
+/// the setup.
 pub fn bim_class() -> world::Class {
     let Ok(spec) = std::env::var("BIMS_CLASS") else {
         return world::Class::None;
@@ -683,9 +682,9 @@ pub fn bim_class() -> world::Class {
         .unwrap_or_default()
 }
 
-/// `BIMS_CLASS` onto slot 0 of a session that skipped the design phase —
-/// the simulation, the fight, the tests — through the same
-/// `World::set_class` the yard's choice goes through; and `BIMS_LEVEL=n`
+/// `BIMS_CLASS` onto slot 0 of a session that skipped the setup — the
+/// simulation, the fight, the tests — through the same `World::set_class`
+/// the setup's choice goes through; and `BIMS_LEVEL=n`
 /// straight to that level of it (`World::award` off the table), for
 /// looking at what a level gives — a soldier's grenades from the third.
 ///

@@ -26,8 +26,7 @@ to the next, and [the crew](#the-crew) is who is aboard.
 
 The lobby starts [the game](#the-game) straight away — one star system,
 the default ship docked at the station you picked, and one clock everything
-runs on. The [ship designer](#the-ship-designer) is still there, behind the
-`design` command, but a run does not pass through it.
+runs on. The [ship](#the-ship) is the default one.
 
 It got here in three steps. Bims was a life sim — Bims on a ship the crew
 laid out and flew themselves, cooking, sleeping and keeping the deck clean
@@ -581,7 +580,6 @@ all with a line each, and is the build's own answer rather than this table's:
 | --- | --- | --- |
 | `nix run .` or `nix run .#game` | `cargo run -- game` | the whole game, in order: the start menu, setup or a lobby, the world and a station to start at, then [the run](#a-run) — docked where you said on the default ship, 5 000 a Bim in the pool |
 | `nix run .#simulation` | `cargo run -- simulation` | straight into the world on a prebuilt playtest ship, docked at a station |
-| `nix run .#design` | `cargo run -- design` | straight into the ship design, the playtest ship given, docked where the simulation docks |
 | `nix run .#test` | `cargo run -- test` | the simulation somewhere else each time: docked at a random station somebody lives on, in a random galaxy, with a mercenary for hire at the dock |
 | `nix run .#test_planet` | `cargo run -- test_planet` | `test` set down on a planet: the same random galaxy, landed at the settlement of a planet whose people are friendly |
 | `nix run .#droids` | `cargo run -- droids` | **the fight**: the combat ship — sixteen crew, a gun in every hand, four of them hired field medics — docked at the arena, which the **machines** hold: a wave of Husks, Troopers and Wardens stands about it. They wear nothing, carry nothing and leave nothing to loot; a Husk snaps at arm's length, a Trooper walks into the open with a gun for a forearm, and a Warden's lance **strips the armour off** whatever it hits rather than wounding the body under it. Clear a wave and the next lands at one of the arena's airlocks — the farthest from yours first, then the others in turn — a minute later. Every enemy is a machine (see [a run](#a-run)), so the `combat` command that turned the arena's people against the crew — which would be this exactly — is gone |
@@ -748,7 +746,7 @@ load works with company: **only the host can load** — a guest's Load is
 greyed with the reason — and a game saved for a different number of
 players than are in the room is refused (*That game was saved for N
 players; M are here.*); a load that goes replaces the world on every
-machine, and guests still in the yard are brought into the game with it.
+machine.
 A world in flight is a few megabytes, so it is a hitch on both ends, the
 way a load is. A game of one loads as it always did.
 
@@ -769,295 +767,18 @@ the checksums agree as they did. Over a line shaken by up to 150 ms,
 a guest that played no step on 603 of its frames and three at once on
 164 played exactly one on 1076 of 1087 with the buffer on, 95 ms behind.
 
-## The ship designer
+## The ship
 
-> **Not in a run any more** (feature 102, [A run](#a-run)): the lobby's
-> Start opens the run on the default ship, and the yard is the `design`
-> command's alone. What follows is the yard as it still is.
+Every run sets out on the **default ship** — the playtest ship the
+`simulation` command flies — and nothing is built onto it on a run. The ship
+designer that once came before the game, the whole crew laying out one ship
+on a tile grid and accepting it together, went in October 2026: a run never
+passed through it after feature 102.
 
-The lobby's **Start** used to go here: the whole crew laying out **one ship**
-together, on a tile grid, before anybody is aboard. It is not a command of its
-own any more — a design phase with no lobby in front of it has no station to
-start at, and the page says so rather than picking one: opened without a star
-and a station in its query, or with ones the galaxy has not got, it shows
-**Nowhere to start** and a link back to the lobby. It never falls back to
-another spawn.
-It is `crates/app/src/screens/designer.rs` over `crates/ship`.
-
-**No Bims exist during this phase.** Placing a part and taking it off again
-are both instant and free: nothing has been welded yet, and the money is only
-being promised. That stops the moment everybody accepts — after that, every
-change is a Bim's work.
-
-A tile is 52 world units and holds at most one part per **layer**, of which
-there are four:
-
-- **Structure** is the frame the ship is built on. It needs nothing under it,
-  and it is the first thing anybody lays: nothing else goes down without it.
-- **Floor** is the deck plating you walk on. It needs structure.
-- **Object** is the one thing standing in the tile — a wall, a bunk, an
-  engine. Most need deck; the hull parts stand straight on the frame, which
-  is what lets a ship be skinned before it is floored.
-- **Utility** runs *through* a tile without filling it: power conduit, which a
-  body walks over and a hob can stand on.
-
-A wall is on the object layer like everything else, because a wall and a bunk
-in one tile is equally nonsense. What each part needs under it is one column
-of the part table, and removal reads the same column backwards: nothing comes
-out from under something that is standing on it.
-
-### Laying one out
-
-The designer **opens on a ship**: the playtest ship, laid out in the middle
-of whatever build area the lobby chose, whole and flyable, as a gift — the
-pool is what the crew brought and none of it has been spent. Everything on
-it can be moved, taken off or added to like anything you placed yourself,
-and taking a given part off puts its price in hand as any removal does.
-`?preset=0` opens an empty grid instead, which is what the harnesses use;
-a grid too small for the ship (under twenty tiles) opens empty too.
-
-The palette down the left is grouped the way a ship is thought about — hull,
-systems, crew, galley, heads, storage, bay — rather than the way the enum is
-numbered. The rows are built from what `shipdesign` says exists, so a part added
-and forgotten in the grouping turns up under **Anything else** instead of
-quietly not existing.
-
-- **Click** to place. **Drag a rectangle** for the things you fill an area
-  with — deck plating, conduit — **drag a line** for both kinds of wall,
-  and **drag a diagonal** for the two corner pieces: a **diagonal wall**
-  and a **diagonal outside wall** fill half their tile, cut at forty-five
-  degrees, and a drag lays a staircase of them one tile a step, every
-  piece turned the ghost's way. That is how a hull gets a pointed bow or a
-  chamfered corner, the way spacecraft hulls in games of this kind do. To
-  the rules a corner piece is a whole tile — one object, a body cannot
-  pass, and the hull one seals its tile against radiation exactly as a
-  straight plate does, since the exposure fill is four-neighbour and a
-  staircase touching corner to corner is tight; only the picture is a
-  triangle, and which half is solid is the piece's turn: **R** walks it
-  round the four corners of the tile.
-  **Deck plating lays its own frame**: there is no separate structure tool,
-  because to anybody but the connectivity check the frame and the deck are
-  one thing. A plated tile has both; the hull stands on the frame, deck or
-  no deck.
-- **Right-click peels the top part off a tile** and only that — a hob comes
-  off and the deck stays, a second click takes the deck, a third the frame.
-  A right-dragged rectangle peels every tile in it by one. Across the tiles
-  the parts come off top down, or a tile's deck would be refused because the
-  next tile's hob, in the same drag, was still standing on it.
-- **R** turns the ghost a quarter clockwise. The footprint and the use spots
-  turn with it, and the palette shows the turned size.
-- **Middle-drag** or the pointer against the window's edge (WASD too until
-  October 2026)
-  pans; the **wheel** zooms. The view is clamped
-  to the build area and a margin, and starts showing all of it.
-
-A drag is applied as a run of single edits, and **a failing one is skipped and
-counted rather than fatal**: a rectangle of deck over a half-floored room is
-meant to fill the gaps and pass over the rest.
-
-The ghost is green where the tool would go down and red where it would not,
-and the readout by the pointer says the same thing in the same colour before
-the click rather than after it. Resting on a placed part rings it and shows
-its **use spots** — the tiles a Bim will stand in to use it. Those are only
-ever shown for the part under the pointer; drawn permanently they would fill
-the deck with markers.
-
-### What it costs, and what it checks
-
-Across the top is what is left of the crew's money, beside what there was to
-start with. There is **one pool**: every Bim's purse goes into it, a lone
-player gets a fixed bonus on top because a ship for one costs what a ship for
-four does, and every part anybody places comes out of the same figure. Each
-part has a price in euros. A removal hands back the **whole** price, and what
-is left over at the end is money rather than cargo — it is not aboard, and it
-does not count towards what the ship weighs.
-
-What is left is always **worked out from the design**, never decremented as
-parts go down: a refused edit, a removal and a replayed run of edits cannot
-drift apart from what is actually on the ship. The sum itself —
-`money_per_bim × players`, plus the solo bonus — is `crates/economy`, so the
-game and the native server that will one day be authoritative arrive at the
-pool the same way, in whole euros, with overflow an error rather than a wrap.
-
-### Buying what the ship will live on
-
-Under **Station** on the right is what there is to buy: vegetables, tofu,
-medkits, bandages, a suit, and whatever gear the spawn station trades in
-— at its own two prices a
-unit — what one *costs* here and what the desk *pays* for one, the
-station's ask and bid (*Trading*, under the game, has the sum). Buttons
-move one, ten or a hundred, and putting a thing back hands back what it
-cost — nothing has left the dock, so there is nothing to lose on the
-deal; the bid is shown, and is what a sale will fetch once the game has
-started, but nothing is sold in the yard, only put back. The yard buys at
-**tier one**: the tier chooser on the gear rows is the docked trade
-window's, since the design phase's purchase takes no tier.
-
-Two things bound a purchase, and the station's shelf is neither of them.
-Supply is unlimited; what refuses an order is **the
-pool** — goods come out of the same money the hull does, so a player who
-spends everything on plating has nothing to load it with — or **the ship**.
-Goods are stowed: food in a cold store, and everything else in a locker —
-the armoury, the drug lab, the suit locker, and the **shelf**, which is
-locker class too since the money rework took the shelf class away with
-the materials that filled it. The readout under the rows is how full each
-class is, and a ship with no cold store cannot take food at all however
-much money there is.
-Each of those is not a count but a **grid**, ten cells across and as many
-rows as the parts aboard add up to — a shelf or a cold store is ten by
-ten — and every thing kept there covers its footprint of it: a pistol a
-row of two, a rifle seven, a sniper rifle the whole width; kevlar four
-by four, a helm two by four; a crate of vegetables one by two, a block
-of tofu four by four. Goods that stack take one footprint a stack — ten
-vegetables to a crate, five dressings to a box — so what a shelf holds is
-its cells times the stacks. A container's window lays its grid out as it
-is: drag
-a thing to move it, press `R` on the way to turn it, and a thing goes in
-only where there is a run of cells for it — so a full hold is tidied,
-not counted.
-
-What is bought is aboard from the moment it is bought. It is in the design
-hash, so a purchase clears everybody's Accept the way a wall does; it is in
-the ship's mass, so the acceleration on the handoff screen already accounts
-for it; and a shelf with something on it cannot be taken off until it is sold.
-
-### Everything costs money, and weighs what the table says
-
-Every part has a **price** in euros and a **mass** in the same table
-(`shipdesign::parts`), and the two are deliberately unrelated: a wall
-costs what a wall costs and weighs what a wall weighs. There was a third
-column — a **recipe**, so many units of metal and components — and the
-mass was that recipe added up; the money rework took the materials away
-and wrote each part's mass down as exactly the number its recipe used to
-come to, so nothing about how a ship flies moved.
-
-That is what makes construction a **purchase** rather than a move. The
-price of a part leaves the crew's pool and the part's mass arrives on the
-ship; take the part off again and **the whole price comes back** — there
-is no wastage, no scrap and no scrapping penalty, and the crew are
-neither richer nor poorer for building and unbuilding. A ship's mass
-changes by trading at a station, by building and deconstructing, and by
-crew coming aboard or leaving — nothing is burnt in flight.
-
-**Money works anywhere a part is concerned.** Goods are bought at a desk,
-so they want a dock; a part does not, because euros are not a shelf: a
-site is paid for docked, holding station or landed. The design phase
-happens docked at the spawn station, which is why a part can go down
-instantly there; out in the world a site is walked to and worked at, and
-the price leaves the pool when the work begins (*Building, aboard*).
-
-The rule is written down and tested, against every part in the table, in
-`crates/shipdesign/src/materials.rs`: `site_price` says what a site
-costs — a plating site is the floor and, where the tile has no frame, the
-structure under it — and `refund_for` says what comes back.
-
-### What it checks
-
-Down the right is what is wrong with it. An **error** blocks Accept; a
-**warning** is the design saying what it will be like to live with. Resting on
-a row rings the tiles it names — a highlight, not a tooltip: nothing is said,
-and it goes the moment the pointer moves.
-
-The errors are:
-
-- the ship is in more than one piece;
-- fewer bunks or chairs than there are players;
-- no table, cold store, worktop, hob, dishwasher, toilet or basin;
-- somewhere a Bim has to stand is off the ship, has no deck, or is blocked;
-- parts nobody could walk between — over deck, through doors, which count as a
-  way through;
-- an engine firing into the ship: the tiles straight behind its bell have to
-  be open space, so an engine stands in the skin with its bell over the
-  edge. The designer washes every engine's exhaust onto the deck as you
-  build — flame-coloured out into space, warning-red with a cross on every
-  tile of the ship it would cook — for the ghost as well as for what is
-  placed, so you see it before the checks panel says it.
-
-The warnings are no engine, no engine on some axis, no hydroponic bay, no
-broom locker, no helm, nothing to eat aboard, a consumer nothing powers, a
-conduit run drawing more than its reactor makes — and **radiation**.
-
-**Having no engine is never an error**: a ship that cannot fly is still a
-ship you can live on, and refusing to let a player accept one would be the
-design phase having an opinion about how to play. An engine is worked on
-from whichever side a body can get at — it has hull on three sides more
-often than not — so it needs one free tile round it, not a particular one.
-
-### Radiation, which is a warning and is louder than the errors
-
-Hull keeps it out. The **outside wall**, the **airlock**, the **sensor array**
-and the **engine** block shield; a plain internal wall does not, and neither
-does a door — so a ship skinned in ordinary walls is a ship whose crew are
-being cooked.
-
-It is worked out by flooding in from outside the build area, four ways only,
-through everything that does not shield. Every tile the flood reaches and
-finds a part in is **exposed**, and the deck is tinted over every one of them
-— not when you rest on the row, but always, because a player who has not
-looked at the checks panel is exactly the one about to accept a ship with a
-hole in it. The row sits first in the list and is styled louder than any error.
-
-It does not block Accept. That is deliberate: it is a decision about how to
-play, and the design phase does not take those. It only makes sure nobody
-takes it by accident. Two hull parts meeting at a corner seal that corner —
-the flood is four-way, so a hull drawn as a staircase does not leak at every
-step of it.
-
-The warning is the designer's own, and the designer's alone now: nothing in
-a run doses anybody, in a suit or out of one, since the radiation went with
-the rest of the old game (feature 104). The designer is untouched by that,
-and still says what it always said.
-
-That required list was a **mirror of what the room's chains walked to** — a
-meal was a cold store, a worktop, a hob, a table with a chair and a
-dishwasher; a night a bunk; a trip to the heads a toilet and then a basin.
-It was never a design. The chains went with the needs (feature 104) and the
-list stayed, since the designer is untouched and a run never passes through
-it; `crates/shipdesign/src/validate.rs` still says at the top what it was a
-mirror of.
-
-### Power
-
-The reactor makes it, the battery holds it, and everything that draws — life
-support, the helm, the sensor array, the cold store, the bay, every
-door, every bench, and **every lamp** — has to be **wired**: a tile of it
-carries conduit, and that conduit runs to a reactor. Conduit is on its own
-layer and runs *through* a tile, under whatever is standing in it, so there
-is no adjacency rule to learn: drag a run of it under the things that need
-it, as you would drag deck, and end the run under the reactor. A conduit
-run is a **network**; two runs that both end under the same reactor are
-one.
-
-Two warnings come of it, and neither blocks Accept, for the same reason the
-flight warnings do not — a ship that cannot run its cold store is still a
-ship you can live on, for a while. **Nothing powers this** rings every
-consumer with no live conduit under it — a lamp among them, and a lamp
-with nothing powering it is a lamp that gives no light. **This run draws
-more than its reactor makes** rings the run: a reactor is two and a half
-thousand a minute, an engine burning flat out takes a thousand of that,
-and the lamps are the biggest of the day-long draws — a wall light 25, a
-standing light 40, so the playtest ship's six wall lights and standing
-light are 190 of the 327 it draws all day, more than its benches
-together. What the reactor has over after that is what the engines get, so
-a ship lit from end to end on one reactor pushes a little less hard; and a
-ship whose day-long draw goes over what its reactors make — a reactor
-taken off for a rebuild, a run cut, or a big hull hung with lamps and
-benches on one basic reactor — runs on its batteries until they are
-flat, and then it is *the brownout*, below.
-
-### Accepting
-
-Each player has an Accept, disabled while anything is an error. An Accept is
-recorded **against a hash** of the design — the parts sorted by position and
-kind, with the ids left out, so the same layout gives the same number whatever
-order it was built in. Any successful edit by anybody changes that hash and
-clears every Accept, so there is no way to be holding one for a ship that is
-no longer on screen.
-
-When everybody's Accept matches the current hash the phase ends: editing locks,
-and **the game starts**. Solo, one Accept settles it.
-
-### The two crates behind it
+A ship, and every station, is still parts on a tile grid: a tile is 52 world
+units and holds at most one part per **layer** — the **structure** it is
+built on, the **floor** walked on, the one **object** standing in it (a
+wall, a bunk, an engine), and **utility** running through it.
 
 - **`crates/shipdesign`** is the rules and nothing else: the part table, one
   `apply` that is the only way a design ever changes, `validate`, and
@@ -1067,18 +788,11 @@ and **the game starts**. Solo, one Accept settles it.
   **identical on both**. That is why nothing in its data or its hash is a
   `usize` or a float. Its unit tests are plain `cargo test`; the same
   constants are checked all at once by `bims --self-check`.
-- **`crates/ship`** is the screen's half: the camera, the pointer, the ghost,
-  the draw buffer, and `Session`, which is the design phase and the game it
-  turns into. It decides nothing about what may be placed — it asks.
+- **`crates/ship`** is the screen's half: the cameras, the draw buffer, and
+  `Session`, which is the game the app owns.
 - **`crates/economy`** is the money: whole euros, the shared pool, what a
   station charges for a unit of anything, and which class of hold it goes in.
   Every sum in it is checked — overflow is an error, never a wrap.
-
-Its multiplayer seam is the same idea as the builder's. `Net` in
-`crates/app/src/screens/designer.rs` has a transport's shape, every Edit and
-every Accept goes through it carrying the design hash it was made against,
-and the host end applies messages in arrival order and reports a refusal back
-to whoever sent it. No click handler touches the editor directly.
 
 ## The game
 
@@ -1864,9 +1578,7 @@ camera is, what you were aiming at — so a loaded game opens on the whole
 ship the way a new one does.
 
 The menu at the start has a **Load** button too, beside Play, so a game is
-picked up without walking through the setup and the yard. There is nothing
-to save in the yard: the game starts when the ship is accepted, and the
-button says so until then. A file written by another version of the game
+picked up without walking through the setup. A file written by another version of the game
 is refused by its version rather than read wrong.
 
 ### The two crates behind that
@@ -3411,7 +3123,7 @@ answer in two places at once:
 | --- | --- | --- |
 | `app` | The window: Bevy and egui, the screens, the pointer, the words. The game's one binary | — |
 | `game` | The room: the simulation, and the shapes it draws itself as | `world`, which runs it aboard the ship and on every station's deck |
-| `ship` | The design phase and the game it starts: `Session`, the editor, the two cameras, the painters | `app` |
+| `ship` | The game the app owns: `Session`, the two cameras, the painters | `app` |
 | `lobby` | The World tab's galaxy: a camera over it, a pick, and the system diagram | `app` |
 | `world` | One star system, the ship in it, the run, and the clocks they all run on | `ship`; the native server, which has to run the identical loop |
 | `flight` | What a design does when you push it, and the closed-form plan the flown trip used | `world`, which quotes a run's trips off the ship's accelerations; `ship` and `app`, which read them |
@@ -3446,7 +3158,7 @@ Relative to `crates/game/src/`:
 | `room.rs` | The room: its layout, its fixtures as solids, and how it is drawn |
 | `health.rs` | The body's three parts, the blood, wounds, traumas and bandages |
 | `blood.rs` | The blood on the deck: where it lies, and the boots that carry it |
-| `fixtures.rs` | The fixtures the room only draws — the galley, the table and chairs, the bunks, the broom locker, the bays and fields, the heads — as a fresh room draws them, for the deck and the designer alike |
+| `fixtures.rs` | The fixtures the room only draws — the galley, the table and chairs, the bunks, the broom locker, the bays and fields, the heads — as a fresh room draws them |
 | `sight.rs` | What each Bim can see, traced on the tile grid, and the peek round a wall |
 | `combat.rs` | Weapons, bolts, hits and shots; the enemy's choice of where to stand |
 | `droid.rs` | The machines: their bodies, and how they fight |
@@ -3463,7 +3175,7 @@ And in `crates/app/src/`:
 | --- | --- |
 | `main.rs` | Every command, and the screen state machine |
 | `screens/builder.rs` | The menu, the setup screen and the lobby, with the World tab |
-| `screens/designer.rs` | The design phase, and the `Net` seam every edit goes through |
+| `screens/run.rs` | The run's opening, and the `Net` seam every order goes through |
 | `screens/game.rs` | The game: the deck, the map, the station |
 | `screens/hud.rs` | The HUD (feature 107): the portraits, the top frame and its warning, the hero panel, the log |
 | `screens/worldmap.rs` | The world map: where a trip can go, the vote on one, *Back to ship* |

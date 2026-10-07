@@ -10,7 +10,7 @@
 //! id — kept only on the GPU, and let go again once the menus are left
 //! for the game. The loading screen stands on the start picture too, so
 //! while a load is under way — a trip, out of the game screen, or a run
-//! opened from the designer — that one picture is decoded and kept.
+//! opening — that one picture is decoded and kept.
 //!
 //! A picture is 3:2 and a window anything: it is drawn to **cover** the
 //! window, scaled until neither side falls short and the overhang cut off

@@ -7,7 +7,7 @@
 //! The host's to pick and dealt with the rest of the settings
 //! (`SettingsWire::dev`), so every machine builds the same run; every
 //! player's Bim gets the kit. [`apply`] lays it onto the session
-//! `designer::build_run` stood up, through the world's probes. The
+//! `run::build_run` stood up, through the world's probes. The
 //! default is nothing at all: the run as it plays.
 
 use bevy_egui::egui;

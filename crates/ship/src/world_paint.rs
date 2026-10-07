@@ -171,8 +171,8 @@ const PAD_EDGE: Color = Color::rgba(1.0, 1.0, 1.0, 0.22);
 const PAD_MARGIN: f32 = 1.5;
 
 /// One colour per lobby slot, the slot's own of `character::Tint::ALL`
-/// — the colour a session deals it — so another player's pointer in the
-/// yard and the lobby is the colour their Bim is ringed in.
+/// — the colour a session deals it — so another player's pointer and
+/// their place in the lobby are the colour their Bim is ringed in.
 pub fn player_color(slot: u32) -> Color {
     let tints = bims::character::Tint::ALL;
     let (r, g, b) = tints[slot as usize % tints.len()].rgb();
@@ -1921,8 +1921,7 @@ fn plain(game: &Game, list: &mut DrawList) {
     list.append_turned(picture.shapes(), pivot, game.ship_turn() as f32);
 }
 
-/// Frame, then deck, then what is standing on them — the same order the
-/// design phase paints in, so the two views read as one ship. `skip` is
+/// Frame, then deck, then what is standing on them. `skip` is
 /// what somebody else draws: the parts the room has pictures for. The
 /// hull's own working parts have pictures in `hull`; everything else is its
 /// colour, a tile at a time.
@@ -1986,8 +1985,8 @@ fn hull_tiles(
             for (x, y) in part.tiles() {
                 let m = tile_middle(x, y);
                 // The frame under a corner piece is the same half of the
-                // tile, as in the design phase: the edge of the ship is the
-                // chamfer, not the square behind it.
+                // tile: the edge of the ship is the chamfer, not the square
+                // behind it.
                 if layer == Layer::Structure
                     && let Some(rotation) = hull::diagonal_at(design, grid, (x, y))
                 {

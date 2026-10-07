@@ -16,7 +16,7 @@ use world::run::Departure;
 use world::{Refusal, Site, SiteKind, TravelQuote, World};
 use worldgen::{Galaxy, StarSystem};
 
-use super::designer::Order;
+use super::run::Order;
 use crate::format::{euros, roman};
 use crate::names::*;
 use crate::net::{Choice, Spot, TradeLine};

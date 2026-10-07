@@ -13,7 +13,6 @@ pub const ACCENT: egui::Color32 = egui::Color32::from_rgb(0xb8, 0xc4, 0xcf);
 pub const WARN: egui::Color32 = egui::Color32::from_rgb(0xfa, 0x73, 0x52);
 pub const BAD: egui::Color32 = egui::Color32::from_rgb(0xff, 0x8f, 0x7a);
 pub const CAUTION: egui::Color32 = egui::Color32::from_rgb(0xff, 0xd7, 0xa6);
-pub const GRAVE: egui::Color32 = egui::Color32::from_rgb(0xff, 0xd1, 0x5a);
 pub const PANEL: egui::Color32 = egui::Color32::from_rgb(0x1a, 0x1b, 0x1e);
 pub const PANEL_DEEP: egui::Color32 = egui::Color32::from_rgb(0x0d, 0x0e, 0x10);
 pub const RAISED: egui::Color32 = egui::Color32::from_rgb(0x2b, 0x2d, 0x31);

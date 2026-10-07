@@ -55,12 +55,10 @@ pub enum Part {
     StationShade,
     /// Inside the painter: the planet's plain.
     Plain,
-    /// The designer's painter, in the design phase (`paint::paint`).
-    EditorPaint,
 }
 
 impl Part {
-    pub const ALL: [Part; 15] = [
+    pub const ALL: [Part; 14] = [
         Part::CrewRoom,
         Part::Observe,
         Part::LightMap,
@@ -75,7 +73,6 @@ impl Part {
         Part::StationLights,
         Part::StationShade,
         Part::Plain,
-        Part::EditorPaint,
     ];
 
     /// What the row is called, and how deep it sits under the shape buffer.
@@ -95,7 +92,6 @@ impl Part {
             Part::StationLights => ("lights and lamps", 3),
             Part::StationShade => ("station shade", 2),
             Part::Plain => ("plain", 1),
-            Part::EditorPaint => ("editor paint", 0),
         }
     }
 }

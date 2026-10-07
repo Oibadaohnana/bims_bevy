@@ -18,7 +18,6 @@
 use world::World;
 
 use crate::Session;
-use crate::editor::Editor;
 use crate::game::Game;
 
 /// Bumped whenever a saved type changes shape, so an old file is told
@@ -406,13 +405,13 @@ pub enum LoadError {
     Syntax(String),
 }
 
-/// The game as text. `None` in the design phase: there is no world yet.
+/// The game as text. `None` with no world.
 pub fn encode(session: &Session) -> Option<String> {
     let game = session.game.as_ref()?;
     let written = Written {
         version: SAVE_VERSION,
-        players: session.editor.players,
-        local: session.editor.local,
+        players: session.players,
+        local: session.local,
         galaxy: session.galaxy,
         spawn: session.spawn,
         crew_names: &session.crew_names,
@@ -450,8 +449,7 @@ impl Session {
         encode(self)
     }
 
-    /// A session stood up round a saved game: the world as it was, the
-    /// editor settled on its ship the way `simulate_on` settles it, and
+    /// A session stood up round a saved game: the world as it was, and
     /// the game round it as at an open ([`Game::resume`]) — as the player
     /// the file says it was saved by.
     pub fn restore(text: &str, width: f32, height: f32) -> Result<Session, LoadError> {
@@ -485,9 +483,8 @@ impl Session {
         } = save;
         let local = local.min(players.saturating_sub(1));
         let seed = world.galaxy_seed;
-        let editor = Editor::settled(world.ship.design.clone(), players, local, width, height);
         let game = Game::resume(world, local, width, height);
-        let mut session = Session::resumed(editor, game, seed, galaxy, spawn);
+        let mut session = Session::resumed(players.max(1), local, game, seed, galaxy, spawn);
         session.crew_names = crew_names;
         session
     }

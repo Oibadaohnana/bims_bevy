@@ -253,7 +253,7 @@ pub fn report(at_frame: u32) -> Vec<String> {
             ));
             // The shape buffer broken down (task 122): the rows timed in
             // the rules crates' painters, those with nothing in them left
-            // out — a design phase has no rooms, a run no editor.
+            // out.
             if phase == Phase::Render {
                 for part in bims::timing::Part::ALL {
                     let ms = bims::timing::millis(part);

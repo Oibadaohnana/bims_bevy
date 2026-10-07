@@ -887,22 +887,17 @@ fn the_host_s_save_read_back_as_a_guest_is_the_same_world_steered_from_its_own_s
     use crate::Session;
     use crate::save::players_of;
     let two = |slot: u32| {
-        let mut session = Session::design(
-            shipdesign::fixture::AREA,
+        let session = Session::run(
             100_000,
             2,
             slot,
             world::data::DEFAULT_SEED,
             0,
             ship_session_spawn(),
-            crate::Preset::Empty,
+            &[],
             CANVAS.0,
             CANVAS.1,
         );
-        session.editor.give(shipdesign::fixture::combat_ship());
-        let hash = session.editor.hash();
-        assert!(session.accept(0, hash));
-        assert!(session.accept(1, hash));
         assert!(session.playing());
         session
     };
@@ -918,9 +913,9 @@ fn the_host_s_save_read_back_as_a_guest_is_the_same_world_steered_from_its_own_s
     assert_eq!(players_of("(not a save"), None);
     assert_eq!(players_of("(version:1,local:0"), None);
     let mut back = Session::restore_as(&text, 1, CANVAS.0, CANVAS.1).expect("the text reads back");
-    assert_eq!(back.editor.local, 1, "the guest's own slot");
+    assert_eq!(back.local, 1, "the guest's own slot");
     assert_eq!(back.game.as_ref().unwrap().local, 1);
-    assert_eq!(back.editor.players, 2);
+    assert_eq!(back.players, 2);
     assert_eq!(back.crew_names, host.crew_names);
     let checksum = |s: &Session| s.game.as_ref().unwrap().world.checksum();
     assert_eq!(
@@ -936,16 +931,12 @@ fn the_host_s_save_read_back_as_a_guest_is_the_same_world_steered_from_its_own_s
     // The file's own slot is what `restore` comes up as, and a slot the
     // crew has not got is the last one.
     assert_eq!(
-        Session::restore(&text, CANVAS.0, CANVAS.1)
-            .unwrap()
-            .editor
-            .local,
+        Session::restore(&text, CANVAS.0, CANVAS.1).unwrap().local,
         0
     );
     assert_eq!(
         Session::restore_as(&text, 7, CANVAS.0, CANVAS.1)
             .unwrap()
-            .editor
             .local,
         1
     );
@@ -989,7 +980,7 @@ fn a_game_saved_and_read_back_is_the_same_game() {
     session.crew_names = vec!["Ada".to_string()];
     let text = session.save().expect("a world to save");
     let mut back = Session::restore(&text, CANVAS.0, CANVAS.1).expect("the text reads back");
-    assert_eq!(back.editor.players, 1);
+    assert_eq!(back.players, 1);
     assert_eq!(back.crew_names, session.crew_names, "the crew's names");
     assert_eq!(back.seed, session.seed);
     assert_eq!(back.spawn, session.spawn);
@@ -1034,20 +1025,19 @@ fn a_game_saved_and_read_back_is_the_same_game() {
         Session::restore("(not a save", CANVAS.0, CANVAS.1),
         Err(LoadError::Syntax(_))
     ));
-    // Nothing to save before there is a world.
-    let design = Session::design(
-        20,
+    // Nothing to save where there is no world.
+    let nowhere = Session::run(
         10_000,
         1,
         0,
         world::data::DEFAULT_SEED,
         0,
-        session.spawn,
-        crate::Preset::Playtest,
+        None,
+        &[],
         CANVAS.0,
         CANVAS.1,
     );
-    assert!(design.save().is_none());
+    assert!(nowhere.save().is_none());
 }
 
 /// A world saved **between missions** (feature 103) reads back between
@@ -1287,15 +1277,14 @@ fn the_hair_a_player_chose_is_on_its_crew_member_when_the_world_opens() {
     use crate::Session;
     use bims::character::{Hair, Look, Shade};
     let spawn = Session::simulate(world::data::DEFAULT_SEED, 0, None, CANVAS.0, CANVAS.1).spawn;
-    let mut session = Session::design(
-        shipdesign::fixture::AREA,
+    let mut session = Session::run(
         100_000,
         2,
         0,
         world::data::DEFAULT_SEED,
         0,
         spawn,
-        crate::Preset::Playtest,
+        &[],
         CANVAS.0,
         CANVAS.1,
     );
@@ -1303,11 +1292,7 @@ fn the_hair_a_player_chose_is_on_its_crew_member_when_the_world_opens() {
     // deals, and so does the third — who is nobody's, whatever the list
     // says.
     session.crew_hair = vec![(Hair::Mohawk, Shade::Red)];
-    // Nothing before the world opens.
     session.dress_crew();
-    let hash = session.editor.hash();
-    assert!(session.accept(0, hash));
-    assert!(session.accept(1, hash));
     let room = &session
         .game
         .as_ref()
@@ -1573,47 +1558,26 @@ fn the_tier_tests_are_the_fight_with_everybody_s_kit_at_that_tier() {
     }
 }
 
-/// The classes in the design phase (features 74 and 75): a class chosen
-/// leaves the pool alone — every Bim brings the same money, whatever it
-/// is — and is what the world opens with, each with its starting kit;
-/// and the classes, the progress and a deployable laid all read back
-/// from a save the same, checksum and all.
+/// The classes the setup dealt (features 74 and 75): what the world opens
+/// with, each with its starting kit; and the classes, the progress and a
+/// deployable laid all read back from a save the same, checksum and all.
 #[test]
-fn a_class_chosen_in_the_yard_leaves_the_pool_and_opens_the_world_and_is_saved() {
+fn a_class_chosen_at_the_setup_opens_the_world_and_is_saved() {
     use crate::Session;
     use world::{Charge, Class, Command, DeployKind};
-    let mut session = Session::design(
-        shipdesign::fixture::AREA,
+    let mut session = Session::run(
         100_000,
         2,
         0,
         world::data::DEFAULT_SEED,
         0,
         ship_session_spawn(),
-        crate::Preset::Empty,
+        &[Class::Soldier, Class::Engineer],
         CANVAS.0,
         CANVAS.1,
     );
-    let plain = session.remaining();
-    assert_eq!(plain, 200_000);
-    assert!(session.set_class(0, Class::Engineer));
-    assert_eq!(session.class_of(0), Class::Engineer);
-    assert_eq!(session.class_of(1), Class::None);
-    assert_eq!(
-        session.remaining(),
-        plain,
-        "a class owns abilities, never money"
-    );
-    assert!(!session.set_class(0, Class::Engineer), "no change");
-    assert!(!session.set_class(5, Class::Engineer), "no such slot");
-    assert!(session.set_class(0, Class::Soldier));
-    assert_eq!(session.remaining(), plain);
-    assert!(session.set_class(1, Class::Engineer));
-    session.editor.give(shipdesign::fixture::combat_ship());
-    let hash = session.editor.hash();
-    assert!(session.accept(0, hash));
-    assert!(session.accept(1, hash));
     assert!(session.playing());
+    assert_eq!(session.class_of(0), Class::Soldier);
     let world = &session.game.as_ref().unwrap().world;
     assert_eq!(world.class_of(0), Class::Soldier);
     assert_eq!(world.class_of(1), Class::Engineer);
@@ -1639,10 +1603,6 @@ fn a_class_chosen_in_the_yard_leaves_the_pool_and_opens_the_world_and_is_saved()
     };
     assert_eq!(kits(&session, 1), 0, "no mines at rank nought");
     assert_eq!(kits(&session, 0), 0);
-    assert!(
-        !session.set_class(0, Class::Engineer),
-        "playing: the command's job"
-    );
     // A kit laid, a level reached, and the whole of it through a save.
     {
         let world = &mut session.game.as_mut().unwrap().world;
@@ -1721,23 +1681,17 @@ fn a_class_chosen_in_the_yard_leaves_the_pool_and_opens_the_world_and_is_saved()
     // task 153): the soldier is a medic in a fresh session, linked to the
     // engineer, and the link, the drone in the air and the circle read
     // back.
-    let mut session = Session::design(
-        shipdesign::fixture::AREA,
+    let mut session = Session::run(
         100_000,
         2,
         0,
         world::data::DEFAULT_SEED,
         0,
         ship_session_spawn(),
-        crate::Preset::Empty,
+        &[Class::Medic],
         CANVAS.0,
         CANVAS.1,
     );
-    assert!(session.set_class(0, Class::Medic));
-    session.editor.give(shipdesign::fixture::combat_ship());
-    let hash = session.editor.hash();
-    assert!(session.accept(0, hash));
-    assert!(session.accept(1, hash));
     {
         let world = &mut session.game.as_mut().unwrap().world;
         assert_eq!(world.class_of(0), Class::Medic);
@@ -1980,7 +1934,7 @@ fn the_fight_s_passing_lights_are_the_host_s_picture_and_leave_the_world_alone()
 }
 
 /// A run (feature 102): the `game` flow's Start opens the world straight
-/// away — no design phase — docked at the station the lobby picked, on
+/// away, docked at the station the lobby picked, on
 /// the default ship (the playtest ship the simulation flies), with five
 /// thousand a player's Bim in the one pool and nothing added for going
 /// alone; the classes on, and every machine of a lobby the same world.
@@ -2005,7 +1959,7 @@ fn a_run_opens_docked_on_the_default_ship_with_five_thousand_a_bim() {
             CANVAS.1,
         );
         assert!(session.spawn_ok());
-        assert!(session.playing(), "no design phase in front of a run");
+        assert!(session.playing(), "nothing in front of a run");
         let world = &session.game.as_ref().expect("the world opened").world;
         assert_eq!(
             world.crew_money(),

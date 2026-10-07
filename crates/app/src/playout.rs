@@ -440,7 +440,10 @@ mod tests {
         playout.push(steps(4, Some(42)));
         playout.push(Event::Packet {
             from: 7,
-            packet: Packet::Refused { why: 3 },
+            packet: Packet::Sketch {
+                id: 3,
+                points: Vec::new(),
+            },
         });
         playout.push(steps(1, None));
         let mut seen = Vec::new();
@@ -452,7 +455,7 @@ mod tests {
                         ..
                     } => seen.push((n, checksum)),
                     Event::Packet {
-                        packet: Packet::Refused { .. },
+                        packet: Packet::Sketch { .. },
                         ..
                     } => seen.push((0, None)),
                     _ => {}
@@ -461,12 +464,12 @@ mod tests {
         }
         let total: u32 = seen.iter().map(|(n, _)| n).sum();
         assert_eq!(total, 5);
-        let refused = seen.iter().position(|s| *s == (0, None)).unwrap();
-        // The checksum came with the fourth step, and the refusal after it.
-        let before: u32 = seen[..refused].iter().map(|(n, _)| n).sum();
+        let sketch = seen.iter().position(|s| *s == (0, None)).unwrap();
+        // The checksum came with the fourth step, and the sketch after it.
+        let before: u32 = seen[..sketch].iter().map(|(n, _)| n).sum();
         assert_eq!(before, 4);
-        assert_eq!(seen[refused - 1].1, Some(42));
-        assert!(seen[..refused - 1].iter().all(|(_, c)| c.is_none()));
+        assert_eq!(seen[sketch - 1].1, Some(42));
+        assert!(seen[..sketch - 1].iter().all(|(_, c)| c.is_none()));
     }
 
     #[test]
@@ -480,7 +483,10 @@ mod tests {
         let mut paused = Playout::default();
         paused.push(Event::Packet {
             from: 7,
-            packet: Packet::Refused { why: 0 },
+            packet: Packet::Sketch {
+                id: 0,
+                points: Vec::new(),
+            },
         });
         assert_eq!(paused.release(FRAME, 0.0, RATE, 0.5).len(), 1);
         assert_eq!(paused.tally.gaps, 0);

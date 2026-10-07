@@ -1,10 +1,20 @@
 # The ship's crate
 
-Notes on `crates/ship` — the designer, the game view, the camera, the
-painters, and `Session`, which is the design phase and the game it turns
-into. The rules it asks are in `crates/shipdesign/CLAUDE.md`, the world it
-draws in `crates/world/CLAUDE.md`, and the screens over it are
-`crates/app/src/screens/designer.rs` and `game.rs`.
+Notes on `crates/ship` — the game view, the camera, the painters, and
+`Session`, which is the game the app owns. The rules it asks are in
+`crates/shipdesign/CLAUDE.md`, the world it draws in
+`crates/world/CLAUDE.md`, and the screens over it are
+`crates/app/src/screens/run.rs` (the run's opening and the `Net` seam)
+and `game.rs`.
+
+> **The ship designer is gone (October 2026).** `Session::design`, the
+> `Editor` (`editor.rs`), its `View` (`view.rs`), the yard's painter
+> (`paint::paint`; `paint.rs` keeps `PART_COLORS` and `fixtures`), the
+> Accept that opened the world and the app's `design` command all went: a
+> run had not passed through the yard since feature 102. A `Session` is a
+> game (or none, where the spawn is nowhere) with its `players` and
+> `local` slot; `Session::run` is how a run opens. Notes below that speak
+> of the yard, the design phase or the `Editor` are history.
 
 > **Since the port to Bevy (September 2026):** the browser host is gone.
 > Every name table this file points at in `web/*.js` is now
@@ -251,52 +261,6 @@ the ship's star the same way (`· here`). Before this the marker was
 eighteen pixels of hull under a twenty-pixel station icon, and a player
 who had panned the map could not find themselves on it.
 
-## "Is it finished" is one export, not three
-
-`ship_phase()` and nothing else. "Is it finished", "may I still edit" and
-"which phase is it" are the same question, and three exports answering it are
-three things that can disagree — there were three for about an hour, and the
-boundary check in `scratchpad/ship-check.mjs` is what said so. `PHASE_DESIGN`
-in `crates/app/src/screens/game.rs` is the host's half of the pair.
-
-That check is worth keeping in mind generally: it reads `crates/app/src/screens/game.rs` with
-`readFileSync`, collects every `wasm.ship_*` it calls, and compares both ways
-against the real exports. An export nothing calls fails it unless it is named
-in `FOR_THE_HARNESS`. It is deliberately **not** built on the shell's `grep`,
-which here is `ugrep --ignore-files` and returns nothing at all for files under
-`web/` — a boundary check built on that comes back clean because it never read
-the file.
-
-## A drag is geometry; the edits go out one at a time
-
-`ship_drag_*` works out which tiles a drag covers and, for a clearing drag,
-which parts it would take off. The host reads that list and sends **each tile
-as its own Edit through `net`**. There is deliberately no bulk operation, so a
-transport has nothing extra to learn later.
-
-Two things in that order matter:
-
-- **Read the whole list before applying any of it.** The parts a clearing drag
-  names are looked up in the design it was drawn over; applying as you go has
-  the list shifting under itself.
-- **Objects come off before deck, and only the top of each tile comes off
-  at all.** The other way round, every floor tile with something standing
-  on it is refused as `FloorUnderObject` and a right-drag over the galley
-  leaves the deck behind and looks half broken. That ordering — and the
-  one-layer peel — is in `Editor::drag_parts`, not in the host.
-
-A failing Edit inside a drag is **skipped and counted, never fatal**: a
-rectangle of deck over a half-floored room is meant to fill the gaps.
-
-## A drag reports its *first* refusal, not its last
-
-A removing drag goes from the top of the stack down, so the first thing to
-refuse is the thing the player was pointing at — and everything underneath it
-then refuses too, because it is holding that up. Reporting the last one
-answers a question nobody asked: "take what is standing on it off first" about
-the frame, when what actually said no was the shelf with a hundred units of
-ore in it.
-
 ## `?random=1` is the simulation somewhere else
 
 `nix run .#test` is `ship.html?mode=1&random=1`. The page rolls a seed and
@@ -309,62 +273,15 @@ somebody lives on, the `roll`-th across the whole galaxy
 looks at it: the same roll is the same place, a different roll another,
 and roll 0 is the simulation's own dock. Never a derelict.
 
-## `ship.html` has three ways in, and no spawn of its own
+## A run must be told where to start
 
-`web/ship.html` reads `mode`, `star` and `station` off its query with
-everything else. `mode=1` is the simulation: `Session::simulate` settles
-`shipdesign::playtest_ship()` and opens the world at once — the default seed,
-a two-arm spiral, `world::spawn`'s dock and `SIMULATION_MONEY`, each
-overridden by the query when it says. Anything else is the game, and the
-game **must be told where to start**: `Session::design` takes the star and the
-station, `Session::spawn_ok` is asked once at boot, and a page with no spawn or
-a wrong one shows the `lost` screen with the link back to `builder.html` —
-before a design phase, never after an hour of laying one out, and never a
-different dock. `World::start` takes the pair for the same reason and
-returns `StartError::NoSuchStation` rather than choosing.
-
-Three things that follow, and bit on the way:
-
-- **Every harness that wants a design phase has to bring a spawn.** There is
-  no lobby in front of it, so `scratchpad/spawn.mjs` boots a bare page once
-  and reads `Session::simulation_spawn`/`_station` — the simulation's dock,
-  exported for exactly this — and `ship-check.mjs`'s `session()` appends it
-  unless the query names its own. A session opened with `spawn: false` gets
-  the error screen, and is the check that it exists.
-- **`world::spawn` is the simulation's and the fixtures', and nothing
-  else's.** `world::fixture::simulation_world` is how every fixture world
-  starts, so the reference checksum did not move when `World::start` stopped
-  choosing.
-- **A trip from the spawn is quoted, not planned.** "Nearest discovered
-  node" at the spawn was the dock's own parent body, which the flight
-  planner called `AlreadyThere`; the planner went with the flown trip in
-  feature 104, and `the_playtest_ship_can_travel_somewhere_from_the_simulation_spawn`
-  (in `crates/world`) asks the trip's quotes instead.
-
-`scratchpad/flow-check.mjs` walks the seam the two page harnesses cannot:
-lobby → station → Start → the designer opened with that query → build →
-Accept → docked at the chosen star and station. `simulation-check.mjs` is the
-other command. `flyer.mjs` is the flyable build both it and `ship-layout.mjs`
-use; `ship-check.mjs` keeps its own because the checks between the parts are
-the point there.
-
-## The designer opens on the playtest ship, as a gift
-
-`Session::design` takes a `preset`: `PRESET_PLAYTEST` (the default, and what a
-page with no `preset=` on its query gets) lays `playtest_ship_on(area)` in
-the middle of the build area; `PRESET_EMPTY` is a bare grid. The ship is
-**given**: `Budget::with_gift` records its price as `given`, so `remaining`
-starts at the whole pool and the readout says the crew have spent nothing.
-Taking a given part off refunds its price like any removal — a gift is a
-gift, and "for now" it is fine that a player can sell the ship they were
-handed. A build area under twenty tiles gets an empty grid rather than half
-a ship.
-
-Two knock-ons for harnesses: `ship-check.mjs`'s `session()` appends
-`preset=0` unless the query names one, because everything in it builds its
-own; and `flow-check.mjs` accepts the preset as it stands, because that is
-now the shortest path a player has to the world. `ship-layout.mjs given` is
-the picture.
+`Session::run` takes the star and the station, `Session::spawn_ok` is
+asked as it opens, and a run with no spawn or a wrong one shows the lost
+screen (`screens/run.rs`) with the way back — never a different dock.
+`World::start` takes the pair for the same reason and returns
+`StartError::NoSuchStation` rather than choosing. **`world::spawn` is the
+simulation's and the fixtures', and nothing else's**:
+`world::fixture::simulation_world` is how every fixture world starts.
 
 ## Fittings are the pictures the room has none of
 
@@ -713,11 +630,6 @@ Nothing in this crate reads what a comfort *does*, and since feature 104
 nothing anywhere does: it lifted a Bim's surroundings, which were the
 needs'. It is a picture and a solid.
 
-`Editor::turn_at` asks `shipdesign::hangs_on_wall` rather than naming the
-wall light, so a picture dropped along a bulkhead hangs from it like a
-lamp, and the ghost painter's edge bar is lamplight for the lamp and the
-frame's brass (`fittings::FRAME_BRASS`) for the picture.
-
 ## On a planet there is no space
 
 `world_paint` (September 2026, feature 52; the rules are
@@ -827,8 +739,7 @@ ice world, so the docked case is the first one seen.
 players, the local slot, the galaxy type's code and the spawn, which is
 everything `Session` holds that a world does not. `decode` reads it back,
 and `Session::restore` stands a session up round it the way `simulate_on`
-does: `Editor::settled` on the ship's design, `Game::resume` round the
-world — the cameras fitted, nothing aimed, no tool in hand, the sky rolled
+does: `Game::resume` round the world — the cameras fitted, nothing aimed, no tool in hand, the sky rolled
 off the world's own seed. Nothing of the window is saved; a load opens on
 the whole ship like a new game.
 
@@ -890,8 +801,8 @@ world knows crew member 1 and nothing else — and the app puts it where
 the words are (`names::set_crew_names`) at every open and load; it is
 here so a save keeps it. Beside it, `Session::design_point` and
 `design_point_on_screen` are one player's pointer as the others see it:
-a canvas point read back to a point on the ship's grid — the yard's view
-before the world opens, `Game::design_point_at` after — and that point
+a canvas point read back to a point on the ship's grid
+(`Game::design_point_at`) — and that point
 put forward again through the ship's turn (`world_paint::design_on_screen`,
 the crew's names' arithmetic), so a pointer lands on the tile it is over
 whatever each window has zoomed and turned.
@@ -900,24 +811,21 @@ whatever each window has zoomed and turned.
 picked on the setup tab, in slot order, put onto the crew by
 `Session::dress_crew` — `Look::of(slot).with_hair(..)` through
 `Game::set_look` for as many slots as have said and are players, so a
-bot or a hire keeps what its index dealt it — at `start_game` and again
+bot or a hire keeps what its index dealt it — as a run opens and again
 from the app whenever a choice arrives late (`Online::hair_said`). Not in
 the save: the look is on the character and the save carries that
 (version 10, `Look` a struct).
 `the_hair_a_player_chose_is_on_its_crew_member_when_the_world_opens`
 pins it, and that the checksum does not move for a hair.
 
-## A class is chosen in the yard, and the deployables are painted with the room (feature 74)
+## A class is chosen at the setup, and the deployables are painted with the room (feature 74)
 
 `Session::crew_classes` is the players' classes in slot order, as the
-hair is: `Session::set_class(slot, class)` in the design phase keeps it
-— and leaves the pool alone: since feature 75 a class owns abilities and
-never money, so every Bim brings `money_per_bim` whatever it is, and
-`class::contribution`, `economy::starting_pool_of` and `Editor::set_pool`
-are gone — and `start_game` puts them onto the world through
-`World::set_class` right after `dress_crew` (`class_crew`); playing,
-`set_class` does nothing and the change is `Command::SetClass`.
-`Session::class_of` reads the world's while there is one.
+hair is: `Session::run` takes them and puts them onto the world through
+`World::set_class` as it opens (`class_crew`); since feature 75 a class
+owns abilities and never money, so every Bim brings `money_per_bim`
+whatever it is. Playing, a change is `Command::SetClass`.
+`Session::class_of` reads the world's.
 **`SAVE_VERSION` 16**: the world's classes, progress and deployables are
 in the file; **17** (feature 75) the grenade in the cargo, a Bim's brace
 and rampage, the room's grenades and the world's `last_throw`; **18**
@@ -925,8 +833,8 @@ and rampage, the room's grenades and the world's `last_throw`; **18**
 charge and the field surgery — with a Bim's beam flag and its surge;
 **27** (feature 90) the kits' cooldowns and that `last_throw` as one
 `World::charge_timers`, a grenade being a charge like a kit.
-`a_class_chosen_in_the_yard_leaves_the_pool_and_opens_the_world_and_is_saved`
-pins the pool untouched, each class's kit in the pack and the round trip.
+`a_class_chosen_at_the_setup_opens_the_world_and_is_saved` pins each
+class's kit and the round trip.
 
 `world_paint::deployables` draws every deployable in the crew's room as a
 part stood on its room tile — `fittings::sandbags` (now `pub(crate)`) for

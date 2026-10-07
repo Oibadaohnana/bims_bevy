@@ -13,9 +13,8 @@
 //! and never anything else — so every copy of the world is the host's
 //! copy, and `world_checksum`, sent along every couple of seconds, is how
 //! a guest finds out if it is not. That is deterministic lockstep with the
-//! host as the sequencer, and it is what the two `Net` seams
-//! (`screens/builder.rs`, `screens/designer.rs`) were built for before
-//! there was a wire.
+//! host as the sequencer, and it is what the `Net` seam
+//! (`screens/run.rs`) was built for before there was a wire.
 //!
 //! In a mission a guest keeps that copy of the host's world *beside* the
 //! one it shows, which runs ahead on the guest's own orders, played the
@@ -86,7 +85,7 @@ use world::Class;
 
 use crate::rollback::{Asked, Stamp};
 use crate::screens::builder::Settings;
-use crate::screens::designer::Message;
+use crate::screens::run::Order;
 
 /// How long the worker sleeps between passes when there was nothing to do.
 const POLL: Duration = Duration::from_millis(1);
@@ -401,7 +400,6 @@ fn would_block(e: &tungstenite::Error) -> bool {
 #[derive(Clone, Copy, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct SettingsWire {
     pub money_per_bim: u64,
-    pub ship: u32,
     pub seed: u64,
     pub galaxy: u32,
     pub spawn: Option<(u32, u32)>,
@@ -416,7 +414,7 @@ pub struct SettingsWire {
     pub rewards: Option<world::rewards::Rewards>,
     pub weapons: Option<bims::balance::WeaponDamage>,
     /// The `end` command's run: the Machine Heart with ten bots
-    /// (`designer::build_run`).
+    /// (`run::build_run`).
     pub end: bool,
     /// The world clock's day the `end` run opens on (`dev::end_day`).
     pub end_day: u32,
@@ -430,7 +428,6 @@ impl SettingsWire {
     pub fn of(settings: &Settings) -> SettingsWire {
         SettingsWire {
             money_per_bim: settings.money_per_bim,
-            ship: settings.ship,
             seed: settings.seed,
             galaxy: settings.galaxy,
             spawn: settings.spawn,
@@ -448,7 +445,6 @@ impl SettingsWire {
     /// Put these onto the lobby's settings. The seats are left alone.
     pub fn onto(self, settings: &mut Settings) {
         settings.money_per_bim = self.money_per_bim;
-        settings.ship = self.ship;
         settings.seed = self.seed;
         settings.galaxy = self.galaxy;
         settings.spawn = self.spawn;
@@ -582,27 +578,20 @@ pub enum Packet {
     /// picture in the player's colour, like the ping, and nothing the
     /// world hears of.
     Sketch { id: u32, points: Vec<(f32, f32)> },
-    /// A guest asking the host to apply an edit or an order, stamped with
-    /// the design hash it was made against — and, an order the guest's
-    /// own world has played already (task 156, `crate::rollback`), with
-    /// the step it played it at, for the host to apply it at that step.
-    Ask {
-        at: u64,
-        message: Message,
-        stamp: Option<Stamp>,
-    },
+    /// A guest asking the host to apply an order — stamped, when the
+    /// guest's own world has played it already (task 156,
+    /// `crate::rollback`), with the step it played it at, for the host to
+    /// apply it at that step.
+    Ask { order: Order, stamp: Option<Stamp> },
     /// The host applied this, from that slot: every guest applies it too,
     /// in this order. The host's own go out this way as well. A stamped
     /// ask's number and how early it came are said with it, for the
     /// guest that asked to know its guess from another's order.
     Applied {
         from: u32,
-        at: u64,
-        message: Message,
+        order: Order,
         asked: Option<Asked>,
     },
-    /// The host refused the asker's message: an `EditError` code.
-    Refused { why: u32 },
     /// The host's world went so many steps, and — every `CHECK_EVERY` —
     /// what its checksum was after them.
     Steps { n: u32, checksum: Option<u64> },
@@ -703,7 +692,7 @@ enum Pending {
 }
 
 /// The room the player is in, and the socket to it. One for the whole
-/// game: the lobby opens it, the designer and the game play over it.
+/// game: the lobby opens it and the game plays over it.
 #[derive(Resource, Default)]
 pub struct Online {
     pub link: Link,
@@ -1055,27 +1044,6 @@ impl Online {
             .collect()
     }
 
-    /// What the others said their Bims' classes are, put onto the crew's
-    /// list by slot, the way [`Online::hair_said`] puts the hair. `true`
-    /// when something changed. Nothing for this player's own slot.
-    pub fn classes_said(&self, classes: &mut Vec<Class>) -> bool {
-        let mut changed = false;
-        for (peer, said) in &self.classes {
-            let Some(slot) = self.slot_of(*peer) else {
-                continue;
-            };
-            let slot = slot as usize;
-            if classes.len() <= slot {
-                classes.resize(slot + 1, Class::None);
-            }
-            if classes[slot] != *said {
-                classes[slot] = *said;
-                changed = true;
-            }
-        }
-        changed
-    }
-
     fn set_cursor(&mut self, peer: PeerId, at: Option<Spot>) {
         self.cursors.retain(|(p, _)| *p != peer);
         if let Some(at) = at {
@@ -1309,11 +1277,10 @@ pub fn peer_name(online: &Online, peer: PeerId) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::screens::designer::{Net, Order};
+    use crate::screens::run::{Net, Order};
     use bims::order::CrewOrder;
     use server::hub::{Hub, Outbound};
-    use ship::{Preset, Session};
-    use shipdesign::parts::PartKind;
+    use ship::Session;
 
     /// A world sent whole crosses deflated and comes back the same text.
     #[test]
@@ -1352,7 +1319,6 @@ mod tests {
         session: Session,
         net: Net,
         rx: Receiver<ClientCtl>,
-        refused: Vec<u32>,
     }
 
     fn end(hub: &mut Hub, slot: u32, host: bool) -> End {
@@ -1365,21 +1331,17 @@ mod tests {
             },
         );
         let spawn = ship::session::pick_dock(world::data::DEFAULT_SEED, 0, 0);
-        // The combat ship, on the playtest's own area: bunks and chairs
-        // for two, which the playtest ship has not.
-        let mut session = Session::design(
-            shipdesign::fixture::AREA,
+        let session = Session::run(
             100_000,
             2,
             slot,
             world::data::DEFAULT_SEED,
             0,
             spawn,
-            Preset::Empty,
+            &[],
             CANVAS.0,
             CANVAS.1,
         );
-        session.editor.give(shipdesign::fixture::combat_ship());
         let (tx, rx) = channel();
         End {
             peer,
@@ -1391,7 +1353,6 @@ mod tests {
                 ledger: None,
             },
             rx,
-            refused: Vec::new(),
         }
     }
 
@@ -1417,16 +1378,12 @@ mod tests {
                 let from_slot = ends.iter().position(|e| e.peer == from).unwrap() as u32;
                 let end = ends.iter_mut().find(|e| e.peer == to).unwrap();
                 match packet {
-                    Packet::Ask { at, message, .. } => {
-                        end.net
-                            .asked(&mut end.session, from_slot, at, message, from, None);
+                    Packet::Ask { order, .. } => {
+                        end.net.asked(&mut end.session, from_slot, order, None);
                     }
-                    Packet::Applied {
-                        from, at, message, ..
-                    } => {
-                        end.net.applied(&mut end.session, from, at, message);
+                    Packet::Applied { from, order, .. } => {
+                        end.net.applied(&mut end.session, from, order);
                     }
-                    Packet::Refused { why } => end.refused.push(why),
                     Packet::Steps { n, checksum } => {
                         for _ in 0..n {
                             end.session.world_step();
@@ -1443,7 +1400,7 @@ mod tests {
     }
 
     #[test]
-    fn two_ends_of_the_wire_lay_out_one_ship_and_step_one_world() {
+    fn two_ends_of_the_wire_step_one_world() {
         let mut hub = Hub::new();
         let mut ends = [end(&mut hub, 0, true), end(&mut hub, 1, false)];
         let code = match hub
@@ -1456,72 +1413,6 @@ mod tests {
             other => panic!("{other:?}"),
         };
         hub.handle(ends[1].peer, ClientCtl::Join { code });
-        assert_eq!(ends[0].session.editor.hash(), ends[1].session.editor.hash());
-        assert!(
-            !ends[0].session.editor.has_errors(),
-            "{:?}",
-            ends[0].session.editor.issues()
-        );
-
-        // The guest lays a plant somewhere it goes: refused where it does
-        // not, by the host, to the guest alone; applied everywhere once it
-        // does. The host's own edit goes round the same way.
-        let plant = PartKind::SmallPlant.code();
-        let mut placed = 0;
-        'tiles: for y in 1..19 {
-            for x in 1..19 {
-                let before = ends[1].refused.len();
-                ends[1].net.place(&mut ends[1].session, plant, x, y, 0);
-                pump(&mut hub, &mut ends);
-                if ends[1].refused.len() != before {
-                    continue;
-                }
-                // Laid, but in somebody's way: taken up again, through
-                // the seam like the laying.
-                if ends[0].session.editor.has_errors() {
-                    let last = ends[1].session.editor.design.parts.last().unwrap().id;
-                    ends[1].net.remove(&mut ends[1].session, last);
-                    pump(&mut hub, &mut ends);
-                    assert!(!ends[0].session.editor.has_errors());
-                    continue;
-                }
-                placed += 1;
-                if placed == 2 {
-                    break 'tiles;
-                }
-            }
-        }
-        assert_eq!(placed, 2, "the guest laid two plants");
-        assert!(!ends[1].refused.is_empty(), "and was refused a few tiles");
-        let hash = ends[0].session.editor.hash();
-        assert_eq!(hash, ends[1].session.editor.hash(), "one ship on both ends");
-        let host_placed = (1..19).any(|x| {
-            let went = ends[0].net.place(&mut ends[0].session, plant, x, 10, 0).ok;
-            if went && ends[0].session.editor.has_errors() {
-                let last = ends[0].session.editor.design.parts.last().unwrap().id;
-                ends[0].net.remove(&mut ends[0].session, last);
-                return false;
-            }
-            went
-        });
-        assert!(host_placed);
-        pump(&mut hub, &mut ends);
-        assert_ne!(ends[0].session.editor.hash(), hash);
-        assert_eq!(ends[0].session.editor.hash(), ends[1].session.editor.hash());
-
-        // Both accept, the guest first: the last Accept opens the world on
-        // both ends at once, on the same design.
-        assert!(ends[1].net.accept(&mut ends[1].session, true).ok);
-        pump(&mut hub, &mut ends);
-        assert!(
-            ends[0].session.editor.accepted(1),
-            "refused {:?}, errors {}",
-            ends[1].refused,
-            ends[0].session.editor.has_errors()
-        );
-        assert!(!ends[0].session.playing());
-        assert!(ends[0].net.accept(&mut ends[0].session, true).ok);
-        pump(&mut hub, &mut ends);
         assert!(ends[0].session.playing() && ends[1].session.playing());
         let checksum = |e: &End| e.session.game.as_ref().unwrap().world.checksum();
         assert_eq!(checksum(&ends[0]), checksum(&ends[1]));
@@ -1608,10 +1499,6 @@ mod tests {
             other => panic!("{other:?}"),
         };
         hub.handle(ends[1].peer, ClientCtl::Join { code });
-        assert!(ends[1].net.accept(&mut ends[1].session, true).ok);
-        pump(&mut hub, &mut ends);
-        assert!(ends[0].net.accept(&mut ends[0].session, true).ok);
-        pump(&mut hub, &mut ends);
         assert!(ends[0].session.playing() && ends[1].session.playing());
         // The vote across the wire, not the fight (task 111): the spawn a
         // peaceful stop on both ends alike, so the crew stay aboard and the

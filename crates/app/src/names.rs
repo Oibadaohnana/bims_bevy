@@ -138,111 +138,6 @@ pub fn part_name(kind: PartKind) -> &'static str {
         .unwrap_or("Something")
 }
 
-/// The palette, grouped the way a ship is thought about rather than the way
-/// the enum is numbered. The rows are built off `PartKind::ALL` rather than
-/// off this list, so a kind added to the enum and forgotten here still gets
-/// a button — under "Anything else", where it is obvious. Named kinds, not
-/// numbers: the fuel tank's retirement renumbered half the enum, and a
-/// table of numbers quietly moved every part after it into the wrong
-/// group.
-pub const PART_GROUPS: &[(&str, &[u32])] = &[
-    // Hull first, in the order a ship is actually built: deck, skin, then the
-    // ways through it. The frame is not a tool of its own — see NOT_A_TOOL.
-    (
-        "Hull",
-        &[
-            PartKind::Floor as u32,
-            PartKind::Wall as u32,
-            PartKind::DiagonalWall as u32,
-            PartKind::OutsideWall as u32,
-            PartKind::DiagonalOutsideWall as u32,
-            PartKind::Door as u32,
-            PartKind::Airlock as u32,
-            PartKind::Sandbags as u32,
-        ],
-    ),
-    (
-        "Systems",
-        &[
-            PartKind::Engine as u32,
-            PartKind::HeavyEngine as u32,
-            PartKind::Thruster as u32,
-            PartKind::Hyperdrive as u32,
-            PartKind::Helm as u32,
-            PartKind::LifeSupport as u32,
-            PartKind::SensorArray as u32,
-        ],
-    ),
-    (
-        "Crew",
-        &[
-            PartKind::Bunk as u32,
-            PartKind::Table as u32,
-            PartKind::Chair as u32,
-            PartKind::Shower as u32,
-            PartKind::TradingDesk as u32,
-            PartKind::ResearchDesk as u32,
-        ],
-    ),
-    (
-        "Galley",
-        &[
-            PartKind::ColdStore as u32,
-            PartKind::Worktop as u32,
-            PartKind::Hob as u32,
-            PartKind::Dishwasher as u32,
-        ],
-    ),
-    ("Heads", &[PartKind::Toilet as u32, PartKind::Basin as u32]),
-    (
-        "Storage",
-        &[PartKind::Shelf as u32, PartKind::SuitLocker as u32],
-    ),
-    (
-        "Bay",
-        &[PartKind::HydroBay as u32, PartKind::BroomLocker as u32],
-    ),
-    (
-        "Workshop",
-        &[PartKind::Workbench as u32, PartKind::Armoury as u32],
-    ),
-    (
-        "Light",
-        &[PartKind::WallLight as u32, PartKind::StandingLight as u32],
-    ),
-    // What makes a deck nicer to stand on and does nothing else: the
-    // surroundings need reads them.
-    (
-        "Comforts",
-        &[
-            PartKind::SmallPlant as u32,
-            PartKind::BigPlant as u32,
-            PartKind::Picture as u32,
-        ],
-    ),
-];
-
-/// Kinds the palette does not offer, though the ship knows them. Structure
-/// is one: deck plating lays its own frame, so to a player the frame and
-/// the deck are one thing and a second button for the half underneath would
-/// be a trap. The other five are a planet's — a field in the soil and the
-/// wild round a town — and no ship carries them.
-pub const NOT_A_TOOL: &[u32] = &[
-    PartKind::Structure as u32,
-    PartKind::Field as u32,
-    PartKind::Tree as u32,
-    PartKind::Shrub as u32,
-    PartKind::Boulder as u32,
-    PartKind::Water as u32,
-    // A station's combat rooms' pieces (October 2026): laid by the
-    // generator, built by nobody.
-    PartKind::Railing as u32,
-    PartKind::Window as u32,
-    PartKind::Pit as u32,
-    PartKind::Crate as u32,
-    PartKind::FuelTank as u32,
-];
-
 /// What a station sells, indexed by `physics::ResourceId`'s code — blank
 /// where a resource went (15 to 17, task 127; 6, 8, 20 and 21 when a Bim
 /// came to wear one armour, October 2026; 13 and 14 with the research
@@ -297,85 +192,6 @@ pub fn tier_word(tier: bims::combat::Tier) -> Option<String> {
         other => Some(tier_name(other.code())),
     }
 }
-
-/// Where goods are stowed, indexed by `economy::Storage`.
-pub const STORAGE_NAMES: [&str; 3] = ["Cold stores", "Lockers", "Research desk"];
-
-/// How many units a buy or sell button moves.
-pub const TRADE_STEPS: [u32; 3] = [1, 10, 100];
-
-/// Why an edit was refused. Indexed by `EditError`; 0 never appears because
-/// 0 is "it took".
-pub fn edit_line(code: u32) -> &'static str {
-    match code {
-        1 => "That falls outside the build area.",
-        2 => "Something is already standing there.",
-        3 => "There is no deck under it.",
-        4 => "There is deck there already.",
-        5 => "There is not the money left for that.",
-        6 => "That part is not there any more.",
-        7 => "Take what is standing on it off first.",
-        8 => "The page asked for something that is not a part.",
-        9 => "The design is settled — nothing can be moved now.",
-        10 => "There is no structure under it. The frame goes down first.",
-        11 => "There is already something in that tile on that layer.",
-        12 => "There is not the money left for those goods.",
-        13 => "Nowhere aboard to put them — the ship needs more storage.",
-        14 => "There is not that much aboard to sell.",
-        15 => "Sell what is in it first.",
-        16 => "There are not the materials aboard to build that.",
-        17 => "This station does not sell that.",
-        18 => "A wall light hangs from a wall — turn it to one, or put it beside one.",
-        _ => "That could not be done.",
-    }
-}
-
-/// What is wrong with the design. Indexed by `IssueCode` in
-/// `crates/shipdesign/src/validate.rs`. An issue with no line here is
-/// dropped from the list rather than shown as a placeholder.
-pub fn issue_line(code: u32) -> Option<&'static str> {
-    Some(match code {
-        1 => "The ship is in more than one piece.",
-        2 => "Not enough bunks for the crew.",
-        3 => "Not enough chairs for the crew.",
-        4 => "No table to eat at.",
-        5 => "No cold store to keep food in.",
-        6 => "No worktop to prepare it on.",
-        7 => "No hob to cook it on.",
-        8 => "No dishwasher to clear up with.",
-        9 => "No toilet.",
-        10 => "No basin to wash at.",
-        11 => "Somewhere a Bim has to stand is blocked.",
-        12 => "Parts nobody could walk between.",
-        20 => "No engine — the ship goes nowhere.",
-        21 => "No engine pushes it forward, so it cannot set off.",
-        23 => "No broom locker, so nothing to sweep the deck with.",
-        24 => "The outside can see in. The crew will be irradiated here.",
-        25 => "Nothing to eat aboard.",
-        26 => "No helm, so nobody can fly it.",
-        27 => "No thruster, so nothing turns the ship.",
-        28 => "No airlock, so no way off it — a station can only be held beside.",
-        29 => "No sensor array. Nothing will be seen beyond eyesight.",
-        31 => {
-            "The airlock is sealed in — no side of it opens onto space, so the ship cannot dock by it. Put it in the skin."
-        }
-        32 => {
-            "An engine is firing into the ship — the tiles behind its bell have to be open space. Put it at the stern, bell outwards."
-        }
-        36 => {
-            "The hyperdrive is bolted to nothing: put it against a main engine, block to block, or it will never jump."
-        }
-        37 => {
-            "A wall light or a picture with no wall at its back: put it against a bulkhead or the hull."
-        }
-        _ => return None,
-    })
-}
-
-/// The one issue that is not just another row: radiation is the only fault
-/// on the list that kills people, it is always first, and it is styled
-/// louder than the errors. It does not block; it shouts.
-pub const ISSUE_GRAVE: u32 = 24;
 
 /// Why an order did nothing.
 pub fn refusal(why: Refusal) -> &'static str {
@@ -523,9 +339,6 @@ pub fn room_closed(why: wire::Closed) -> &'static str {
     }
 }
 
-/// An Accept refused: it was made against a ship that has since changed,
-/// or a game that has since begun.
-pub const ACCEPT_STALE: &str = "That Accept was for a ship that has since changed.";
 /// While the socket is being opened and the room asked for.
 pub const CONNECTING: &str = "Reaching the server…";
 /// A join with something that is not six of the code's letters.
@@ -3529,29 +3342,6 @@ pub fn front_premium(hops: u16) -> String {
     }
 }
 
-/// The cart under the trade rows: nothing is bought or sold until it is
-/// confirmed, and these are its words — the empty cart, which way the
-/// money goes, what is left after, the two buttons, and why it cannot go.
-pub const CART_EMPTY: &str = "Nothing in the cart.";
-pub const YOU_PAY: &str = "You pay";
-pub const YOU_EARN: &str = "You earn";
-pub const MONEY_AFTER: &str = "Money after";
-pub const CONFIRM_TRADE: &str = "Confirm trade";
-pub const CLEAR_CART: &str = "Clear";
-pub const SHORT_BY: &str = "Short by";
-pub const NO_ROOM_FOR: &str = "No room for";
-/// The trade rows' column headings: what one costs bought here (the
-/// desk's ask), what the desk pays for one (its bid), and the rest.
-pub const ASK_HEAD: &str = "Costs";
-/// The tier column of the trade rows: which tier a gun or a piece of
-/// armour is bought at (feature 95), blank for everything else.
-pub const TIER_HEAD: &str = "Tier";
-pub const BID_HEAD: &str = "Pays";
-/// A price where nobody quotes one: a derelict's desk, or nowhere.
-pub const NO_QUOTE: &str = "—";
-pub const ABOARD_HEAD: &str = "Aboard";
-pub const CART_HEAD: &str = "Cart";
-
 /// The red warning along the top while the station alongside is held by
 /// the machines (feature 83): which wave is on the deck and how many are
 /// standing, then the countdown to the next one landing (`span` from
@@ -4032,10 +3822,9 @@ mod tests {
             }
         }
 
-        // --- every_resource_and_storage_class_has_a_name ---
+        // --- every_resource_has_a_name ---
         {
             assert_eq!(RESOURCE_NAMES.len(), ResourceId::CODES);
-            assert_eq!(STORAGE_NAMES.len(), shipdesign::Storage::ALL.len());
         }
 
         // --- every_relic_has_a_name_and_a_line (feature 106) ---
@@ -4097,22 +3886,6 @@ mod tests {
         {
             assert_eq!(STAR_WORDS.len(), worldgen::name::STAR_WORDS as usize);
             assert_eq!(STATION_WORDS.len(), worldgen::name::STATION_WORDS as usize);
-        }
-
-        // --- every_issue_the_validator_can_raise_has_a_line ---
-        {
-            // The codes are written out in `IssueCode` and never renumbered:
-            // 1 to 12 and 20 to 37, with the gap on purpose — and 30, the fuel
-            // warning, retired with the fuel, 33 to 35, the power's,
-            // retired with the electricity, and 22, the hydroponic bay's,
-            // retired with the eating, left holes.
-            let retired = |c: u32| c == 22 || c == 30 || (33..=35).contains(&c);
-            for code in (1..=12).chain(20..=37).filter(|&c| !retired(c)) {
-                assert!(issue_line(code).is_some(), "issue {code} has no line");
-            }
-            for code in [22, 30, 33, 34, 35] {
-                assert!(issue_line(code).is_none(), "{code} was retired");
-            }
         }
     }
 

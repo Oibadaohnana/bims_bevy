@@ -4,10 +4,7 @@
 //! an icon a cell rather than a word, and this is where the icons are:
 //! one per `ResourceId`, drawn with egui's own shapes into whatever rect
 //! the cell has, small and flat with one accent colour each, so a row of
-//! them reads at a glance. The lists show the same picture beside the
-//! word — the trade window's rows and the Inventory tab's, through
-//! [`resource_cell`] — so a thing looks the same wherever it is met. A
-//! piece of armour is its resource's icon with a
+//! them reads at a glance. A piece of armour is its resource's icon with a
 //! crack across it when it is broken; the weapon in hand is its resource's.
 //!
 //! A relic has a picture too (task 136, [`relic`]): a plate rimmed in its
@@ -1252,22 +1249,8 @@ fn armour_suit(s: &mut Sketch, b: &Box_) {
     }
 }
 
-/// The side of an icon drawn inline in a row of text, in points: a little
-/// over a line of the default type, so it sits level with the word beside
-/// it rather than pushing the row taller.
-pub const INLINE: f32 = 16.0;
-
-/// A resource's icon as one cell of a row: allocated inline, `INLINE`
-/// square, drawn where it lands. For the lists — a row is the icon, then
-/// the word — so a resource is met with the same picture in a list as in
-/// a grid.
-pub fn resource_cell(ui: &mut egui::Ui, id: ResourceId) -> egui::Response {
-    cell(ui, |painter, rect| resource(painter, rect, id))
-}
-
-/// The side of a relic's plate in a list, in points: bigger than a
-/// word's [`INLINE`], since the plate is the relic's face and sits beside
-/// its name and its line.
+/// The side of a relic's plate in a list, in points: the plate is the
+/// relic's face and sits beside its name and its line.
 pub const RELIC: f32 = 30.0;
 
 /// A relic's plate as one cell of a row, [`RELIC`] square.
@@ -1275,15 +1258,6 @@ pub fn relic_cell(ui: &mut egui::Ui, which: Relic) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(vec2(RELIC, RELIC), egui::Sense::hover());
     if ui.is_rect_visible(rect) {
         relic(ui.painter(), rect, which);
-    }
-    response
-}
-
-/// Any picture as one cell of a row.
-pub fn cell(ui: &mut egui::Ui, paint: impl FnOnce(&egui::Painter, Rect)) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(vec2(INLINE, INLINE), egui::Sense::hover());
-    if ui.is_rect_visible(rect) {
-        paint(ui.painter(), rect);
     }
     response
 }

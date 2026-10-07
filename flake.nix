@@ -179,11 +179,6 @@
             what = "simulation";
             about = "Straight into the game world on the playtest ship";
           };
-          bims-design = runFor {
-            name = "bims-design";
-            what = "design";
-            about = "Straight into the yard, the playtest ship given, docked where the simulation docks";
-          };
           bims-test = runFor {
             name = "bims-test";
             what = "test";
@@ -285,7 +280,6 @@
             bims
             bims-game
             bims-simulation
-            bims-design
             bims-test
             bims-test-planet
             bims-droids
@@ -309,8 +303,7 @@
 
       # One app per thing you can run. `nix run .#game` is the whole game in
       # the order a player meets it and is the default; `.#simulation` skips
-      # to the world on a prebuilt ship; `.#design` skips to the yard with
-      # that ship given; `.#test` is the simulation somewhere else each
+      # to the world on a prebuilt ship; `.#test` is the simulation somewhere else each
       # time; `.#test_planet` is that set down
       # on a planet; `.#droids` is the fight, at an arena the machines
       # hold — every enemy is one since feature 102, so the human
@@ -351,7 +344,6 @@
         rec {
           game = app built.bims-game "Play Bims — menu, lobby, world, then the run on the default ship";
           simulation = app built.bims-simulation "Straight into the game world on the playtest ship";
-          design = app built.bims-design "Straight into the yard, the playtest ship given, docked where the simulation docks";
           test = app built.bims-test "Docked at a random station in a random galaxy, on the playtest ship";
           test_planet = app built.bims-test-planet "Set down on a planet in a random galaxy, on the playtest ship";
           tier2_test = app built.bims-tier2-test "The fight with everybody's guns and armour at tier two, and the machines at it too";

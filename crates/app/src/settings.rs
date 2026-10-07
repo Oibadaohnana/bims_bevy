@@ -29,8 +29,7 @@ use crate::sound::Mix;
 use crate::theme;
 
 /// What the sheet may do with the game, which is the screen's to say:
-/// `save` is whether there is a game to write — the design phase has
-/// none — and `load` whether this end may read one in. A guest may not
+/// `save` is whether there is a game to write, and `load` whether this end may read one in. A guest may not
 /// (feature 67): the host's world is the world, and a guest that loaded
 /// would be a second clock. Greyed rather than hidden, with the reason.
 /// `restart` is both at once (feature 79): there has to be a run to go
@@ -50,7 +49,7 @@ pub struct Allowed {
     pub game: bool,
     /// Whether the world can be paused from the sheet, and whether this
     /// player has it paused (task 154): `None` with no world running —
-    /// the design phase, the menu, the lobby — and no Pause button.
+    /// the menu, the lobby — and no Pause button.
     pub paused: Option<bool>,
 }
 
@@ -482,7 +481,7 @@ fn controls(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, keys: &mut Keys) {
     ui.add_space(4.0);
     ui.label(
         egui::RichText::new(
-            "Click a key to change it, then press the one you want; Esc keeps the old one. Two actions on one key both happen where both are read — Turn shares R with the reload, and is read only in the yard and the armoury. Ctrl and an ability slot's key ranks that ability up rather than using it, whatever key the slot is on.",
+            "Click a key to change it, then press the one you want; Esc keeps the old one. Two actions on one key both happen where both are read — the reload shares Space with Propose, which is read only on the map, the fight-won window and the ready check. Ctrl and an ability slot's key ranks that ability up rather than using it, whatever key the slot is on.",
         )
         .small()
         .color(theme::MUTED),
@@ -594,10 +593,8 @@ fn controls(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, keys: &mut Keys) {
             ),
             (
                 "In the armoury",
-                "Drag a thing to move it, Turn while carrying it to stand it on end, and let go where the ghost is green. Ctrl-click takes a thing into the pack.",
+                "Drag a thing to move it, and let go where the ghost is green. Ctrl-click takes a thing into the pack.",
             ),
-            ("Drag in the yard", "Lay the chosen part over every tile of the box."),
-            ("Right-drag in the yard", "Take the top part off every tile of the box."),
             (
                 "Esc",
                 "Close a menu, stop aiming, put a part down, or open and close the settings. Not rebound: it is what closes this sheet.",

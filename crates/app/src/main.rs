@@ -15,8 +15,6 @@
 //!                    and station, then the run: docked where you said on
 //!                    the default ship, five thousand a Bim in the pool
 //! bims simulation    straight into the world on the playtest ship
-//! bims design        straight into the yard, the playtest ship given, docked
-//!                    where the simulation docks
 //! bims test          the simulation somewhere else each time — docked at a
 //!                    random station somebody lives on, in a random galaxy
 //! bims droids        the fight: the combat ship — sixteen crew, a gun in
@@ -106,12 +104,11 @@ mod wavecfg;
 use bevy::prelude::*;
 use bevy_egui::EguiPlugin;
 
-/// Which of the twenty-one things this process is.
+/// Which of the twenty things this process is.
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Launch {
     Game,
     Simulation,
-    Design,
     Test,
     /// `Test` set down on a planet: the same roll, made in a system with
     /// friendly ground, and the ship landed at the settlement.
@@ -206,8 +203,7 @@ pub enum Launch {
 
 /// Which screen is up. One at a time, and the whole game is a walk through
 /// them in order: the menu, then setup or a lobby, then the game its Start
-/// opens (feature 102: the designer is the `design` command's alone now).
-/// The simulation and the fights start further along.
+/// opens. The simulation and the fights start further along.
 #[derive(States, Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
 pub enum Screen {
     #[default]
@@ -218,7 +214,6 @@ pub enum Screen {
     /// not got. A screen that says so and a way back, never a different
     /// dock.
     Lost,
-    Design,
     Game,
     /// The run is over: nobody of the crew standing. A screen that says
     /// so and a way back to the menu (`screens::game::over`).
@@ -228,7 +223,7 @@ pub enum Screen {
 
 fn usage() -> ! {
     eprintln!(
-        "usage: bims [game|simulation|design|test|test_planet|droids|combat_droids_<class>|tier2_test|tier3_test|droids_planet|crisis|jammer|defense|guardian|relics|heart|manufacturers|end [offline]|stationbuilder [name]|list|--self-check]"
+        "usage: bims [game|simulation|test|test_planet|droids|combat_droids_<class>|tier2_test|tier3_test|droids_planet|crisis|jammer|defense|guardian|relics|heart|manufacturers|end [offline]|stationbuilder [name]|list|--self-check]"
     );
     eprintln!("       a class is one of: {}", class_words().join(", "));
     eprintln!("       `bims list` says what each of them opens");
@@ -239,16 +234,12 @@ fn usage() -> ! {
 /// — the one list, printed by [`list`] and nothing else. A new command is
 /// a row here and an arm in `main`; the classes' commands are not written
 /// out, since [`class_words`] reads them off `Class::ALL`.
-const COMMANDS: [(&str, &str); 36] = [
+const COMMANDS: [(&str, &str); 35] = [
     (
         "game",
         "The whole game in order: menu, setup or lobby, world and station, then the run: a mission where you docked, on the default ship, 5 000 a Bim in the pool",
     ),
     ("simulation", "Straight into the world on the playtest ship"),
-    (
-        "design",
-        "Straight into the yard, the playtest ship given, docked where the simulation docks",
-    ),
     (
         "test",
         "The simulation somewhere else each time: a random galaxy, docked at a station somebody lives on; BIMS_STATION_SEED (and BIMS_STATION_KIND) rebuilds the dock as that seed generates it",
@@ -386,7 +377,7 @@ const COMMANDS: [(&str, &str); 36] = [
 fn list() {
     println!("bims <what>, and each of these is a what:\n");
     println!(
-        "Every one of them bar the yard and the station builder is a run (feature 103):\na mission at the site it opens at, Back to ship at the bottom right, and the world map\nbetween missions, where a trip is chosen, accepted by every player and resolved in days.\n"
+        "Every one of them bar the station builder is a run (feature 103):\na mission at the site it opens at, Back to ship at the bottom right, and the world map\nbetween missions, where a trip is chosen, accepted by every player and resolved in days.\n"
     );
     // Wide enough for `combat_droids_commander`, the longest of them,
     // and a space after it.
@@ -453,7 +444,6 @@ fn main() {
     let launch = match std::env::args().nth(1).as_deref() {
         None | Some("game") => Launch::Game,
         Some("simulation") => Launch::Simulation,
-        Some("design") => Launch::Design,
         Some("test") => Launch::Test,
         Some("test_planet") => Launch::TestPlanet,
         // `combat_droids_medic` and the rest: the machines' fight, that
@@ -533,9 +523,8 @@ fn main() {
             present_mode: dev::present_mode(),
             resolution: dev::window_resolution(),
             mode: dev::window_mode(),
-            // The panels want their room: the designer's palette and
-            // checks, the game's controls, and the floating panels over
-            // the deck between them.
+            // The panels want their room: the game's controls, and the
+            // floating panels over the deck between them.
             resize_constraints: bevy::window::WindowResizeConstraints {
                 min_width: 1100.0,
                 min_height: 700.0,
@@ -560,7 +549,7 @@ fn main() {
         sound::SoundPlugin,
         theme::ThemePlugin,
         screens::builder::BuilderPlugin,
-        screens::designer::DesignerPlugin,
+        screens::run::RunPlugin,
         screens::game::GamePlugin,
         screens::loading::LoadingPlugin,
         screens::station::StationBuilderPlugin,
@@ -571,10 +560,8 @@ fn main() {
 }
 
 /// Where to start, by what was asked for. The menu is the default state;
-/// the others skip straight to their screen. The yard is handed what the
-/// setup screen would have handed it: the defaults, and the simulation's
-/// dock for a spawn.
-fn open(launch: Res<Launch>, mut commands: Commands, mut next: ResMut<NextState<Screen>>) {
+/// the others skip straight to their screen.
+fn open(launch: Res<Launch>, mut next: ResMut<NextState<Screen>>) {
     match *launch {
         Launch::Game | Launch::End | Launch::EndOffline => {}
         Launch::Simulation
@@ -593,13 +580,6 @@ fn open(launch: Res<Launch>, mut commands: Commands, mut next: ResMut<NextState<
         | Launch::Heart
         | Launch::Manufacturers
         | Launch::Defense => next.set(Screen::Game),
-        Launch::Design => {
-            let mut settings = screens::builder::Settings::default();
-            settings.seed = world::data::DEFAULT_SEED;
-            settings.spawn = ship::session::pick_dock(settings.seed, settings.galaxy, 0);
-            commands.insert_resource(screens::designer::Start(settings));
-            next.set(Screen::Design);
-        }
         Launch::StationBuilder => next.set(Screen::StationBuilder),
     }
 }

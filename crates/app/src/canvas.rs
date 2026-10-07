@@ -56,7 +56,6 @@ pub struct Pointer {
     pub primary_released: bool,
     pub primary_down: bool,
     pub secondary_pressed: bool,
-    pub secondary_released: bool,
     pub secondary_down: bool,
     pub middle_down: bool,
     pub middle_pressed: bool,
@@ -84,7 +83,6 @@ impl Pointer {
             primary_released: i.pointer.button_released(Primary),
             primary_down: i.pointer.button_down(Primary),
             secondary_pressed: i.pointer.button_pressed(Secondary),
-            secondary_released: i.pointer.button_released(Secondary),
             secondary_down: i.pointer.button_down(Secondary),
             middle_down: i.pointer.button_down(Middle),
             middle_pressed: i.pointer.button_pressed(Middle),
@@ -119,6 +117,10 @@ impl Pointer {
 /// How near the window's edge, in logical points, the pointer pans the
 /// camera (task 123).
 pub const EDGE_SCROLL_ZONE: f32 = 8.0;
+
+/// The window edge's pan at 1× (WASD's until the pan keys went,
+/// October 2026), in points a second.
+pub const PAN_SPEED: f32 = 900.0;
 
 /// The pan the pointer against the window's edge asks for this frame
 /// (task 123), in the screen units `Session::pan` takes and the sign the
@@ -170,7 +172,7 @@ pub fn edge_pan_now(
             .map(|p| p - Vec2::new(window.min.x, window.min.y)),
         Vec2::new(window.width(), window.height()),
         EDGE_SCROLL_ZONE,
-        crate::screens::designer::PAN_SPEED * keys.edge_scroll_speed(),
+        PAN_SPEED * keys.edge_scroll_speed(),
         dt,
     );
     (d != Vec2::ZERO).then_some(d)
@@ -207,7 +209,6 @@ pub fn egui_rect(r: Rect) -> egui::Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::screens::designer::PAN_SPEED;
 
     /// The pointer against the window's edge (task 123): nothing in the
     /// middle, the left edge exactly `PAN_SPEED` to the left, a corner

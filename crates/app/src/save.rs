@@ -322,8 +322,7 @@ pub fn load_page(ui: &mut egui::Ui, saves: &mut Saves) -> Option<Request> {
 /// does it. It asks rather than doing it on the menu's click, because a
 /// run thrown away is not a thing to do by a slip of the pointer.
 /// `can` is whether there is a beginning to go back to and this end may
-/// — the design phase has no world yet, and a guest's world is the
-/// host's (feature 67) — and the button says why not instead.
+/// — a guest's world is the host's (feature 67) — and the button says why not instead.
 pub fn restart_page(ui: &mut egui::Ui, saves: &Saves, can: bool, why_not: &str) -> Option<Request> {
     let mut request = None;
     ui.set_min_width(360.0);

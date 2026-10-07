@@ -7,9 +7,9 @@
 //! the shelves, the shower, the bulkheads and the doors in them. On a planet the same parts
 //! are asked of [`part_in`] with the ground's biome, and the wall and the
 //! wild parts — tree, shrub, boulder, water, field — are drawn as that
-//! biome has them. Those used to be a coloured block a tile, which is what
-//! the design phase still shows and is fine at eight pixels a tile; at the
-//! game's scale a block is a hole in the picture, and a station with rooms
+//! biome has them. Those used to be a coloured block a tile, which was
+//! fine at the ship designer's eight pixels a tile; at the game's scale a
+//! block is a hole in the picture, and a station with rooms
 //! in it is mostly bulkhead.
 //!
 //! Drawn in **design space** like `hull`, in each part's own frame through
@@ -95,7 +95,7 @@ pub fn part(list: &mut DrawList, part: &PlacedPart) -> bool {
 /// stone, adobe or timber rather than a bulkhead and the wild parts —
 /// the tree, the shrub, the boulder, the water, the field — are drawn as
 /// that biome grows them. With `None` the wild parts are the temperate
-/// look, which is what the designer's ghost and a station show.
+/// look, which is what a station shows.
 pub fn part_in(list: &mut DrawList, part: &PlacedPart, biome: Option<Biome>) -> bool {
     match part.kind {
         PartKind::Wall => {
@@ -1440,8 +1440,8 @@ pub fn lamp_face(list: &mut DrawList, part: &PlacedPart, share: f32, level: f32)
 // --- the comforts ------------------------------------------------------------------
 
 /// A pot's terracotta and the soil in it, and the plants' two greens —
-/// the palette swatches for the leaf, so the design phase's block and the
-/// deck's plant read as one thing.
+/// `PART_COLORS`' leaf, so the part's colour and the deck's plant read as
+/// one thing.
 const POT: Color = Color::rgb(0.62, 0.40, 0.28);
 const POT_RIM: Color = Color::rgb(0.74, 0.50, 0.36);
 const SOIL: Color = Color::rgb(0.24, 0.17, 0.11);

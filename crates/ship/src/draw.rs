@@ -3,7 +3,7 @@
 //! **This is a deliberate copy** of the room's `crates/game/src/draw.rs`, not
 //! a shared module. The *format* is shared — twelve floats a shape, in the
 //! order below — because one replay loop in JavaScript can then paint either
-//! page. The *code* is not, because the room is a crate the designer has no
+//! page. The *code* is not, because the room is a crate the painters have no
 //! business importing: nothing here may reach into `room.rs`, `nav.rs` or
 //! `task.rs`, and an import of `draw` would be the first crack in that.
 //!

@@ -1,7 +1,7 @@
 //! The shape buffer, turned into triangles.
 //!
-//! Every painter in the workspace — the room's, the designer's, the lobby's
-//! — writes the same twelve floats a shape: kind, centre, size, rotation,
+//! Every painter in the workspace — the room's, the ship's, the lobby's —
+//! writes the same twelve floats a shape: kind, centre, size, rotation,
 //! corner radius, line width and a colour. The browser used to replay that
 //! onto a canvas; this replays it into one mesh, clipped to the canvas it
 //! belongs to — a Bevy mesh for the world's canvas between the panels
@@ -48,8 +48,8 @@ pub const KIND_SURFACE_TRIANGLE: f32 = 32.0;
 const TIED: f32 = 64.0;
 
 /// How a canvas maps world units to its own pixels: `px = offset + scale *
-/// world`. The room fits a fixed deck to the window, the designer pans and
-/// zooms a grid, the lobby projects a galaxy itself and hands over pixels
+/// world`. The room fits a fixed deck to the window, the ship's camera
+/// pans and zooms about the ship, the lobby projects a galaxy itself and hands over pixels
 /// with a scale of one.
 #[derive(Clone, Copy, Debug)]
 pub struct View {

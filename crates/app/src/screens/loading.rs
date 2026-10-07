@@ -7,7 +7,7 @@
 //! offered to kill it. So the two things that build one run here on a
 //! thread of their own, with this screen up until they come back:
 //!
-//! - **the run opening** (`designer::build_run`), at the builder's Start
+//! - **the run opening** (`run::build_run`), at the builder's Start
 //!   or the host's `Packet::Start`: the builder stops and the game screen
 //!   opens round the session when it is ready;
 //! - **a trip** — the order that carries the vote (`World::would_travel`):
@@ -39,14 +39,12 @@ use std::time::Instant;
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
-use ship::Preset;
 use ship::Session;
-use wire::PeerId;
 use world::loading::{Meter, Reading};
 
 use super::backdrop::{Backdrop, Backdrops};
 use super::builder::Settings;
-use super::designer::{Message, Net, Order, ShipSession};
+use super::run::{Net, Order, ShipSession};
 use crate::names::{LOADING_MISSION, LOADING_RUN};
 use crate::net::{Event, Online};
 use crate::{Screen, theme};
@@ -169,24 +167,15 @@ enum Kind {
     Trip,
 }
 
-/// A message applied on the thread, through the `Net` call it would have
+/// An order applied on the thread, through the `Net` call it would have
 /// been applied through here.
 pub enum Apply {
     /// This end's own order (`Net::order`).
     Order(Order),
     /// A guest's, arrived at the host (`Net::asked`).
-    Asked {
-        from: u32,
-        at: u64,
-        message: Message,
-        peer: PeerId,
-    },
+    Asked { from: u32, order: Order },
     /// The host's, arrived at a guest (`Net::applied`).
-    Applied {
-        from: u32,
-        at: u64,
-        message: Message,
-    },
+    Applied { from: u32, order: Order },
 }
 
 impl Loading {
@@ -196,7 +185,7 @@ impl Loading {
         self.job.is_some()
     }
 
-    /// The run opened on a thread: `designer::build_run` there, `open_run` when it is back.
+    /// The run opened on a thread: `run::build_run` there, `open_run` when it is back.
     pub fn start_run(&mut self, commands: &mut Commands, settings: &Settings, size: Vec2) {
         commands.insert_resource(settings.unlocks);
         // The host's tuning, dealt with company: armed before the run is
@@ -215,7 +204,7 @@ impl Loading {
         let watched = meter.clone();
         let worker = std::thread::spawn(move || {
             world::loading::watch(watched);
-            super::designer::build_run(&s, size)
+            super::run::build_run(&s, size)
         });
         self.job = Some(Job::new(
             worker,
@@ -225,21 +214,21 @@ impl Loading {
         ));
     }
 
-    /// Whether `message` from player `from`, applied here now, would be
+    /// Whether `order` from player `from`, applied here now, would be
     /// the trip: only where this end applies it (a game of one, or the
     /// host, or a guest told by the host).
-    pub fn travels(session: &Session, from: u32, message: &Message) -> bool {
+    pub fn travels(session: &Session, from: u32, order: &Order) -> bool {
         let Some(game) = &session.game else {
             return false;
         };
-        let command = match *message {
-            Message::Order(Order::Propose { star, station }) => world::Command::Propose {
+        let command = match *order {
+            Order::Propose { star, station } => world::Command::Propose {
                 slot: from,
                 star,
                 station,
             },
-            Message::Order(Order::AcceptTrip(yes)) => world::Command::Accept { slot: from, yes },
-            Message::Order(Order::PlayerGone(slot)) => world::Command::PlayerGone { slot },
+            Order::AcceptTrip(yes) => world::Command::Accept { slot: from, yes },
+            Order::PlayerGone(slot) => world::Command::PlayerGone { slot },
             _ => return false,
         };
         game.world.would_travel(&command)
@@ -249,10 +238,7 @@ impl Loading {
     /// this end is the one to apply it — held for the top of the next
     /// frame, which begins the trip with it.
     pub fn order(&mut self, net: &Net, session: &mut Session, order: Order) {
-        if net.is_clock()
-            && self.deferred.is_none()
-            && Self::travels(session, net.slot, &Message::Order(order))
-        {
+        if net.is_clock() && self.deferred.is_none() && Self::travels(session, net.slot, &order) {
             self.deferred = Some(order);
             return;
         }
@@ -287,13 +273,8 @@ impl Loading {
                 Apply::Order(order) => {
                     net.order(&mut taken, order);
                 }
-                Apply::Asked {
-                    from,
-                    at,
-                    message,
-                    peer,
-                } => net.asked(&mut taken, from, at, message, peer, None),
-                Apply::Applied { from, at, message } => net.applied(&mut taken, from, at, message),
+                Apply::Asked { from, order } => net.asked(&mut taken, from, order, None),
+                Apply::Applied { from, order } => net.applied(&mut taken, from, order),
             }
             taken
         });
@@ -311,11 +292,11 @@ impl Loading {
     }
 }
 
-/// What stands in `ShipSession` while the real one is on the thread:
-/// an empty yard, which nothing reads, since the game screen is not
-/// drawn.
+/// What stands in `ShipSession` while the real one is on the thread: a
+/// session with no world, which nothing reads, since the game screen is
+/// not drawn.
 fn stand_in() -> Session {
-    Session::design(12, 0, 1, 0, 0, 0, None, Preset::Empty, 64.0, 64.0)
+    Session::run(0, 1, 0, 0, 0, None, &[], 64.0, 64.0)
 }
 
 pub struct LoadingPlugin;
@@ -363,7 +344,7 @@ fn show(
         };
         match job.kind {
             Kind::Run(settings) => {
-                next.set(super::designer::open_run(&mut commands, &settings, built));
+                next.set(super::run::open_run(&mut commands, &settings, built));
             }
             Kind::Trip => {
                 if let Some(mut session) = session {

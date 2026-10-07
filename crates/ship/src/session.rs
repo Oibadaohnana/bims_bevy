@@ -1,26 +1,20 @@
-//! One sitting at the ship: the design phase, and the game the last Accept
-//! turns it into.
+//! One sitting at the ship: the game, and who is playing it.
 //!
-//! A [`Session`] is what `crates/app` owns for the whole of `ship`'s life —
-//! an [`Editor`] from the first frame, a [`Game`] from the moment everybody
-//! has accepted. Almost every question about the ship is one question
-//! whichever half it is in — "how much metal is aboard" is asked of the
-//! design being laid out and of the ship that is flying — which is why the
-//! two-armed reads below live here rather than in the app: the app should
-//! not have to know which phase it is in to ask.
+//! A [`Session`] is what `crates/app` owns for the whole of `ship`'s life:
+//! a [`Game`] from the first frame — or none, when the spawn it was given
+//! is nowhere, which the app shows as such. The ship designer that once
+//! came before it went in October 2026; every run sets out on the
+//! playtest ship.
 //!
 //! Nothing here decides anything. It asks `shipdesign` and `world`.
 
-use physics::{Facing, ResourceId};
-use shipdesign::market::{Bias, Market, Quote};
-use shipdesign::parts::{Layer, PartKind, footprint};
-use shipdesign::{Money, ShipDesign, TILE, storage};
+use shipdesign::parts::{Layer, PartKind};
+use shipdesign::{Money, ShipDesign, TILE};
 use worldgen::{GalaxyType, Node};
 
-use crate::draw::{Color, DrawList};
-use crate::editor::{Editor, Phase};
+use crate::draw::DrawList;
 use crate::game::Game;
-use crate::{paint, world_paint};
+use crate::world_paint;
 use bims::character::{Hair, Look, Shade, Tint};
 use world::Class;
 
@@ -28,15 +22,6 @@ use world::Class;
 /// none — `u32::MAX`, the same value the lobby uses for nothing, because
 /// star 0 and station 0 both exist.
 pub const NONE: u32 = u32::MAX;
-
-/// What a design phase opens on. The playtest ship unless asked for an
-/// empty grid, because a player who wanted an empty grid can clear one and
-/// a player who wanted a ship cannot conjure one.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Preset {
-    Empty,
-    Playtest,
-}
 
 /// World units to a tile side, for the app's readouts. The geometry is all
 /// done in here.
@@ -132,14 +117,17 @@ pub struct SiteMark {
 }
 
 pub struct Session {
-    pub editor: Editor,
-    /// The game, once there is one. `None` for the whole of the design
-    /// phase.
+    /// How many players the run is for, frozen at Start: the crew that
+    /// boarded is the players in the lobby.
+    pub players: u32,
+    /// The slot this end plays.
+    pub local: u32,
+    /// The game. `None` only when the spawn is nowhere
+    /// ([`Session::spawn_ok`]), which is an error screen.
     pub game: Option<Game>,
-    /// What the lobby asked for, kept from the first frame until Accept
-    /// hands it to the world. A galaxy is a seed and a type; where in it the
-    /// game starts is a star and a station, and `None` when the lobby did
-    /// not say — which is an error screen, never a different dock.
+    /// What the lobby asked for. A galaxy is a seed and a type; where in it
+    /// the game starts is a star and a station, and `None` when the lobby
+    /// did not say — which is an error screen, never a different dock.
     pub seed: u64,
     pub galaxy: u32,
     pub spawn: Option<(u32, u32)>,
@@ -161,96 +149,16 @@ pub struct Session {
     pub crew_tints: Vec<Tint>,
     /// The class each player chose for their crew member, in slot order
     /// (feature 74, `world::class`): put onto the world when it opens
-    /// (`Session::start_game`, through `World::set_class`) and, in the
-    /// design phase, what the pool is worked out from
-    /// ([`Session::set_class`]). Nothing past the players; a slot not
-    /// said is `Class::None`. Playing, the world's `classes` are the
-    /// truth and a change is `Command::SetClass`.
+    /// (through `World::set_class`). Nothing past the players; a slot not
+    /// said is `Class::None`. Playing, the world's `classes` are the truth
+    /// and a change is `Command::SetClass`.
     pub crew_classes: Vec<Class>,
     list: DrawList,
 }
 
 impl Session {
-    /// Open a design phase.
-    ///
-    /// `build_area` is tiles a side and `money_per_bim` is what each of the
-    /// crew brings, in whole euros. The pool is `economy::starting_pool` of
-    /// that and `players`, worked out in [`Editor::new`] so that this and a
-    /// native server arrive at it the same way.
-    ///
-    /// `seed` and `galaxy` are the world the game will open in, and `spawn`
-    /// is where in it. The spawn deliberately has **no default**: `None` is
-    /// a screen that says so and a way back to the lobby, never a game
-    /// somewhere else. [`Session::spawn_ok`] is how the app finds out.
-    #[allow(clippy::too_many_arguments)]
-    pub fn design(
-        build_area: u32,
-        money_per_bim: Money,
-        players: u32,
-        local_slot: u32,
-        seed: u64,
-        galaxy: u32,
-        spawn: Option<(u32, u32)>,
-        preset: Preset,
-        width: f32,
-        height: f32,
-    ) -> Session {
-        let mut editor = Editor::new(
-            build_area,
-            money_per_bim,
-            players,
-            local_slot,
-            width,
-            height,
-        );
-        // The spawn's shelf and its desk, before the gift: the gift is
-        // valued at the desk. The desk is the kind's with **no local
-        // lean** — the start station's roll is forced to nothing, here and
-        // in `World::start`, so an opening pool buys the same at a kind of
-        // station whatever the seed rolled. The spawn is laid out as a hub
-        // there, which is what `market_kind` is asked with.
-        let docked = spawn.and_then(|(star, station)| {
-            worldgen::Galaxy::new(seed, galaxy_type(galaxy))
-                .system(star)
-                .and_then(|system| system.station(station).map(|s| (s.stock, s.kind)))
-        });
-        if let Some((stock, kind)) = docked {
-            let desk = world::station::market_kind(kind, world::station::Plan::Hub)
-                .map(|kind| Market::new(kind, Bias::NONE))
-                .unwrap_or(Market::PLAIN);
-            editor.dock_at(stock, desk);
-        }
-        // The gift: the playtest ship for one, and for a crew of more the
-        // combat ship — the same hull with bunks and chairs for five — since
-        // the playtest ship sleeps and seats one, and a lobby's yard that
-        // opened with a fault before anybody laid a tile would open on
-        // "too few bunks" every time.
-        let given = if players > 1 {
-            shipdesign::fixture::combat_ship_on(build_area)
-        } else {
-            shipdesign::fixture::playtest_ship_on(build_area)
-        };
-        if preset == Preset::Playtest
-            && let Some(given) = given
-        {
-            editor.give(given);
-        }
-        Session {
-            editor,
-            game: None,
-            seed,
-            galaxy,
-            spawn,
-            crew_names: Vec::new(),
-            crew_hair: Vec::new(),
-            crew_tints: Vec::new(),
-            crew_classes: Vec::new(),
-            list: DrawList::new(),
-        }
-    }
-
-    /// Skip the design phase and open the world on the playtest ship: what
-    /// the `simulation` command is.
+    /// Open the world on the playtest ship: what the `simulation` command
+    /// is.
     ///
     /// One player, slot 0, [`shipdesign::fixture::playtest_ship`] already
     /// settled, [`world::data::SIMULATION_MONEY`] in hand. The spawn is the
@@ -289,7 +197,6 @@ impl Session {
     ) -> Session {
         let spawn =
             spawn.or_else(|| world::spawn(&worldgen::Galaxy::new(seed, galaxy_type(galaxy))));
-        let editor = Editor::settled(design.clone(), 1, 0, width, height);
         let game = spawn.and_then(|(star, station)| {
             Game::start_with_crew(
                 design,
@@ -306,7 +213,8 @@ impl Session {
             )
         });
         let mut session = Session {
-            editor,
+            players: 1,
+            local: 0,
             game,
             seed,
             galaxy,
@@ -325,7 +233,7 @@ impl Session {
     }
 
     /// A run (feature 102): what the `game` command's setup or lobby
-    /// opens once Start is pressed — **no design phase**. The world opens
+    /// opens once Start is pressed. The world opens
     /// straight away, docked at the station the lobby picked, on the
     /// **default ship** — the playtest ship the `simulation` command
     /// flies ([`shipdesign::fixture::playtest_ship`]) — with the crew's
@@ -335,8 +243,7 @@ impl Session {
     /// players' choices, slot by slot, put on as the world opens.
     ///
     /// Every machine of a lobby stands the same session up from the same
-    /// numbers, which is what made the design phase's last Accept open
-    /// one world on all of them; with no Accept the numbers alone do.
+    /// numbers, and the numbers alone make it one world on all of them.
     /// With no spawn — or one the galaxy has not got — there is no game,
     /// and [`Session::spawn_ok`] says so for the screen that says so.
     #[allow(clippy::too_many_arguments)]
@@ -384,7 +291,6 @@ impl Session {
         let players = players.max(1);
         let local_slot = local_slot.min(players - 1);
         let design = shipdesign::fixture::playtest_ship();
-        let editor = Editor::settled(design.clone(), players, local_slot, width, height);
         let money = money_per_bim.saturating_mul(Money::from(players));
         let game = spawn.and_then(|(star, station)| {
             Game::start_with_crew(
@@ -402,7 +308,8 @@ impl Session {
             )
         });
         let mut session = Session {
-            editor,
+            players,
+            local: local_slot,
             game,
             seed,
             galaxy,
@@ -443,7 +350,6 @@ impl Session {
         let galaxy = 0;
         let spawn = world::spawn(&worldgen::Galaxy::new(seed, galaxy_type(galaxy)));
         let design = combat_ship();
-        let editor = Editor::settled(design.clone(), 1, 0, width, height);
         let game = spawn.and_then(|(star, station)| {
             let mut game = Game::start_with_crew(
                 design,
@@ -474,7 +380,8 @@ impl Session {
             Some(game)
         });
         let mut session = Session {
-            editor,
+            players: 1,
+            local: 0,
             game,
             seed,
             galaxy,
@@ -862,7 +769,7 @@ impl Session {
     /// within a day of the clock — a real minute at 24× — rather than
     /// five. The crew's own system follows five days after that.
     ///
-    /// `false` in the design phase, or where the lanes are too short for
+    /// `false` with no world, or where the lanes are too short for
     /// the hop count, which no real galaxy is.
     pub fn crisis_for_probe(&mut self, first_day: u32) -> bool {
         let Some(game) = self.game.as_mut() else {
@@ -907,7 +814,7 @@ impl Session {
     /// one. The wave comes at the run day's tiers unless `tier` says
     /// otherwise (task 147).
     ///
-    /// `false` in the design phase, or where the lanes are too short for
+    /// `false` with no world, or where the lanes are too short for
     /// the hop count.
     pub fn jammer_for_probe(
         &mut self,
@@ -987,7 +894,7 @@ impl Session {
 
     /// The run between missions (feature 103): the ship off the site it
     /// opened at, whoever is where, and the world map up — `BIMS_MAP=1`.
-    /// `false` in the design phase.
+    /// `false` with no world.
     pub fn map_for_probe(&mut self) -> bool {
         let Some(game) = self.game.as_mut() else {
             return false;
@@ -1068,7 +975,8 @@ impl Session {
 
     /// A session round a game read back from a save — see `crate::save`.
     pub(crate) fn resumed(
-        editor: Editor,
+        players: u32,
+        local: u32,
         game: Game,
         seed: u64,
         galaxy: u32,
@@ -1078,7 +986,8 @@ impl Session {
         // (feature 84) are on the character and the save carries both,
         // so dealing them again would throw away what was chosen.
         Session {
-            editor,
+            players,
+            local,
             game: Some(game),
             seed,
             galaxy,
@@ -1093,9 +1002,8 @@ impl Session {
 
     /// Whether the spawn the session was given is a station this galaxy
     /// has: both halves present, the star in the galaxy, the station in its
-    /// system. Asked once, before a design phase is shown — a player who
-    /// laid out a ship for an hour and then learnt at Accept that there was
-    /// nowhere to put it would be right to be cross.
+    /// system. Asked once, as the run opens: with no such station the app
+    /// says so rather than opening a game somewhere else.
     pub fn spawn_ok(&self) -> bool {
         let Some((star, station)) = self.spawn else {
             return false;
@@ -1297,41 +1205,6 @@ impl Session {
         world::spawn(&worldgen::Galaxy::new(self.seed, galaxy_type(self.galaxy)))
     }
 
-    /// Open the world with the accepted design. Called the moment the last
-    /// Accept lands and at no other time.
-    ///
-    /// With no spawn there is no world: the app checked [`Session::spawn_ok`]
-    /// at the start and showed the error screen instead of a design phase,
-    /// so this is only reached without one if something went round that
-    /// check — and then the honest outcome is still no game rather than a
-    /// game somewhere else.
-    fn start_game(&mut self) {
-        if self.game.is_some() {
-            return;
-        }
-        let Some((star, station)) = self.spawn else {
-            return;
-        };
-        let Some(design) = self.editor.finish_design().cloned() else {
-            return;
-        };
-        let money = self.editor.budget.remaining(&self.editor.design);
-        self.game = Game::start(
-            design,
-            money,
-            self.editor.players,
-            self.editor.local,
-            self.seed,
-            galaxy_type(self.galaxy),
-            star,
-            station,
-            self.editor.view.width,
-            self.editor.view.height,
-        );
-        self.dress_crew();
-        self.class_crew();
-    }
-
     /// Put the classes the players chose onto the world as it opens
     /// (`crew_classes`): slot *i* gets what was said for it, through the
     /// same `World::set_class` a `Command::SetClass` goes through, so an
@@ -1346,46 +1219,21 @@ impl Session {
         }
     }
 
-    /// A player's class, chosen in the design phase: kept for the world to
-    /// open with. The pool is untouched — every Bim brings the same money
-    /// whatever its class (feature 75: a class owns abilities, never
-    /// money). Playing, a change is `Command::SetClass` instead, and this
-    /// does nothing. Whether anything changed.
-    pub fn set_class(&mut self, slot: u32, class: Class) -> bool {
-        if self.game.is_some() || slot >= self.editor.players {
-            return false;
-        }
-        let slot = slot as usize;
-        if self.crew_classes.len() <= slot {
-            self.crew_classes.resize(slot + 1, Class::None);
-        }
-        if self.crew_classes[slot] == class {
-            return false;
-        }
-        self.crew_classes[slot] = class;
-        true
-    }
-
-    /// A player's class: the world's while playing, else what was chosen.
+    /// A player's class, the world's; `Class::None` with no world.
     pub fn class_of(&self, slot: u32) -> Class {
-        match &self.game {
-            Some(game) => game.world.class_of(slot),
-            None => self
-                .crew_classes
-                .get(slot as usize)
-                .copied()
-                .unwrap_or_default(),
-        }
+        self.game
+            .as_ref()
+            .map_or(Class::None, |game| game.world.class_of(slot))
     }
 
     /// Put the hair the players chose onto their crew members
     /// (`crew_hair`, feature 62): slot *i*'s Bim gets its dealt look
     /// (`Look::of`) with the hair said for slot *i*, for as many slots as
     /// have said and are players — a bot, a joiner, a resident keeps what
-    /// the index dealt it. Nothing before the world opens; called at
-    /// `start_game` and by the app whenever a choice arrives late.
+    /// the index dealt it. Nothing with no world; called as a run opens
+    /// and by the app whenever a choice arrives late.
     pub fn dress_crew(&mut self) {
-        let players = self.editor.players as usize;
+        let players = self.players as usize;
         let Some(game) = &mut self.game else {
             return;
         };
@@ -1410,17 +1258,7 @@ impl Session {
         room.set_tints(&tints);
     }
 
-    /// The live ship: the game's if there is one, the design being laid out
-    /// if there is not.
-    pub fn design_ref(&self) -> &ShipDesign {
-        match &self.game {
-            Some(game) => &game.world.ship.design,
-            None => &self.editor.design,
-        }
-    }
-
     pub fn resize(&mut self, width: f32, height: f32) {
-        self.editor.view.resize(width, height);
         if let Some(game) = &mut self.game {
             game.resize(width, height);
         }
@@ -1435,11 +1273,10 @@ impl Session {
         }
     }
 
-    /// Resize, and start the views again from that size — the whole build
-    /// area, the whole hull, everything found. What a host does the first
-    /// time it knows how big its canvas really is.
+    /// Resize, and start the views again from that size — the whole hull,
+    /// everything found. What a host does the first time it knows how big
+    /// its canvas really is.
     pub fn fit(&mut self, width: f32, height: f32) {
-        self.editor.view.fit(width, height);
         if let Some(game) = &mut self.game {
             game.fit(width, height);
         }
@@ -1552,10 +1389,7 @@ impl Session {
                 let _timed = bims::timing::scope(bims::timing::Part::WorldPaint);
                 world_paint::paint_with(game, &mut self.list, &game.kept_stations);
             }
-            None => {
-                let _timed = bims::timing::scope(bims::timing::Part::EditorPaint);
-                paint::paint(&self.editor, &mut self.list)
-            }
+            None => self.list.clear(),
         }
         self.list.shapes()
     }
@@ -1563,218 +1397,51 @@ impl Session {
     /// The buffer [`Session::render`] last built, cut where the host's
     /// smooth fog goes: what the fog lies over, and what is drawn over it
     /// — the shots, which are always seen, the rings and the overlays. The
-    /// second half is empty for a picture with no fog in it: the yard, the
-    /// map.
+    /// second half is empty for a picture with no fog in it: the map.
     pub fn fog_split(&self) -> (&[f32], &[f32]) {
         self.list.fog_split()
     }
 
     // --- the camera -------------------------------------------------------
     //
-    // One transform for both halves, so the app has one paint loop rather
-    // than two. What changes is what the origin *is*: the corner of the
-    // build area during the design phase, and the ship itself once the game
-    // has started — see `camera.rs`.
+    // The ship's camera, about the ship itself — see `camera.rs`. With no
+    // world there is nothing to look at, and the view stands still.
 
     pub fn view_scale(&self) -> f32 {
-        match &self.game {
-            Some(game) => game.camera().scale(),
-            None => self.editor.view.scale(),
-        }
+        self.game.as_ref().map_or(1.0, |game| game.camera().scale())
     }
 
     pub fn view_offset(&self) -> (f32, f32) {
-        match &self.game {
-            Some(game) => (game.camera().offset_x(), game.camera().offset_y()),
-            None => (self.editor.view.offset_x(), self.editor.view.offset_y()),
-        }
+        self.game.as_ref().map_or((0.0, 0.0), |game| {
+            (game.camera().offset_x(), game.camera().offset_y())
+        })
     }
 
-    /// Shove the view by a screen-pixel delta. Middle-drag and WASD both
-    /// come through here.
+    /// Shove the view by a screen-pixel delta. Middle-drag and the window's
+    /// edge both come through here.
     pub fn pan(&mut self, dx: f32, dy: f32) {
-        match &mut self.game {
-            Some(game) => game.pan(dx, dy),
-            None => self.editor.view.pan(dx, dy),
+        if let Some(game) = &mut self.game {
+            game.pan(dx, dy);
         }
     }
 
     /// Zoom about a point on the canvas by a multiplier.
     pub fn zoom(&mut self, at_x: f32, at_y: f32, factor: f32) {
-        match &mut self.game {
-            Some(game) => game.zoom(at_x, at_y, factor),
-            None => self.editor.view.zoom(at_x, at_y, factor),
+        if let Some(game) = &mut self.game {
+            game.zoom(at_x, at_y, factor);
         }
     }
 
-    // --- the palette ------------------------------------------------------
-
-    /// Tiles across and down, at the ghost's current rotation — so a
-    /// palette row can show what it is about to put down rather than what
-    /// it would be upright.
-    pub fn part_size(&self, kind: PartKind) -> (u32, u32) {
-        footprint(kind, self.editor.ghost)
-    }
-
-    /// The colour the part is drawn in. The palette swatches are painted
-    /// with these, so a button cannot end up a different colour from the
-    /// thing it places.
-    pub fn part_color(kind: PartKind) -> Color {
-        paint::PART_COLORS[kind as usize]
-    }
-
-    /// Whether the pointer is over the build area at all.
-    pub fn hover_inside(&self) -> bool {
-        self.editor
-            .hover
-            .is_some_and(|t| self.editor.design.holds(t))
-    }
-
-    /// The kind of a part by id, off the **live** ship — the design being
-    /// laid out, or the one flying — so the game's readout can name what
-    /// the pointer is over the same way the designer's does.
+    /// The kind of a part by id, off the ship flying, so the game's readout
+    /// can name what the pointer is over.
     pub fn part_kind(&self, part_id: u32) -> Option<PartKind> {
-        self.design_ref().part(part_id).map(|p| p.kind)
-    }
-
-    // --- the money --------------------------------------------------------
-
-    /// What is left of the pool.
-    ///
-    /// Never negative; `apply` refuses anything that would take it there,
-    /// and during the design phase it is **derived from the design** every
-    /// time rather than decremented as parts go down.
-    ///
-    /// Once the game has started it is the world's figure instead — the
-    /// same money, carried across at Accept and not converted into
-    /// anything, and now spent and earned at stations rather than derived
-    /// from a ship.
-    pub fn remaining(&self) -> Money {
-        match &self.game {
-            Some(game) => game.world.crew_money(),
-            None => self.editor.budget.remaining(&self.editor.design),
-        }
-    }
-
-    // --- the station's goods, and the hold --------------------------------
-
-    /// Whether the design phase's spawn station sells `resource`. Playing,
-    /// nothing is bought across a desk (task 114): gear is a trader's, off
-    /// its shelf on the map.
-    pub fn sold_here(&self, resource: ResourceId) -> bool {
-        match &self.game {
-            Some(_) => false,
-            None => self.editor.sells(resource),
-        }
-    }
-
-    /// What the desk here quotes for one unit of `resource` — what one
-    /// costs bought and what one fetches sold — at the design phase's
-    /// spawn station, or the station the ship is docked at. `None`
-    /// anywhere else, and at a derelict, which keeps no desk: the panels
-    /// show a dash. The rule is `World::quote` — the one place a price
-    /// is worked out, front premium and all (feature 94); this only asks.
-    pub fn quote(&self, resource: ResourceId) -> Option<Quote> {
-        match &self.game {
-            Some(g) => match g.world.ship.state {
-                world::ShipState::Docked { station } => g.world.quote(station, resource),
-                _ => None,
-            },
-            None => self
-                .editor
-                .market
-                .map(|_| self.editor.budget.market.quote(resource)),
-        }
-    }
-
-    /// The same at a **tier** (feature 95): the book quote times
-    /// `economy::TIER_PRICE` — one, four, sixteen — on both the ask and
-    /// the bid, for a gun or a piece of armour; the plain quote for
-    /// everything else, which comes at no tier. `World::quote_at` is the
-    /// rule while the ship is docked, and the design phase's desk is
-    /// asked the same way, so the yard and the world agree.
-    pub fn quote_at(&self, resource: ResourceId, tier: u32) -> Option<Quote> {
-        match &self.game {
-            Some(g) => match g.world.ship.state {
-                world::ShipState::Docked { station } => g.world.quote_at(station, resource, tier),
-                _ => None,
-            },
-            None => self.quote(resource).map(|q| {
-                if economy::tiered(resource) {
-                    q.at_tier(tier)
-                } else {
-                    q
-                }
-            }),
-        }
-    }
-
-    /// Units of it aboard the **live** ship.
-    pub fn cargo(&self, resource: ResourceId) -> u32 {
-        self.design_ref().carrying(resource)
-    }
-
-    pub fn storage_of(resource: ResourceId) -> shipdesign::Storage {
-        storage(resource)
-    }
-
-    pub fn storage_capacity(&self, class: shipdesign::Storage) -> u32 {
-        self.design_ref().capacity(class)
-    }
-
-    pub fn storage_used(&self, class: shipdesign::Storage) -> u32 {
-        self.design_ref().stored(class)
-    }
-
-    // --- accepting --------------------------------------------------------
-
-    /// Record a player's Accept against a hash. `true` if it was taken.
-    ///
-    /// Refused when the hash is not the design's — an Accept in flight when
-    /// somebody else placed a wall is an Accept for a ship that no longer
-    /// exists — and refused while there are errors. The last Accept is what
-    /// opens the world. There is no separate "start" call: the design phase
-    /// ending and the game beginning are one event, and two ways to do it
-    /// would be two things that can disagree about which ship got handed
-    /// over.
-    pub fn accept(&mut self, slot: u32, hash: u64) -> bool {
-        let took = self.editor.accept(slot, hash);
-        if self.editor.phase == Phase::Game {
-            self.start_game();
-        }
-        took
-    }
-
-    /// Whether the ship can still be changed.
-    pub fn designing(&self) -> bool {
-        self.editor.phase == Phase::Design
+        let game = self.game.as_ref()?;
+        game.world.ship.design.part(part_id).map(|p| p.kind)
     }
 
     /// Whether the world is open.
     pub fn playing(&self) -> bool {
-        !self.designing() && self.game.is_some()
-    }
-
-    // --- what the ship is, in either phase --------------------------------
-
-    /// What the ship weighs, crew and cargo included. `0.0` for a design too
-    /// light to be a ship — `physics` refuses one rather than quoting an
-    /// infinite acceleration.
-    pub fn mass(&self) -> f64 {
-        match &self.game {
-            Some(game) => game.world.ship.dynamics.mass.get(),
-            None => paint::debug_mass(&self.editor.design, self.editor.players),
-        }
-    }
-
-    /// Acceleration along one of the ship's own axes, in world units per
-    /// game minute squared.
-    pub fn acceleration(&self, axis: Facing) -> f64 {
-        let crew = match &self.game {
-            Some(game) => game.world.ship.crew_count,
-            None => self.editor.players,
-        };
-        shipdesign::acceleration(self.design_ref(), crew, axis).unwrap_or(0.0)
+        self.game.is_some()
     }
 
     // --- the game ---------------------------------------------------------
@@ -2060,8 +1727,7 @@ impl Session {
     // --- the two views ----------------------------------------------------
 
     /// The part under the pointer in the ship view, or `None` — the top of
-    /// the tile, the way the designer's `hovered_part` answers: what is
-    /// standing there, else the deck, else the frame.
+    /// the tile: what is standing there, else the deck, else the frame.
     pub fn game_hovered_part(&self) -> Option<u32> {
         let game = self.game.as_ref()?;
         let tile = game.hover?;
@@ -2111,27 +1777,25 @@ impl Session {
     }
 
     /// A canvas point as a design point — a point on the ship's own grid,
-    /// in design units, whichever phase the session is in: read back
-    /// through the yard's view before the world opens, and through the
-    /// ship's camera and heading after (`Game::design_point_at`). What
-    /// one player's pointer is sent to the others as (feature 60): the
-    /// same tile on every machine, whatever each has zoomed and turned.
+    /// in design units, read back through the ship's camera and heading
+    /// (`Game::design_point_at`); nought with no world. What one player's
+    /// pointer is sent to the others as (feature 60): the same tile on
+    /// every machine, whatever each has zoomed and turned.
     pub fn design_point(&self, x: f32, y: f32) -> (f32, f32) {
         match &self.game {
             Some(g) => {
                 let p = g.design_point_at(x, y);
                 (p.x as f32, p.y as f32)
             }
-            None => self.editor.view.to_world(x, y),
+            None => (0.0, 0.0),
         }
     }
 
     /// [`Self::design_point`] read forwards: where a design point lands
     /// in the view's units — what the view offset and scale turn into a
     /// canvas pixel, the way the shapes and the crew's names are placed.
-    /// Nought and the yard's grid agree, so before the world opens a
-    /// design point *is* the view's; after, it goes through the ship's
-    /// turn like a Bim (`world_paint::crew_on_screen`).
+    /// It goes through the ship's turn like a Bim
+    /// (`world_paint::crew_on_screen`).
     pub fn design_point_on_screen(&self, x: f32, y: f32) -> (f32, f32) {
         match &self.game {
             Some(g) => world_paint::design_on_screen(g, x, y),
@@ -2147,9 +1811,8 @@ pub const SELF_CHECK_ALL: u32 = 0b11111111;
 
 /// Does *this build* get the same answers the fixtures pin?
 ///
-/// `design_hash` is what an Accept is recorded against, so it has to be
-/// identical on every machine in a game and on the native server that will
-/// one day be authoritative. The fixtures in `shipdesign::fixture` and
+/// `design_hash` has to be identical on every machine in a game and on the
+/// native server that will one day be authoritative. The fixtures in `shipdesign::fixture` and
 /// `world::fixture` are the written-down answers; `crates/shipdesign/src/tests.rs`
 /// and `crates/world/src/tests.rs` check them one at a time, and this checks
 /// them all at once, as a bitmask so a failure says which half.
@@ -2182,12 +1845,14 @@ pub fn self_check() -> u32 {
     // half the spread either side, rounded down. The same sum the market
     // tests pin, so a machine whose integer division went its own way
     // says so.
-    let quoted =
-        economy::market::quote(economy::market::MarketKind::Orbital, 0, ResourceId::Handgun)
-            == economy::market::Quote {
-                ask: 1_575,
-                bid: 1_425,
-            };
+    let quoted = economy::market::quote(
+        economy::market::MarketKind::Orbital,
+        0,
+        physics::ResourceId::Handgun,
+    ) == economy::market::Quote {
+        ask: 1_575,
+        bid: 1_425,
+    };
     if crate::draw::STRIDE == 12 && solo && crew && none && quoted {
         bits |= 1 << 4;
     }

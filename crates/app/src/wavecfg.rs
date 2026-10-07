@@ -41,7 +41,7 @@ use world::droid::WaveScaling;
 use world::rewards::Rewards;
 
 use crate::net::Online;
-use crate::screens::designer::ShipSession;
+use crate::screens::run::ShipSession;
 use crate::sound::{Sounds, Volumes};
 
 /// How often a file's time stamp is looked at, in seconds.
