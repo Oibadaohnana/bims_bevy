@@ -452,6 +452,10 @@ pub const OVERSEER_WAVE_STEPS: u64 = 1_800;
 /// **A data heist**: how many terminals, how long each is a hold of the
 /// Use key (an engineer's twice as quick), and how soon the next wave
 /// lands after one, by how many are taken — every terminal taken the
+pub const OVERSEER_RUN_PACE: f32 = 0.6;
+pub const OVERSEER_SHY_TILES: f32 = 10.0;
+pub const OVERSEER_AWAY_TILES: u32 = 6;
+pub const OVERSEER_RETHINK_STEPS: u64 = 45;
 /// alarm a step higher: sooner, and a quarter bigger a terminal.
 pub const HEIST_TERMINALS: u32 = 3;
 pub const HACK_SECONDS: u32 = 10;

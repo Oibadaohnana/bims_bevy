@@ -8812,6 +8812,16 @@ the whole of it; `crate::objective` the states, on `Infestation::objective`
   skills every step, walked by `set_objectives` (office, then the airlock
   farthest from it, `sabotage::extraction_of`); out of it he is killed off
   the deck unpaid (`xp_down` set first) and `pending_bounty` is nought.
+  **He runs from the crew** (the player's: "the overseer should run away
+  from the players", "keep away from crew", "somewhat faster"): in his
+  office phase, with a crew member up within `OVERSEER_SHY_TILES` (10),
+  every `OVERSEER_RETHINK_STEPS` (45) he picks `Overseer::away` — the
+  walkable tile within `OVERSEER_AWAY_TILES` (6) walked tiles of him (a
+  four-way flood over `validate::walkable`) farthest from the nearest of
+  them (`World::away_from_the_crew`) — and `objective_spots` sends him
+  there at `OVERSEER_RUN_PACE` (0.6, as he runs for his airlock too);
+  nobody near, `None` and back to his desk at 0.3. Saved and hashed
+  (`SAVE_VERSION` 131).
 - **The prisoners** are crew bots enlisted through
   `Game::enlist_reinforcement`, posted in the cell, unarmed
   (`arm_the_empty_handed` skips a captive), `None` on the enemy's list,

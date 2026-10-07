@@ -40,7 +40,10 @@ impl OverseerPhase {
 /// **Kill the Overseer**: which of the site's room's Bims he is, his
 /// office's tile, the airlock he makes for (an index among the design's
 /// airlocks), where he is in it, and when the next wave lands while he
-/// lives (a mission step; `u64::MAX` before he is laid).
+/// lives (a mission step; `u64::MAX` before he is laid). `away` is the
+/// design tile he is running to, away from the crew, while one is near
+/// him in his office phase (the player's: "the overseer should run away
+/// from the players"); `None` and he goes back to his desk.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Overseer {
@@ -49,6 +52,7 @@ pub struct Overseer {
     pub airlock: u32,
     pub phase: OverseerPhase,
     pub next_wave: u64,
+    pub away: Option<(u32, u32)>,
 }
 
 /// **A data heist**: each terminal's tile, how many steps of hands have

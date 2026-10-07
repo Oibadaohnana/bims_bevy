@@ -330,7 +330,8 @@ use crate::game::Game;
 /// and a cell's sealed door (`bims::door::Door::sealed`).
 /// 129: the defences' missions (`world::objective::Guard` on a `Defense`)
 /// and a vault's doors (`stationgen::Fitted::doors`).
-pub const SAVE_VERSION: u32 = 129;
+/// 131: the Overseer's tile away from the crew (`objective::Overseer::away`).
+pub const SAVE_VERSION: u32 = 131;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

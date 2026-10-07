@@ -1037,6 +1037,10 @@ fn eat_objective(hash: &mut Fnv, o: &crate::objective::Objective) {
             hash.eat(u64::from(v.office.1));
             hash.eat(u64::from(v.airlock));
             hash.eat(u64::from(v.phase.code()));
+            hash.eat(
+                v.away
+                    .map_or(u64::MAX, |(x, y)| u64::from(x) << 32 | u64::from(y)),
+            );
             hash.eat(v.next_wave);
         }
         Objective::Heist(h) => {

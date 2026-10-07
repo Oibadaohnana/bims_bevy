@@ -12,7 +12,10 @@
 //! - **Kill the Overseer**: one of theirs, his health the area's
 //!   ([`data::OVERSEER_HEALTH`]), walking at [`data::OVERSEER_PACE`] of a
 //!   body's pace, stands in his office; a wave lands every
-//!   [`data::OVERSEER_WAVE_STEPS`] while he lives. Under
+//!   [`data::OVERSEER_WAVE_STEPS`] while he lives. With the crew near he
+//!   runs from them ([`data::OVERSEER_SHY_TILES`], at
+//!   [`data::OVERSEER_RUN_PACE`]), and back to his desk once they are
+//!   not. Under
 //!   [`data::OVERSEER_FLEES_UNDER`] of his health he walks for the airlock
 //!   farthest from his office, and out of it he is gone with the site's
 //!   bounty. Down, the waves stop and the deck is cleared as any.
@@ -372,6 +375,7 @@ impl World {
                     next_wave: now + data::OVERSEER_WAVE_STEPS,
                 })
             }
+                    away: None,
             Mission::Heist => {
                 let n = data::HEIST_TERMINALS as usize;
                 let mut terminals: Vec<(u32, u32)> = (0..n)
@@ -891,6 +895,7 @@ impl World {
         let pos = room.body_pos(who);
         let station = self.station(id).cloned();
         let exit = station.as_ref().and_then(|s| {
+        let here = residents.aboard.to_design(pos);
             let port = *droidplan::airlocks(&s.design).get(o.airlock as usize)?;
             let inside = dvec2(port.centre.0, port.centre.1).sub(
                 dvec2(port.outward.0 as f64, port.outward.1 as f64)
@@ -933,12 +938,27 @@ impl World {
             }
             self.run.pending_bounty = 0;
         }
-        // His pace, said to the room every step: a third of a body's.
+        // In his office he keeps away from the crew: a tile to run to
+        // thought again every so often, none with nobody near.
+        if o.phase == OverseerPhase::Office && alive {
+            if self.run.mission_steps % data::OVERSEER_RETHINK_STEPS == 0 {
+                o.away = self.away_from_the_crew(id, here);
+            }
+        } else {
+            o.away = None;
+        }
+        // His pace, said to the room every step: a third of a body's, and
+        // more running — from the crew or for his airlock.
+        let running = o.phase == OverseerPhase::Fleeing || o.away.is_some();
         if let Some(residents) = self.residents.as_mut() {
             let room = &mut residents.aboard.room;
             let mut skills = vec![bims::combat::Skill::NONE; room.crew_count() as usize];
             if let Some(s) = skills.get_mut(who) {
-                s.walk = data::OVERSEER_PACE;
+                s.walk = if running {
+                    data::OVERSEER_RUN_PACE
+                } else {
+                    data::OVERSEER_PACE
+                };
             }
             room.set_skills(skills);
         }
@@ -962,6 +982,71 @@ impl World {
 
     fn heist_step(&mut self, id: u32, mut h: Heist, events: &mut Vec<WorldEvent>) {
         for i in 0..h.terminals.len() {
+    /// Where the Overseer at `at` (a design point of the site) runs to
+    /// from the crew: with one of them up within
+    /// [`data::OVERSEER_SHY_TILES`] of him, the tile within
+    /// [`data::OVERSEER_AWAY_TILES`] walked tiles of his farthest from the
+    /// nearest of them — the fewer tiles walked, then the lower row and
+    /// column, on a tie; his own, cornered. `None` with nobody near.
+    fn away_from_the_crew(&self, id: u32, at: DVec2) -> Option<(u32, u32)> {
+        let t = shipdesign::TILE as f64;
+        let room = &self.aboard.room;
+        let crew: Vec<DVec2> = (0..room.crew_count() as usize)
+            .filter(|&w| room.is_alive(w) && !room.is_down(w) && !room.is_gone(w))
+            .filter_map(|w| {
+                let p = room.bim_pos(w);
+                self.aboard.to_station(dvec2(p.x as f64, p.y as f64))
+            })
+            .collect();
+        let shy = data::OVERSEER_SHY_TILES as f64 * t;
+        if !crew.iter().any(|c| c.sub(at).length() <= shy) {
+            return None;
+        }
+        let design = &self.station(id)?.design;
+        let grid = design.grid();
+        let side = design.build_area as i32;
+        let start = ((at.x / t).floor() as i32, (at.y / t).floor() as i32);
+        if start.0 < 0 || start.1 < 0 || start.0 >= side || start.1 >= side {
+            return None;
+        }
+        let index = |(x, y): (i32, i32)| (y * side + x) as usize;
+        let mut seen = vec![false; (side * side) as usize];
+        seen[index(start)] = true;
+        let mut queue = std::collections::VecDeque::from([(start, 0u32)]);
+        let far = |tile: (i32, i32)| {
+            let p = middle((tile.0 as u32, tile.1 as u32));
+            crew.iter()
+                .map(|c| c.sub(p).length())
+                .fold(f64::INFINITY, f64::min)
+        };
+        let mut best = (start, far(start), 0u32);
+        while let Some((tile, walked)) = queue.pop_front() {
+            let score = far(tile);
+            let better = score
+                .total_cmp(&best.1)
+                .then(best.2.cmp(&walked))
+                .then((best.0.1, best.0.0).cmp(&(tile.1, tile.0)));
+            if better.is_gt() {
+                best = (tile, score, walked);
+            }
+            if walked >= data::OVERSEER_AWAY_TILES {
+                continue;
+            }
+            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                let next = (tile.0 + dx, tile.1 + dy);
+                if next.0 < 0 || next.1 < 0 || next.0 >= side || next.1 >= side {
+                    continue;
+                }
+                if seen[index(next)] || !shipdesign::validate::walkable(design, &grid, next) {
+                    continue;
+                }
+                seen[index(next)] = true;
+                queue.push_back((next, walked + 1));
+            }
+        }
+        Some((best.0.0 as u32, best.0.1 as u32))
+    }
+
             if h.taken[i] {
                 continue;
             }
@@ -1207,7 +1292,7 @@ impl World {
             return Vec::new();
         };
         let to = match o.phase {
-            OverseerPhase::Office => residents.aboard.to_room(middle(o.office)),
+            OverseerPhase::Office => residents.aboard.to_room(middle(o.away.unwrap_or(o.office))),
             OverseerPhase::Fleeing => {
                 let Some(station) = self.station(id) else {
                     return Vec::new();

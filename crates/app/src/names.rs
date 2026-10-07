@@ -3534,7 +3534,7 @@ pub fn objective_line(look: &world::ObjectiveLook) -> String {
         }
         Mission::Chief => "PROTECT THE COMMANDER — he is safe: clear the deck".into(),
         Mission::Overseer => match look.phase {
-            0 => format!("KILL THE OVERSEER — in his office, slow on his feet{wave}"),
+            0 => format!("KILL THE OVERSEER — he runs from the crew: corner him{wave}"),
             1 => format!("THE OVERSEER IS FLEEING — stop him before his airlock{wave}"),
             2 => "The Overseer got away with the bounty: clear the deck".into(),
             _ => "The Overseer is down: clear the deck".into(),

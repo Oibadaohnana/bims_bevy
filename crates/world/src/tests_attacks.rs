@@ -1,6 +1,7 @@
 //! The second set of attack missions (October 2026, `attacks.rs`): each
 //! laid on a station built for it, and each played through by hand —
-//! the Overseer hurt into fleeing and out of his airlock with the bounty,
+//! the Overseer running from the crew, hurt into fleeing and out of his
+//! airlock with the bounty,
 //! a heist's terminal taken and the site held until all are, a prison's
 //! cell cut open and its prisoners armed, a fuel run's drum gone up in
 //! the arms and another put in the reactor, a salvage crate's wave and its
@@ -220,6 +221,81 @@ fn the_overseer_flees_hurt_and_out_of_his_airlock_takes_the_bounty() {
     };
     assert_eq!(o.phase, OverseerPhase::Escaped);
     assert_eq!(world.run.pending_bounty, 0, "the bounty went with him");
+}
+
+/// The player's: "the overseer should run away from the players" — the
+/// crew stood two tiles off him (unarmed, and he kept whole, so he never
+/// flees for his airlock), he picks a tile farther from them and walks
+/// off at his running pace; the crew gone back aboard, he has none.
+#[test]
+fn the_overseer_runs_from_the_crew_and_stops_once_they_are_gone() {
+    let (mut world, station) = mission_world(Mission::Overseer);
+    let Some(Objective::Overseer(o)) = objective(&world, station) else {
+        panic!("an Overseer");
+    };
+    assert_eq!(o.away, None, "nobody near him yet");
+    let body = o.body.expect("he is laid") as usize;
+    let his = |world: &World| {
+        let r = world.residents.as_ref().unwrap();
+        r.aboard.to_design(r.aboard.room.body_pos(body))
+    };
+    let t = shipdesign::TILE as f64;
+    let start = his(&world);
+    let crew_at = start.add(worldgen::math::dvec2(2.0 * t, 0.0));
+    let crew = world.aboard.room.crew_count() as usize;
+    let aboard: Vec<_> = (0..crew).map(|w| world.aboard.room.bim_pos(w)).collect();
+    for w in 0..crew {
+        let gear = world.aboard.room.gear(w);
+        world.aboard.room.issue(
+            w,
+            Gear {
+                weapon: None,
+                ..gear
+            },
+        );
+    }
+    let mut away = None;
+    for _ in 0..600 {
+        let at = on_deck(&world, crew_at);
+        for w in 0..crew {
+            world.aboard.room.put_for_probe(w, at);
+        }
+        wreck_them_all(&mut world);
+        world
+            .residents
+            .as_mut()
+            .unwrap()
+            .aboard
+            .room
+            .heal_percent(body, 100.0);
+        world.step(&[]);
+        let Some(Objective::Overseer(o)) = objective(&world, station) else {
+            panic!();
+        };
+        assert_eq!(o.phase, OverseerPhase::Office);
+        away = away.or(o.away);
+    }
+    let away = away.expect("a tile to run to");
+    let mid = worldgen::math::dvec2((away.0 as f64 + 0.5) * t, (away.1 as f64 + 0.5) * t);
+    let was = start.sub(crew_at).length();
+    assert!(
+        mid.sub(crew_at).length() > was,
+        "away from them: {away:?} {mid:?} from {start:?}"
+    );
+    let now = his(&world).sub(crew_at).length();
+    assert!(now > was + t, "he ran: {was:.0} then {now:.0}");
+    // The crew put back where they stood: no tile to run to after his
+    // next think.
+    for _ in 0..=data::OVERSEER_RETHINK_STEPS {
+        for (w, &at) in aboard.iter().enumerate() {
+            world.aboard.room.put_for_probe(w, at);
+        }
+        world.step(&[]);
+    }
+    let Some(Objective::Overseer(o)) = objective(&world, station) else {
+        panic!();
+    };
+    assert_eq!(o.away, None, "nobody near: back to his desk");
 }
 
 #[test]
