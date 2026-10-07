@@ -8,7 +8,8 @@
 //! should appear"), never at the start at home, an elite, the Heart, a
 //! trader or a town. A station's defence is one of `Mission::DEFENCES`
 //! and its attack one of `Mission::ATTACKS`, each as likely; a town's
-//! defence that is no Area defend is Protect the commander. The map never
+//! defence that is no Area defend is Protect the commander or an
+//! Evacuation, as likely. The map never
 //! says which: a mission is found on arrival. Off the floor (the tests, the staged commands) every
 //! fight is plain unless a probe forces one ([`World::set_mission_for_probe`]).
 //!
@@ -44,12 +45,13 @@ impl World {
                 Mission::Plain => true,
                 defence if defence.is_defence() => {
                     kind == SiteKind::Defend
-                        && (surface::surface_body(station).is_none() || defence == Mission::Chief)
+                        && (surface::surface_body(station).is_none()
+                            || matches!(defence, Mission::Chief | Mission::Evacuation))
                 }
                 attack => kind == SiteKind::Attack && attack.is_attack(),
             };
-            // A town's defence may be Protect the commander, and nothing
-            // else of the map's (October 2026).
+            // A town's defence may be Protect the commander or an
+            // Evacuation, and nothing else of the map's (October 2026).
             let town = surface::surface_body(station).is_some()
                 && !heart::is_heart(station)
                 && kind == SiteKind::Defend;
@@ -66,8 +68,18 @@ impl World {
             && kind == SiteKind::Defend
             && !elite
             && !self.is_area_defense_at(star, station);
+        let seed = worldgen::rng::mix(self.galaxy_seed ^ MISSION_SALT)
+            ^ worldgen::rng::mix(u64::from(star))
+            ^ worldgen::rng::mix(u64::from(station).wrapping_add(0x_5354));
         if town_defence && self.floor_row_of(star).is_some_and(|row| row > 0) {
-            return Mission::Chief;
+            // Or an Evacuation, as likely (October 2026, the player's: "Can
+            // also be a planet mission").
+            let mut rng = worldgen::rng::Rng::new(seed);
+            return if rng.below(2) == 0 {
+                Mission::Chief
+            } else {
+                Mission::Evacuation
+            };
         }
         if !mapped || elite {
             return Mission::Plain;
@@ -79,9 +91,6 @@ impl World {
         if row == 0 {
             return Mission::Plain;
         }
-        let seed = worldgen::rng::mix(self.galaxy_seed ^ MISSION_SALT)
-            ^ worldgen::rng::mix(u64::from(star))
-            ^ worldgen::rng::mix(u64::from(station).wrapping_add(0x_5354));
         let mut rng = worldgen::rng::Rng::new(seed);
         match kind {
             // Every station defence is a mission too, each as likely

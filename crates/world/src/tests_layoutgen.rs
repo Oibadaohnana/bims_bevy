@@ -659,6 +659,7 @@ fn a_station_is_built_for_its_mission_s_rooms() {
         Feature::Cargo,
         Feature::Vault,
         Feature::Command,
+        Feature::Evacuation,
     ];
     for kind in [
         StationKind::Relay,
@@ -674,7 +675,10 @@ fn a_station_is_built_for_its_mission_s_rooms() {
                     built += 1;
                     assert_eq!(fitted.feature, feature);
                     let want = match feature {
-                        Feature::Office | Feature::Brig | Feature::Command => 1,
+                        Feature::Office
+                        | Feature::Brig
+                        | Feature::Command
+                        | Feature::Evacuation => 1,
                         Feature::Servers => 3,
                         Feature::FuelRun | Feature::Cargo | Feature::Vault => 2,
                     };
@@ -705,6 +709,52 @@ fn a_station_is_built_for_its_mission_s_rooms() {
             }
             println!("{kind:?} {feature:?}: {built} of 12");
             assert!(built >= 6, "{kind:?} {feature:?}: only {built} of 12");
+        }
+    }
+}
+
+/// An Evacuation's station (October 2026, the player's: "Make the map
+/// horizontally long"): its hull at least twice as wide as it is tall,
+/// sixty tiles and more from the port to its east end, and the shelter
+/// in its eastern quarter, the whole length from the port.
+#[test]
+fn an_evacuation_s_station_is_long_with_the_shelter_at_its_far_end() {
+    use crate::stationgen::{Feature, generate_fitted};
+    for kind in [
+        StationKind::Relay,
+        StationKind::MiningOutpost,
+        StationKind::Derelict,
+        StationKind::Refinery,
+        StationKind::Orbital,
+    ] {
+        for seed in 0..6u64 {
+            let Some((g, fitted)) = generate_fitted(kind, 4000 + seed * 7919, Feature::Evacuation)
+            else {
+                continue;
+            };
+            let design = &g.placer.design;
+            let grid = design.grid();
+            let side = design.build_area as i32;
+            let (mut x0, mut y0, mut x1, mut y1) = (side, side, 0, 0);
+            for y in 0..side {
+                for x in 0..side {
+                    if grid.get(shipdesign::Layer::Structure, (x, y)) != 0 {
+                        x0 = x0.min(x);
+                        y0 = y0.min(y);
+                        x1 = x1.max(x);
+                        y1 = y1.max(y);
+                    }
+                }
+            }
+            let (w, h) = (x1 - x0 + 1, y1 - y0 + 1);
+            println!("{kind:?} {seed}: {w} x {h}");
+            assert!(w >= 60 && w >= 2 * h, "{kind:?} {seed}: {w} x {h}");
+            let shelter = fitted.rooms[0];
+            let middle = (shelter[0] + shelter[2]) as i32 / 2;
+            assert!(
+                middle >= x0 + w * 3 / 4,
+                "{kind:?} {seed}: the shelter at {middle} of {w}"
+            );
         }
     }
 }

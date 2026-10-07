@@ -148,6 +148,7 @@ pub fn feature_of(mission: Mission) -> Option<Feature> {
         Mission::Salvage => Some(Feature::Cargo),
         Mission::Doors => Some(Feature::Vault),
         Mission::Chief => Some(Feature::Command),
+        Mission::Evacuation => Some(Feature::Evacuation),
         _ => None,
     }
 }

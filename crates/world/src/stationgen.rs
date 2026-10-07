@@ -151,6 +151,17 @@ pub const VAULT_MIN: (u32, u32) = (11, 6);
 pub const COMMAND_MIN: (u32, u32) = (8, 7);
 /// How deep a vault's core is, behind its partition.
 const VAULT_CORE: u32 = 4;
+/// An Evacuation's shelter's least deck: the people and the crew stood
+/// in it.
+pub const SHELTER_MIN: (u32, u32) = (7, 6);
+/// An Evacuation's station's build area, every kind alike (the player's:
+/// "Make the map horizontally long"): its ladder runs east nearly the
+/// whole of it, two rails and their bands deep.
+pub const LONG_SIDE: (u32, u32) = (74, 90);
+/// How far apart an Evacuation's rungs are along it.
+const LONG_CELL: (i32, i32) = (8, 13);
+/// How far apart its two rails are.
+const LONG_ACROSS: (i32, i32) = (6, 9);
 
 /// A vault's partition, for its deck `inner` (October 2026): whether it
 /// runs across the long way being `x`, the tile along it the partition
@@ -340,6 +351,9 @@ enum Role {
     /// The commander's room (a defence's, Protect the commander): a desk
     /// of crates across its middle he holds the whole fight behind.
     Command,
+    /// The shelter at the far end of an Evacuation's long station, where
+    /// its people and the crew stand as the defence begins.
+    Shelter,
 }
 
 impl Role {
@@ -363,6 +377,7 @@ impl Role {
             Role::Cargo => CARGO_MIN,
             Role::Vault => VAULT_MIN,
             Role::Command => COMMAND_MIN,
+            Role::Shelter => SHELTER_MIN,
         }
     }
 }
@@ -390,6 +405,10 @@ pub enum Feature {
     /// commander): the crew land beside it, and the waves, which come in
     /// by the airlocks farthest from the port, cross the station to it.
     Command,
+    /// A long station lying east–west, the shelter its room farthest from
+    /// the port (Evacuation): the people at the far end, the ship at the
+    /// near, the whole length of it between.
+    Evacuation,
 }
 
 impl Feature {
@@ -403,6 +422,7 @@ impl Feature {
             Feature::Cargo => &[Role::Cargo, Role::Cargo],
             Feature::Vault => &[Role::Vault],
             Feature::Command => &[Role::Command],
+            Feature::Evacuation => &[Role::Shelter],
         }
     }
 }
@@ -530,19 +550,25 @@ fn dials(kind: StationKind) -> Dials {
 
 /// Draw a ladder, its rooms and its reactor room: the blocks, before a
 /// role, a door or an airlock is decided. `None` when what was drawn is
-/// too big for the kind.
-fn sketch(kind: StationKind, rng: &mut Rng) -> Option<Sketch> {
+/// too big for the kind. `long` (an Evacuation's, October 2026) draws it
+/// end on, two rails, every cell and band built and no arm or wing, its
+/// rungs on east until the ladder is nearly [`LONG_SIDE`] long: a strip
+/// with the port at its west end. Every draw a station that is not long
+/// makes is the one it made before.
+fn sketch(kind: StationKind, long: bool, rng: &mut Rng) -> Option<Sketch> {
     let d = dials(kind);
     // A relay is small enough that a void where a room could be is often
     // the room a role wanted: every cell and band is built.
-    let full = kind == StationKind::Relay;
-    let side_on = rng.below(5) < 2;
+    let full = kind == StationKind::Relay || long;
+    let side_on = rng.below(5) < 2 && !long;
     // Two times in three a **compact** core — the fewest rails and rungs
     // the kind has, the cells short — so the size the kind allows is
     // left to the wings, and the station is a core with things growing
     // off it rather than one block.
-    let compact = rng.below(3) < 2;
-    let (rails_n, rungs_n) = if compact {
+    let compact = rng.below(3) < 2 && !long;
+    let (rails_n, rungs_n) = if long {
+        (2, 0)
+    } else if compact {
         (d.rails.0, d.rungs.0)
     } else {
         (
@@ -562,12 +588,17 @@ fn sketch(kind: StationKind, rng: &mut Rng) -> Option<Sketch> {
     // Across: the rails and the cells between them, from v = 0.
     let mut rails = Vec::new();
     let mut v = 0;
+    let (rail_width, cell_across) = if long {
+        ((2, 3), LONG_ACROSS)
+    } else {
+        (d.rail_width, d.cell_across)
+    };
     for j in 0..rails_n {
-        let w = roll(rng, d.rail_width.0, d.rail_width.1);
+        let w = roll(rng, rail_width.0, rail_width.1);
         rails.push((v, v + w + 1));
         v += w + 1;
         if j + 1 < rails_n {
-            v += roll(rng, d.cell_across.0, d.cell_across.1) + 1;
+            v += roll(rng, cell_across.0, cell_across.1) + 1;
         }
     }
 
@@ -584,7 +615,23 @@ fn sketch(kind: StationKind, rng: &mut Rng) -> Option<Sketch> {
             u += roll(rng, cell_along.0, cell_along.1) + 1;
         }
     }
-    let open_end = one_in(rng, 2);
+    if long {
+        // Rungs on east, a cell apart, while the next cell and rung
+        // still end inside the length rolled: the side less the margin
+        // and the reactor room.
+        let length = roll(rng, LONG_SIDE.0 as i32, LONG_SIDE.1 as i32) - 2 - LOBBY_EAST as i32;
+        loop {
+            let w = roll(rng, 2, 3);
+            rungs.push((u, u + w + 1));
+            u += w + 1;
+            let gap = roll(rng, LONG_CELL.0, LONG_CELL.1) + 1;
+            if u + gap + 4 > length {
+                break;
+            }
+            u += gap;
+        }
+    }
+    let open_end = one_in(rng, 2) && !long;
     let u1 = if open_end {
         u + roll(rng, 6, 12) + 1
     } else {
@@ -619,7 +666,15 @@ fn sketch(kind: StationKind, rng: &mut Rng) -> Option<Sketch> {
     // Arms: a rung run on through a band to the skin, decided before the
     // bands so the bands are cut round them. End on, a band either side;
     // side on, only away from the reactor room.
-    let sides: &[bool] = if side_on { &[true] } else { &[true, false] };
+    // A long one has a band on one side only, which is a roll, so it
+    // stays a strip.
+    let sides: &[bool] = if long {
+        if one_in(rng, 2) { &[true] } else { &[false] }
+    } else if side_on {
+        &[true]
+    } else {
+        &[true, false]
+    };
     let arm_odds = if compact || kind == StationKind::Orbital {
         2
     } else {
@@ -628,7 +683,7 @@ fn sketch(kind: StationKind, rng: &mut Rng) -> Option<Sketch> {
     let mut arms: Vec<(usize, bool)> = Vec::new();
     for (i, _) in ladder.rungs.iter().enumerate() {
         for &high in sides {
-            if one_in(rng, arm_odds) {
+            if !long && one_in(rng, arm_odds) {
                 arms.push((i, high));
             }
         }
@@ -972,8 +1027,8 @@ fn grow_wings(
 }
 
 /// The build area a sketch wants: the farthest tile plus the margin, or
-/// why it is outside the kind's range.
-fn side_for(kind: StationKind, sketch: &Sketch) -> Result<u32, Fail> {
+/// why it is outside the kind's range — a long one's, [`LONG_SIDE`].
+fn side_for(kind: StationKind, long: bool, sketch: &Sketch) -> Result<u32, Fail> {
     let far = sketch
         .corridors
         .iter()
@@ -983,7 +1038,11 @@ fn side_for(kind: StationKind, sketch: &Sketch) -> Result<u32, Fail> {
         .max()
         .ok_or(Fail::Sketch)?;
     let side = (far + 2) as u32;
-    let (least, most) = side_range(kind);
+    let (least, most) = if long {
+        (LONG_SIDE.0 - LONG_CELL.1 as u32, LONG_SIDE.1)
+    } else {
+        side_range(kind)
+    };
     match side {
         s if s < least => Err(Fail::TooSmall),
         s if s > most => Err(Fail::TooBig),
@@ -1302,6 +1361,12 @@ fn room_pieces(room: Block, role: Role, rng: &mut Rng) -> Vec<(PartKind, (u32, u
                 out.push((PartKind::Crate, (x, cy)));
             }
             out.push((PartKind::BigPlant, (x1 - 2, y0 + 2)));
+        }
+        Role::Shelter => {
+            // A crate in each far corner: what the people huddled
+            // behind; the middle clear for them and the crew.
+            out.push((PartKind::Crate, (x1, y0)));
+            out.push((PartKind::Crate, (x1, y1)));
         }
         Role::Depot => {
             // A drum in each corner two tiles in: the fuel stood up here.
@@ -2027,10 +2092,11 @@ fn candidate(
     let mut why = Fail::Sketch;
     let mut drawn = None;
     for _ in 0..SKETCHES {
-        let Some(sketch) = sketch(kind, rng) else {
+        let long = feature == Some(Feature::Evacuation);
+        let Some(sketch) = sketch(kind, long, rng) else {
             continue;
         };
-        let side = match side_for(kind, &sketch) {
+        let side = match side_for(kind, long, &sketch) {
             Ok(side) => side,
             Err(e) => {
                 why = e;

@@ -8932,3 +8932,47 @@ enemies' money. `rewards.ron`'s `site_money` lines are `enemy_money`.
 Bomb disposal, Hold the doors and Protect the commander price their
 experience over `OBJECTIVE_WAVES` (their landed waves grew the count and
 paid past the budget). Not a save change.
+
+## An Evacuation's own map (October 2026)
+
+> "Evacuation (October 2026)" above has the flag where the first of the
+> site's people stands and the waves at the airlocks in turn; that moved.
+> The player's words: "the evacuation need its own map generation. You
+> should spawn right next to the hostages and should need to fight
+> through enemies to get to the ship. Make the map horizontally long. Can
+> also be a planet mission. And Enemies alaways should spawn between you
+> and the ship".
+
+- **The map**: `feature_of(Evacuation)` is `stationgen::Feature::Evacuation`
+  (`Role::Shelter`, `SHELTER_MIN`), so `fit_the_site` lays the station out
+  again for it. `sketch(kind, long, ..)` with `long`: end on, two rails
+  (`LONG_ACROSS` apart, two or three wide), rungs every `LONG_CELL` on
+  east until the ladder nearly fills `LONG_SIDE` (74–90, every kind
+  alike — `side_for` reads it), every cell built, **a band of rooms on one
+  side only** (a roll), no arm and no wing: 70–84 tiles by 25–28. A
+  station that is not long draws exactly what it drew. The shelter is the
+  room farthest from the port (`deal_feature`), two crates in its far
+  corners.
+- **The start**: `World::shelter_tile(id)` — the shelter's middle, else
+  (a town, or a station no long layout kept the contract for) the tile
+  farthest from the port **by walk** with free deck all round
+  (`evacuation.rs`'s `Walk`: a four-way flood from the tile inside the
+  port over deck nothing blocking stands on). `begin_evacuation` puts the
+  flag there; `stand_the_crew_ashore` rings the crew round it and
+  `stand_the_evacuees` stands and posts the people round it.
+- **The waves**: `arrival_spots` asks `evacuation_arrival` first — of
+  the flag (or its carrier) and every player's Bim fit to act on the
+  site's deck, the one nearest the ship by walk; from it along the walk
+  to the port, half the way, at least `AHEAD_LEAST` (10) and at most
+  `AHEAD_MOST` (30) tiles, never past the port's door — facing back at
+  it. `droid_ship` draws no lander at an Evacuation.
+- **On a planet**: `mission_at` makes a town's defence that is no Area
+  defend Protect the commander or an Evacuation, as likely (a roll off
+  the mission's seed); a town is never laid out again, so its flag is the
+  reachable tile farthest from its pad.
+
+`tests_layoutgen::an_evacuation_s_station_is_long_with_the_shelter_at_its_far_end`,
+`tests_defense::an_evacuation_starts_in_the_shelter_and_its_waves_land_between_the_crew_and_the_ship`
+and `a_town_s_evacuation_starts_across_the_town_and_its_wave_lands_nearer_the_ship`
+are the rule. No `SAVE_VERSION`: `Fitted::feature` gained a variant, read
+as before. Meant to alter play (every Evacuation); the pins meet none.

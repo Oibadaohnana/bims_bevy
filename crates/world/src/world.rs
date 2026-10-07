@@ -6323,6 +6323,14 @@ impl World {
             Some(it) => (it.wave, 2),
             None => (self.defense(station).map(|d| d.wave)?, 1),
         };
+        // An Evacuation's waves (October 2026) land inside, between the
+        // crew and the ship, and came by no airlock or gate.
+        if self
+            .defense(station)
+            .is_some_and(|d| d.evacuation.is_some())
+        {
+            return None;
+        }
         if wave < from {
             return None;
         }
@@ -6590,7 +6598,11 @@ impl World {
         wave: u32,
     ) -> Option<(Vec<bims::math::Vec2>, f32)> {
         let residents = self.residents.as_ref()?;
-        let (at, facing) = if crate::surface::surface_body(station.id).is_some() {
+        // An Evacuation's waves (October 2026) land between the crew and
+        // the ship, wherever the site was meant to let them in.
+        let (at, facing) = if let Some(between) = self.evacuation_arrival(station) {
+            between
+        } else if crate::surface::surface_body(station.id).is_some() {
             let gate = self.arrival_gate(station, wave)?;
             let (spot, face) = (gate.spot(), gate.inward());
             (
@@ -7606,6 +7618,11 @@ impl World {
     fn stand_the_crew_ashore(&mut self, id: u32) {
         let inside = if let Some(area) = self.defense(id).and_then(|d| d.area.as_ref()) {
             (area.x as f64, area.y as f64)
+        } else if let Some(flag) = self.evacuation_start(id) {
+            // An Evacuation's (October 2026): in the shelter by its
+            // people, the whole site between them and the ship.
+            self.stand_the_evacuees(id);
+            flag
         } else {
             let Some(port) = self.station(id).and_then(|s| s.port()) else {
                 return;

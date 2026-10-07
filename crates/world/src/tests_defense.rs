@@ -1559,8 +1559,12 @@ fn a_dropped_flag_holds_them_there_and_none_left_alive_loses_the_site() {
     assert_eq!(world.can_flag(1), Err(crate::event::Refusal::NoFlagNear));
     // Carried a few tiles and put down.
     let t = shipdesign::TILE as f32;
-    let there = flag + bims::math::vec2(0.0, 4.0 * t);
-    world.aboard.room.stand_at(0, there);
+    // Where the Bim can stand: the flag begins in a far corner of the
+    // site now, and four tiles on may be a wall.
+    let there = world
+        .aboard
+        .room
+        .stand_at(0, flag + bims::math::vec2(0.0, 4.0 * t));
     world.step(&[]);
     let events = world.step(&[Command::Flag { slot: 0 }]);
     assert!(events.iter().any(|e| matches!(
@@ -1608,6 +1612,151 @@ fn a_dropped_flag_holds_them_there_and_none_left_alive_loses_the_site() {
             .any(|e| matches!(e, WorldEvent::TownFell { station } if *station == id))
     );
     assert!(world.defense(id).unwrap().lost);
+}
+
+/// An Evacuation's own map (October 2026, the player's: "spawn right next
+/// to the hostages … fight through enemies to get to the ship … Enemies
+/// always should spawn between you and the ship"): the site laid out
+/// long, the flag, its people and the crew stood in the shelter at its
+/// far end, and the waves landing on the way between them and the ship —
+/// however far the crew have come.
+#[test]
+fn an_evacuation_starts_in_the_shelter_and_its_waves_land_between_the_crew_and_the_ship() {
+    let (mut world, id) = a_station_defence(1, 3);
+    world.set_defense_delay_for_probe(30.0 * data::STEP_MINUTES);
+    world.set_mission_for_probe(Some(crate::run::Mission::Evacuation));
+    assert!(world.fit_dock_for_probe(), "laid out for it");
+    world.step(&[]);
+    let fitted = world.station(id).unwrap().fitted.clone().unwrap();
+    assert_eq!(fitted.feature, crate::stationgen::Feature::Evacuation);
+    let t = shipdesign::TILE as f64;
+    let shelter = fitted.rooms[0];
+    let look = world.evacuation_look().expect("an Evacuation");
+    let (fx, fy) = (look.flag.x / t, look.flag.y / t);
+    assert!(
+        fx >= shelter[0] as f64
+            && fx <= shelter[2] as f64 + 1.0
+            && fy >= shelter[1] as f64
+            && fy <= shelter[3] as f64 + 1.0,
+        "the flag in the shelter: ({fx}, {fy}) in {shelter:?}"
+    );
+    let station = world.station(id).unwrap();
+    let port = crate::droid::airlocks(&station.design)[0];
+    let inside = crate::droid::inside_of(&port, 1.0);
+    assert!(
+        look.flag.x - inside.0 > 50.0 * t,
+        "the shelter the length of the site from the port"
+    );
+    // The crew beside the flag, its people round it.
+    let flag = world.aboard.from_station(look.flag).unwrap();
+    let flag = bims::math::vec2(flag.x as f32, flag.y as f32);
+    let tile = shipdesign::TILE as f32;
+    assert!((world.aboard.room.bim_pos(0) - flag).len() < 2.0 * tile);
+    let residents = world.residents.as_ref().unwrap();
+    let room = &residents.aboard.room;
+    let flag_in_room = residents.aboard.to_room(look.flag);
+    let people = (0..room.crew_count() as usize)
+        .filter(|&who| residents.is_own(who) && room.is_alive(who))
+        .collect::<Vec<_>>();
+    assert!(people.len() as u32 >= data::EVACUEES);
+    for &who in &people {
+        assert!(
+            (room.body_pos(who) - flag_in_room).len() < 5.0 * tile,
+            "{who} by the flag"
+        );
+    }
+    // The first wave: between the flag and the port.
+    let between = |world: &World, from: f32| {
+        let residents = world.residents.as_ref().unwrap();
+        let room = &residents.aboard.room;
+        let port_x = residents
+            .aboard
+            .to_room(worldgen::math::dvec2(inside.0, inside.1))
+            .x;
+        let xs: Vec<f32> = (0..room.droid_count() as usize)
+            .filter_map(|i| room.droid(i))
+            .filter(|d| !d.destroyed)
+            .map(|d| d.pos.x)
+            .collect();
+        assert!(!xs.is_empty(), "a wave stands");
+        for x in xs {
+            assert!(
+                x > port_x - tile && x < from - 2.0 * tile,
+                "a machine at {x}, the port at {port_x}, the crew at {from}"
+            );
+        }
+    };
+    let mut steps = 0;
+    while world.droids_standing() == 0 {
+        world.step(&[]);
+        steps += 1;
+        assert!(steps < 200, "no wave");
+    }
+    between(&world, flag_in_room.x);
+    // Most of the way home, a player's Bim ahead of the flag: the next
+    // wave lands between it and the ship.
+    destroy_the_wave(&mut world);
+    let halfway = worldgen::math::dvec2((inside.0 + look.flag.x) / 2.0, inside.1);
+    let halfway = world.aboard.from_station(halfway).unwrap();
+    let halfway = bims::math::vec2(halfway.x as f32, halfway.y as f32);
+    let mut at_x = 0.0;
+    let mut steps = 0;
+    while world.droids_standing() == 0 {
+        world.aboard.room.stand_at(0, halfway);
+        world.step(&[]);
+        let p = world.aboard.room.bim_pos(0);
+        let p = world
+            .aboard
+            .to_station(worldgen::math::dvec2(p.x as f64, p.y as f64))
+            .unwrap();
+        at_x = world.residents.as_ref().unwrap().aboard.to_room(p).x;
+        steps += 1;
+        assert!(steps < 3_000, "no second wave");
+    }
+    between(&world, at_x);
+}
+
+/// A town's Evacuation (October 2026, the player's: "Can also be a planet
+/// mission"): the flag, its people and the crew at the far side of the
+/// town from the pad, and the first wave nearer the ship than they are.
+#[test]
+fn a_town_s_evacuation_starts_across_the_town_and_its_wave_lands_nearer_the_ship() {
+    let Some((mut world, id)) = a_threatened_town(1.0, 2, Some(3)) else {
+        println!("no friendly town to land at");
+        return;
+    };
+    world.set_mission_for_probe(Some(crate::run::Mission::Evacuation));
+    assert_eq!(world.mission_here(id), crate::run::Mission::Evacuation);
+    world.step(&[]);
+    let look = world.evacuation_look().expect("an Evacuation");
+    let t = shipdesign::TILE as f64;
+    let station = world.station(id).unwrap();
+    let port = crate::droid::airlocks(&station.design)[0];
+    let inside = crate::droid::inside_of(&port, 1.0);
+    let far = (look.flag.x - inside.0).hypot(look.flag.y - inside.1);
+    assert!(far > 50.0 * t, "the flag {} tiles from the pad", far / t);
+    let flag = world.aboard.from_station(look.flag).unwrap();
+    let flag = bims::math::vec2(flag.x as f32, flag.y as f32);
+    let tile = shipdesign::TILE as f32;
+    assert!((world.aboard.room.bim_pos(0) - flag).len() < 2.0 * tile);
+    assert!(
+        until(&mut world, 400, |w| w.droids_standing() > 0),
+        "a wave"
+    );
+    let residents = world.residents.as_ref().unwrap();
+    let room = &residents.aboard.room;
+    let port_at = residents
+        .aboard
+        .to_room(worldgen::math::dvec2(inside.0, inside.1));
+    let flag_at = residents.aboard.to_room(look.flag);
+    for d in (0..room.droid_count() as usize).filter_map(|i| room.droid(i)) {
+        assert!(
+            (d.pos - port_at).len() < (flag_at - port_at).len() - 3.0 * tile,
+            "a machine {} tiles from the pad, the flag {}",
+            (d.pos - port_at).len() / tile,
+            (flag_at - port_at).len() / tile
+        );
+    }
 }
 
 /// The defences' missions of October 2026 (`defences.rs`): a defence at
