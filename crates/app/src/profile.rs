@@ -76,12 +76,20 @@ pub fn record_win(at: u32) -> Option<u32> {
     (profile.ascension > was).then_some(profile.ascension)
 }
 
-/// The highest ascension this machine's profile has opened —
-/// `BIMS_ASCENSION` (`dev::ascension`) over it, for a look at one.
+/// The highest ascension the setup lets this machine pick. Every one,
+/// for now (the player's word: "let all ascensions be unlocked for
+/// now"); `profile.ascension` is still counted up by every win and is
+/// what the setup starts on ([`ascension_reached`]).
 pub fn ascension_open() -> u32 {
-    let open = load().ascension;
+    world::ascension::MOST
+}
+
+/// The highest ascension this machine's profile has opened —
+/// `BIMS_ASCENSION` (`dev::ascension`) in its place, for a look at one:
+/// what the setup starts on.
+pub fn ascension_reached() -> u32 {
     crate::dev::ascension()
-        .map_or(open, |a| a.max(open))
+        .unwrap_or_else(|| load().ascension)
         .min(world::ascension::MOST)
 }
 

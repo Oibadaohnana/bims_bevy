@@ -215,7 +215,7 @@ impl Default for Settings {
             end: false,
             end_day: crate::dev::end_day(),
             auto_shoot: crate::dev::auto_shoot(),
-            ascension: crate::profile::ascension_open(),
+            ascension: crate::profile::ascension_reached(),
             ascension_open: crate::profile::ascension_open(),
         }
     }
@@ -1964,8 +1964,7 @@ fn choice_row<T: PartialEq + Copy>(
 ) {
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
-        let width = ((ui.available_width() - 10.0 * options.len() as f32)
-            / options.len() as f32)
+        let width = ((ui.available_width() - 10.0 * options.len() as f32) / options.len() as f32)
             .clamp(80.0, 130.0);
         for (label, sub, v) in options {
             let on = *value == *v;
@@ -2021,11 +2020,11 @@ fn new_world(screen: &mut BuilderScreen, settings: &mut Settings) {
 /// three — and the caller pushes, where there is a room to push to.
 fn roll_everything(screen: &mut BuilderScreen, settings: &mut Settings) {
     // The profile read again, since a run won since the last setup may
-    // have opened an ascension: the highest opened is the one picked.
+    // have opened an ascension: the highest reached is the one picked.
     let profile = crate::profile::load();
     settings.unlocks = crate::profile::RunUnlocks::of(&profile);
     settings.ascension_open = crate::profile::ascension_open();
-    settings.ascension = settings.ascension_open;
+    settings.ascension = crate::profile::ascension_reached();
     screen.tab = SetupTab::Crew;
     roll_galaxy(settings);
     new_world(screen, settings);
