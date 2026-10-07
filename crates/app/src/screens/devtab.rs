@@ -2,7 +2,7 @@
 //! gamesetup a tab called dev, where i can buy items weapons choose what
 //! mission type and so on"): what a playtest run sets out with — which
 //! mission every fight of its kind is, the class's level, a weapon and
-//! armour, the four item slots, the relics held and a full armory.
+//! armour, the item slots, the relics held and a full armory.
 //!
 //! The host's to pick and dealt with the rest of the settings
 //! (`SettingsWire::dev`), so every machine builds the same run; every
@@ -31,8 +31,8 @@ pub struct DevSetup {
     pub weapon: Option<Weapon>,
     /// Armour at this tier on every player's Bim; `None` the class's own.
     pub armour: Option<Tier>,
-    /// The item slots, filled in order.
-    pub items: [Option<Module>; 4],
+    /// The item slots, filled in order: as many as a Bim has.
+    pub items: [Option<Module>; bims::module::ITEM_SLOTS],
     /// The relics the crew hold from the start, a bit by code.
     pub relics: u32,
     /// Every weapon and armour at every tier in each player's armory.
@@ -62,6 +62,10 @@ pub fn apply(dev: &DevSetup, session: &mut ship::Session) {
     let world = &mut game.world;
     if let Some(mission) = dev.mission {
         world.set_mission_for_probe(Some(mission));
+        // The dock the run opens at laid out for the mission, where it
+        // wants a map of its own (a vault, a cell, …): the first fight is
+        // at home, which is never laid out on arrival.
+        world.fit_dock_for_probe();
     }
     let items: Vec<Module> = dev.items.iter().flatten().copied().collect();
     for slot in 0..world.players() {
@@ -311,13 +315,14 @@ fn weapon_rows(ui: &mut egui::Ui, dev: &mut DevSetup, editable: bool) {
     }
 }
 
-/// The four item slots — a click empties one — and the shop under them:
+/// The item slots — a click empties one — and the shop under them:
 /// every item at the tier picked, a click buying it into the next free
 /// slot.
 fn item_rows(ui: &mut egui::Ui, dev: &mut DevSetup, editable: bool) {
     ui.horizontal(|ui| {
         let gap = ui.spacing().item_spacing.x;
-        let width = ((ui.available_width() - 3.0 * gap) / 4.0).max(60.0);
+        let n = dev.items.len() as f32;
+        let width = ((ui.available_width() - (n - 1.0) * gap) / n).max(50.0);
         for slot in dev.items.iter_mut() {
             let (text, colour) = match slot {
                 Some(item) => (

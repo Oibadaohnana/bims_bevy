@@ -405,3 +405,100 @@ fn a_salvage_crate_taken_brings_a_wave_and_aboard_pays() {
     };
     assert_eq!(s.home, 1);
 }
+
+/// What the game setup's Dev tab does (`set_mission_for_probe`), in a run
+/// on the floor: every mission forced is laid at the first site of its
+/// kind the crew travel to, the station laid out for it on arrival.
+#[test]
+fn a_mission_forced_as_the_dev_tab_does_is_laid_where_the_floor_takes_the_crew() {
+    use crate::run::{Site, SiteKind};
+    for mission in [
+        Mission::Overseer,
+        Mission::Heist,
+        Mission::Prison,
+        Mission::FuelRun,
+        Mission::Salvage,
+        Mission::Sabotage,
+        Mission::Nests,
+        Mission::Bombs,
+        Mission::Doors,
+        Mission::Chief,
+        Mission::Breaches,
+        Mission::Evacuation,
+    ] {
+        let want = if mission.is_attack() {
+            SiteKind::Attack
+        } else {
+            SiteKind::Defend
+        };
+        let galaxy = worldgen::Galaxy::new(data::DEFAULT_SEED, GalaxyType::SpiralTwoArm);
+        let (star, station) = crate::spawn(&galaxy).unwrap();
+        let mut world = World::start(
+            shipdesign::fixture::flyer(2),
+            REFERENCE_MONEY,
+            1,
+            data::DEFAULT_SEED,
+            GalaxyType::SpiralTwoArm,
+            star,
+            station,
+        )
+        .unwrap();
+        world.set_machines_only_for_probe();
+        world.set_floor(true);
+        world.set_mission_for_probe(Some(mission));
+        let mut laid = false;
+        'climb: for _ in 0..12 {
+            if world.in_mission() {
+                world.leave_for_probe();
+            }
+            let next: Vec<Site> = world.floor_next();
+            let fits = |w: &World, s: &Site| {
+                w.travel_quote(*s).is_ok_and(|q| {
+                    q.kind == want
+                        && !q.elite
+                        && (crate::surface_body(s.station).is_none() || mission == Mission::Chief)
+                })
+            };
+            let Some(&site) = next.iter().find(|s| fits(&world, s)).or(next.first()) else {
+                break;
+            };
+            let found = fits(&world, &site);
+            world.step(&[Command::Propose {
+                slot: 0,
+                star: site.star,
+                station: site.station,
+            }]);
+            if !found {
+                continue;
+            }
+            assert_eq!(world.mission_here(site.station), mission, "{mission:?}");
+            for _ in 0..120 {
+                world.step(&[]);
+                let begun = world.objective_look().is_some()
+                    || world.sabotage_look().is_some()
+                    || world.nests_standing().is_some()
+                    || world.breaches_open().is_some()
+                    || world.evacuation_look().is_some();
+                if begun {
+                    laid = true;
+                    break 'climb;
+                }
+            }
+            panic!("{mission:?}: nothing laid at {site:?}");
+        }
+        assert!(laid, "{mission:?}: no site of its kind on the way up");
+        if let Some(feature) = crate::world::feature_of(mission) {
+            let id = world.ship.state.station().unwrap();
+            assert_eq!(
+                world
+                    .station(id)
+                    .unwrap()
+                    .fitted
+                    .as_ref()
+                    .map(|f| f.feature),
+                Some(feature),
+                "{mission:?}: laid out for it"
+            );
+        }
+    }
+}

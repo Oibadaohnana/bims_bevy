@@ -155,7 +155,7 @@ mod attacks;
 // Protect the commander.
 #[path = "defences.rs"]
 mod defences;
-pub use attacks::{CUT_CODE, HACK_CODE, Interaction, Mark, MarkKind, ObjectiveLook};
+pub use attacks::{CUT_CODE, HACK_CODE, Interaction, Mark, MarkKind, ObjectiveLook, feature_of};
 pub use defences::DEFUSE_CODE;
 pub use entry::{EntryLook, WELD_CODE};
 pub use evacuation::EvacuationLook;
