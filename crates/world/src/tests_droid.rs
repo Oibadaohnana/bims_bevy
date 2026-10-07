@@ -25,6 +25,11 @@ use crate::world::World;
 /// crew docked at the arena, and the arena held by the machines. A gun
 /// in every hand, the way `Session::combat` deals them.
 fn held_arena() -> (World, u32) {
+    held_arena_as(true)
+}
+
+/// [`held_arena`], the machines' fight forced or the day's mix.
+fn held_arena_as(machines_only: bool) -> (World, u32) {
     let galaxy = worldgen::Galaxy::new(data::DEFAULT_SEED, GalaxyType::SpiralTwoArm);
     let (star, station) = crate::spawn(&galaxy).unwrap();
     let mut world = World::start_with_crew(
@@ -40,7 +45,9 @@ fn held_arena() -> (World, u32) {
     .unwrap();
     // The machines' fight on day one (the scaling's area 0 is the
     // Manufacturers alone, October 2026).
-    world.set_machines_only_for_probe();
+    if machines_only {
+        world.set_machines_only_for_probe();
+    }
     world.arena_dock_for_probe();
     let kinds = WeaponKind::ALL.iter().copied().cycle();
     let crew = world.aboard.room.crew_count() as usize;
@@ -1655,4 +1662,44 @@ fn a_nest_hunt_s_nests_build_until_destroyed_and_then_the_site_clears() {
     assert_eq!(said, total as usize, "each nest down said once");
     assert_eq!(world.nests_standing(), Some((0, total)));
     assert!(world.infestation(station).unwrap().cleared);
+}
+
+/// A nest builds what the area calls for and stands at the area's health
+/// (October 2026, the player's: "the nest should spawn the appropriate
+/// enemy type not just tier 3 … also the nest hp should scale with tier
+/// area"): on day one, area 0, the Manufacturers' people at area 0's
+/// health; in the tier-three area tier-three machines at its health.
+#[test]
+fn a_nest_builds_the_area_s_enemies_and_stands_at_its_health() {
+    let nest_health = |world: &World| room!(world).droid(0).unwrap().body.max(DroidPart::Chassis);
+    // Area 0: people out of every bay, no machine.
+    let (mut world, _) = held_arena_as(false);
+    world.set_mission_for_probe(Some(crate::run::Mission::Nests));
+    world.set_droid_waves_for_probe(1);
+    open_the_room(&mut world);
+    let (_, total) = world.nests_standing().expect("a nest hunt");
+    assert_eq!(nest_health(&world), data::NEST_HEALTH[0]);
+    let (bims, machines) = (room!(world).crew_count(), room!(world).droid_count());
+    for _ in 0..(data::NEST_BUILD_STEPS + 10) {
+        world.step(&[]);
+    }
+    assert_eq!(room!(world).droid_count(), machines, "no machine in area 0");
+    assert_eq!(room!(world).crew_count(), bims + total, "a person a nest");
+    // The tier-three area: tier-three machines.
+    let (mut world, _) = held_arena();
+    world.set_droid_tier_for_probe(Some(Tier::Three));
+    world.set_mission_for_probe(Some(crate::run::Mission::Nests));
+    world.set_droid_waves_for_probe(1);
+    open_the_room(&mut world);
+    assert_eq!(nest_health(&world), data::NEST_HEALTH[3]);
+    wreck_all_but_the_nests(&mut world);
+    let before = room!(world).droid_count() as usize;
+    for _ in 0..(data::NEST_BUILD_STEPS + 10) {
+        world.step(&[]);
+    }
+    let after = room!(world).droid_count() as usize;
+    assert_eq!(after, before + total as usize);
+    for i in before..after {
+        assert_eq!(room!(world).droid(i).unwrap().tier, Tier::Three);
+    }
 }

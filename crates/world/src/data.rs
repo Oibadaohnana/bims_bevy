@@ -430,12 +430,13 @@ pub const EXTRACTION_REACH_TILES: f32 = 3.0;
 pub const EVACUEES: u32 = 6;
 /// **A nest hunt** (October 2026): how many nests a site has for one
 /// player and how many more a player past it, at most; what each takes
-/// (a Heart's fabricator's); and how often every standing nest builds a
-/// machine (20 s).
+/// by the area the fight is in — area 0, tiers one to three (October
+/// 2026, the player's: "the nest hp should scale with tier area"; it was
+/// 400 everywhere); and how often every standing nest builds (20 s).
 pub const NESTS: u32 = 3;
 pub const NESTS_PER_PLAYER: u32 = 1;
 pub const NESTS_MOST: u32 = 5;
-pub const NEST_HEALTH: f32 = 400.0;
+pub const NEST_HEALTH: [f32; 4] = [180.0, 260.0, 360.0, 480.0];
 pub const NEST_BUILD_STEPS: u64 = 1_200;
 pub const EVAC_WAVE_STEPS: u64 = 1_500;
 pub const FLAG_REACH_TILES: f32 = 1.75;

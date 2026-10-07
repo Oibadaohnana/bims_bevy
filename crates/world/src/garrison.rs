@@ -127,7 +127,7 @@ impl World {
     /// the star, the station, the wave and the **world clock** — which
     /// stands still through a mission and moves with every trip, so a
     /// visit's garrison is fixed for the visit and a fresh one the next.
-    fn garrison_seed(&self, station: u32, wave: u32) -> u64 {
+    pub(super) fn garrison_seed(&self, station: u32, wave: u32) -> u64 {
         worldgen::rng::mix(
             self.galaxy_seed
                 ^ worldgen::rng::mix(u64::from(self.star_id) << 32 | u64::from(station))
@@ -252,7 +252,7 @@ impl World {
     /// machine: a wave laid with machines still standing (an Area defend's
     /// waves stack, October 2026) moves every machine's body index on by
     /// as many, and what the world keeps a body is moved on with it.
-    fn stand_people(&mut self, people: u32, spots: &[bims::math::Vec2], seed: u64) {
+    pub(super) fn stand_people(&mut self, people: u32, spots: &[bims::math::Vec2], seed: u64) {
         if people == 0 {
             return;
         }

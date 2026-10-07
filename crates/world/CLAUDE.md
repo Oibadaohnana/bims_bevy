@@ -8724,16 +8724,24 @@ of `world`) is the rule; its module note is the whole of it.
   beside a fuel drum where the site has one, the rest the farthest from
   the port and from each other.
 - **They are the Heart's fabricators**: `settle_droids` lays them first
-  (`nest_machines_to_lay`, `Droid::structure(Fabricator, Tier::Three,
-  NEST_HEALTH 400)`), so they keep the front of the machines' list, a
+  (`nest_machines_to_lay`, `Droid::structure(Fabricator, zone tier,
+  the area's NEST_HEALTH)`), so they keep the front of the machines' list, a
   wave cleared keeps them (`clear_wave_droids` keeps structures) and
   `droids_standing` never counts them; one destroyed before is laid a
   wreck. `nests_step` reads which are destroyed off the room (said as
   `WorldEvent::NestDestroyed { station, left }`, 174) and every
-  `NEST_BUILD_STEPS` (20 s) every standing one builds a machine
-  (`World::fabricate`, the fortress's, `pub(super)` now), looking for the
-  crew. `droid_waves` clears nothing while a nest stands
-  (`a_nest_stands`).
+  `NEST_BUILD_STEPS` (20 s) every standing one builds one enemy
+  (`World::nest_build`), looking for the crew — **what the area calls
+  for** (the player's: "the nest should spawn the appropriate enemy type
+  not just tier 3"): the day's share of machines (`machines_of`) over
+  everything the nests have built, so the Manufacturers' people in area
+  0 (`stand_people`, `set_told` once the nests have built) and the
+  machines coming in through the tier-one area, each at the day's tier
+  (`machine_tiers`), by turns a Trooper, a Husk, a Trooper, a Warden.
+  A nest's health is its **area's** (`data::NEST_HEALTH`, 180 / 260 /
+  360 / 480 for area 0 to tier three; 400 everywhere before), the
+  relics' and the ascension's enemy health on it, its tier the zone's.
+  `droid_waves` clears nothing while a nest stands (`a_nest_stands`).
 - The app: `nests_standing`, `nests_look` (each standing nest in the
   site's units) — `world_paint::nest_marks` rings them in a glowing red
   seen through the fog — the HUD line and count ("Nests 2/3"),

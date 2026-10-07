@@ -10,11 +10,19 @@
 //!   Laid when the crew first dock (`World::settle_nests`) as the Machine
 //!   Heart's fabricators are, `bims::droid::Droid::structure`s at the front
 //!   of the machines' list, so a wave cleared keeps them and nothing about
-//!   a wave counts them standing. Each faces away from its wall.
-//! - **They build**: every [`data::NEST_BUILD_STEPS`] each standing nest
-//!   puts a machine out of its bay (`World::fabricate`, the fabricators'
-//!   own), looking for the crew. The site's own first wave stands about it
-//!   as at any attack.
+//!   a wave counts them standing. Each faces away from its wall, at the
+//!   area's [`data::NEST_HEALTH`] (the relics' and the ascension's enemy
+//!   health on it) and the zone's tier.
+//! - **They build what the area calls for** (October 2026, the player's:
+//!   "the nest should spawn the appropriate enemy type not just tier 3"):
+//!   every [`data::NEST_BUILD_STEPS`] each standing nest puts one enemy
+//!   out of its bay ([`World::nest_build`]) — the day's share of machines
+//!   over everything the nests have built ([`World::machines_of`], so
+//!   the Manufacturers' people in area 0, the machines coming in through
+//!   the tier-one area), the machines at the day's tiers
+//!   ([`World::machine_tiers`]) by turns a Trooper, a Husk, a Trooper, a
+//!   Warden, the people armed at the day's share — all looking for the
+//!   crew. The site's own first wave stands about it as at any attack.
 //! - **Cleared** with every nest destroyed and every machine down: the
 //!   waves' clock clears nothing while a nest stands.
 //!
@@ -28,6 +36,9 @@ use crate::droid::Nests;
 use crate::run::Mission;
 use bims::droid::{Droid, DroidKind};
 use shipdesign::Layer;
+
+/// The salt of what the nests build's people, "NEST".
+const NEST_SALT: u64 = 0x_4E45_5354;
 
 /// Where a site's `n` nests grow, with the way each faces: see the module
 /// note. Free deck tiles with a wall on one side and free deck the other
@@ -178,6 +189,11 @@ impl World {
             return Vec::new();
         };
         let t = shipdesign::TILE as f64;
+        // The area's health (October 2026), the crew's relics and the
+        // ascension on it, and the zone's tier.
+        let health =
+            data::NEST_HEALTH[self.area_now().0.min(3)] * self.enemy_health_factor().unwrap_or(1.0);
+        let tier = self.zone_tier();
         nests
             .spots
             .iter()
@@ -190,8 +206,8 @@ impl World {
                     .to_room(dvec2((x as f64 + 0.5) * t, (y as f64 + 0.5) * t));
                 let mut nest = Droid::structure(
                     DroidKind::Fabricator,
-                    Tier::Three,
-                    data::NEST_HEALTH,
+                    tier,
+                    health,
                     at,
                     bims::math::vec2(fx as f32, fy as f32),
                     station.map_seed ^ 0x_4E55 ^ (i as u64) << 12,
@@ -237,18 +253,7 @@ impl World {
         let standing = down.iter().any(|&d| !d);
         let due = standing && now >= nests.next_build;
         let built = if due {
-            let made = self.fabricate(id, nests.built);
-            // What a nest builds goes looking for the crew.
-            if let Some(residents) = self.residents.as_mut() {
-                let room = &mut residents.aboard.room;
-                let n = room.droid_count() as usize;
-                for i in n.saturating_sub(made as usize)..n {
-                    if let Some(d) = room.droid_mut_for_probe(i) {
-                        d.seeking = true;
-                    }
-                }
-            }
-            made
+            self.nest_build(id, nests.built)
         } else {
             0
         };
@@ -259,6 +264,105 @@ impl World {
                 n.built += built;
             }
         }
+    }
+
+    /// Whether the nests of the site alongside have built anything: what
+    /// they put out is told where the crew are.
+    pub(super) fn nests_standing_built(&self) -> bool {
+        self.nests_here().is_some_and(|(_, n)| n.built > 0)
+    }
+
+    /// One enemy out of every standing nest's bay at `id`, the `built`
+    /// built before counted: see the module note. How many were built.
+    pub(super) fn nest_build(&mut self, id: u32, built: u32) -> u32 {
+        const KINDS: [DroidKind; 4] = [
+            DroidKind::Trooper,
+            DroidKind::Husk,
+            DroidKind::Trooper,
+            DroidKind::Warden,
+        ];
+        let wave = self.infestation(id).map_or(1, |it| it.wave);
+        let Some(residents) = self.residents.as_ref() else {
+            return 0;
+        };
+        let room = &residents.aboard.room;
+        // Each bay, a tile and a bit out of a nest standing and not
+        // stunned, the way it faces, and its index among the machines.
+        let bays: Vec<(bims::math::Vec2, bims::math::Vec2, usize)> = room
+            .droids()
+            .iter()
+            .enumerate()
+            .filter(|(_, d)| d.kind == DroidKind::Fabricator && !d.destroyed && !d.is_stunned())
+            .map(|(i, d)| {
+                (
+                    d.pos + d.facing() * (shipdesign::TILE as f32 * 1.2),
+                    d.facing(),
+                    i,
+                )
+            })
+            .collect();
+        let n = bays.len() as u32;
+        if n == 0 {
+            return 0;
+        }
+        // The day's share over everything built so far, so a share under
+        // one a round still comes out right over the fight.
+        let before = self.machines_of(built, wave);
+        let machines = self
+            .machines_of(built + n, wave)
+            .saturating_sub(before)
+            .min(n);
+        let people = n - machines;
+        let count = |m: u32| {
+            let tiers = self.machine_tiers(m);
+            Tier::ALL.map(|t| tiers.iter().filter(|&&x| x == t).count())
+        };
+        let (was, now) = (count(before), count(before + machines));
+        let mut tiers: Vec<Tier> = [Tier::Three, Tier::Two, Tier::One]
+            .into_iter()
+            .flat_map(|t| {
+                let i = t.code() as usize - 1;
+                std::iter::repeat_n(t, now[i].saturating_sub(was[i]))
+            })
+            .collect();
+        tiers.resize(machines as usize, self.zone_tier());
+        let toughen = self.enemy_health_factor();
+        // Their people out of the first bays, the machines the rest.
+        let (theirs, rest) = bays.split_at(people as usize);
+        let spots: Vec<bims::math::Vec2> = theirs.iter().map(|b| b.0).collect();
+        let seed = self.garrison_seed(id, wave) ^ NEST_SALT ^ u64::from(built);
+        self.stand_people(people, &spots, seed);
+        let Some(residents) = self.residents.as_mut() else {
+            return 0;
+        };
+        let room = &mut residents.aboard.room;
+        let mut made = Vec::with_capacity(rest.len());
+        for (j, (&(spot, facing, _), &tier)) in rest.iter().zip(&tiers).enumerate() {
+            let k = (before as usize) + j;
+            let mut droid = Droid::new(
+                KINDS[k % KINDS.len()],
+                tier,
+                built as usize + j,
+                wave,
+                spot,
+                facing.angle(),
+                u64::from(id) << 20 ^ (built as u64 + j as u64) ^ 0x_FAB,
+            );
+            if let Some(factor) = toughen {
+                droid.body.toughen(factor);
+            }
+            droid.plan_wait = 0.0;
+            droid.seeking = true;
+            made.push(droid);
+        }
+        for &(_, _, i) in &bays {
+            if let Some(h) = room.heart_state_mut(i) {
+                h.made = bims::droid::HeartState::MADE_FLASH;
+            }
+        }
+        room.adopt_droids(made, bims::math::Vec2::ZERO);
+        residents.aboard.crew = room.body_count();
+        n
     }
 
     /// Whether a nest of the site `id` still stands: its waves clear

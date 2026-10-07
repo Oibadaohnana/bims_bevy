@@ -2868,6 +2868,10 @@ impl World {
         // What a machine destroyed pays, its wave's share of the site's
         // money (October 2026), read before the residents are borrowed.
         let money_each = self.money_per_down();
+        // A nest hunt's nests have built (October 2026): what they put out
+        // comes looking for the crew, their people as well as their
+        // machines.
+        let nests_built = self.nests_standing_built();
         let Some(residents) = self.residents.as_mut().filter(|_| hostile || defending) else {
             self.aboard.room.set_hostiles(Vec::new());
             if let Some(residents) = &mut self.residents {
@@ -3145,7 +3149,7 @@ impl World {
             // and comes looking for them rather than waiting at its
             // airlock: their garrison is wave one, and a wave of theirs
             // lands only once the one before it is down.
-            room.set_told(residents.manufacturers_laid > 1);
+            room.set_told(residents.manufacturers_laid > 1 || nests_built);
             room.set_hostiles(crew.clone());
             room.set_hostiles_taunting(&taunts);
             room.set_hostiles_peeking(&self.aboard.crew_peeking());
