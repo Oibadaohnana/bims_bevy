@@ -10097,6 +10097,25 @@ impl Game {
         Some((at, task.progress()))
     }
 
+    /// The deploy errand `who` is on, if any: the middle of its tile, the
+    /// world's code for it, and whether the hands are on it (the walk over
+    /// done). What the world reads a weld's progress off (October 2026).
+    pub fn deploy_work(&self, who: usize) -> Option<(Vec2, u32, bool)> {
+        let task = self.bims.get(who)?.task.as_ref()?;
+        let Kind::Deploy { kind, .. } = task.kind() else {
+            return None;
+        };
+        Some((task.kind().deploy_tile()?, kind, task.is_laying()))
+    }
+
+    /// The deploy errand `who` is on put down, its work over: a weld the
+    /// world finished with other hands as well (October 2026).
+    pub fn end_deploy(&mut self, who: usize) {
+        if self.deploy_work(who).is_some() {
+            self.drop_task(who);
+        }
+    }
+
     /// The lamps: where each is, what it has left and how bright it is
     /// shown. See `sight::Lamp`. A bolt that lands on one takes its
     /// damage off it, and at nought it is out.

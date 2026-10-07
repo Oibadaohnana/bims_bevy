@@ -2499,6 +2499,18 @@ pub fn site_kind_word(kind: world::SiteKind) -> &'static str {
 /// A defence that is an Area defend (October 2026): a town's, holding its
 /// FOB — its own word on the map and its own mark.
 pub const ARRIVE_AREA_DEFEND: &str = "AREA DEFEND";
+/// A mission's word with what the map shapes (October 2026): Seal the
+/// breaches', else its kind's or an Area defend's.
+pub fn mission_word(
+    kind: world::SiteKind,
+    area: bool,
+    mission: world::run::Mission,
+) -> &'static str {
+    match mission {
+        world::run::Mission::Breaches => ARRIVE_BREACHES,
+        world::run::Mission::Plain => mission_kind_word(kind, area),
+    }
+}
 /// A mission's word: its kind's, or an Area defend's.
 pub fn mission_kind_word(kind: world::SiteKind, area: bool) -> &'static str {
     if area && kind == world::SiteKind::Defend {
@@ -3528,6 +3540,34 @@ pub fn area_next(span: &str) -> String {
     format!("next {span}")
 }
 pub const AREA_LAST_WAVE: &str = "Last wave";
+/// Seal the breaches' line (October 2026): the breaches still open, the
+/// machines up and the next wave; once all are welded, what is left.
+pub fn breaches_line(open: u32, total: u32, standing: u32, next: Option<&str>) -> String {
+    match next {
+        Some(next) => format!(
+            "SEAL THE BREACHES — {open} of {total} open · {standing} up · next wave in {next}"
+        ),
+        None => format!("SEAL THE BREACHES — {open} of {total} open · {standing} up"),
+    }
+}
+pub fn breaches_prepare(open: u32, span: &str) -> String {
+    format!("SEAL THE BREACHES — {open} open · first wave in {span}")
+}
+pub fn breaches_sealed(standing: u32) -> String {
+    format!("SEAL THE BREACHES — every breach welded: {standing} left aboard")
+}
+pub const BREACHES_TIP: &str = "• Weld every breach shut: stand at it, V
+• 15 s of hands on it, faster with two
+• A wave every 30 s while one is open, smaller as they close
+• The machines go for the breach being welded
+• All welded and the deck clear: held";
+/// The top count's line at Seal the breaches.
+pub fn breaches_count(open: u32, total: u32) -> String {
+    format!("Breaches open {open}/{total} · weld: V")
+}
+pub const BREACHES_SEALED_COUNT: &str = "Every breach welded";
+/// The map's word for Seal the breaches.
+pub const ARRIVE_BREACHES: &str = "SEAL BREACHES";
 pub const AREA_FOB: &str = "FOB";
 pub const AREA_CONTESTED: &str = "contested";
 pub const AREA_DEFENSE_TIP: &str = "• Hold the FOB (sandbag ring) 3 min\n• First wave in 5 s, then every 31 s, 1 s sooner each\n• Time up: clear the rest\n• Machines alone in it 20 s = run lost\n• Anybody of yours inside stops the count\n• Green arrow: the FOB off screen";

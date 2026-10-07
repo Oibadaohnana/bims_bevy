@@ -333,6 +333,7 @@ impl World {
                     kind: quote.kind,
                     cleared: quote.cleared,
                     area: quote.kind == SiteKind::Defend && self.is_area_defense_at(star, station),
+                    mission: self.mission_at(star, station, quote.kind, quote.elite),
                 });
             }
         }
@@ -798,6 +799,7 @@ impl World {
         self.run.clean_spoiled = false;
         self.run.bonus = run::BonusWave::None;
         self.run.welded.clear();
+        self.run.weld_work.clear();
         self.run.pending_bounty = 0;
         self.run.proposal = None;
         self.run.returning = vec![false; players as usize];
@@ -1676,6 +1678,7 @@ impl World {
         // welds stay with the site.
         self.run.briefing = false;
         self.run.welded.clear();
+        self.run.weld_work.clear();
         // The commanders' reinforcements off the crew first, alive or not
         // (task 129): nothing of theirs is left behind, paid for or kept.
         self.send_reinforcements_home();

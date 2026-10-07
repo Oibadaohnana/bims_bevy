@@ -3,9 +3,13 @@
 //! A wave comes aboard by a site's **ways in** in turn — a station's
 //! airlocks but the port, the farthest first (`droid::arrival_airlock_at`),
 //! a town's gates (`surface::gate_for_wave`) — and the crew can **weld** one
-//! shut ([`Command::Weld`]): the walk and the work are the room's, a deploy
-//! errand of [`WELD_CODE`] (`Game::deploy`), so a hit drops it and the app's
-//! bar shows it. A wave whose turn names a welded way in comes in by the
+//! shut ([`Command::Weld`]): the Bim's hands are the room's, a deploy errand
+//! of [`WELD_CODE`] (`Game::deploy`), and the work is the world's — every
+//! step a Bim's hands are on a way in counts a step of welding to it, an
+//! engineer's two (`Run::weld_work`, [`World::settle_welds`]), so two Bims
+//! weld one twice as fast; at [`WELD_SECONDS`] of it — a breach's
+//! [`data::BREACH_WELD_SECONDS`] — it is welded and every Bim on it let go.
+//! A wave whose turn names a welded way in comes in by the
 //! next unwelded one in turn instead; with every one welded it **burns
 //! through** the one its turn names, and that weld is gone
 //! ([`World::burn_through`], [`WorldEvent::WeldBurnt`]). So the crew choose
@@ -22,18 +26,22 @@ use super::*;
 use shipdesign::dock::Port;
 
 /// The room's deploy code a weld goes as (`Game::deploy`): past every
-/// `DeployKind`'s, and never laid as one — `World::step` hands it to
-/// [`World::finish_weld`].
+/// `DeployKind`'s, and never laid as one — the world counts the work
+/// ([`World::settle_welds`]) and puts the errand down when it is done.
 pub const WELD_CODE: u32 = 100;
 /// How near the Bim's way in has to be to be welded, in tiles from the
 /// Bim to the tile inside it: under the room's `task::DEPLOY_REACH` (two),
 /// so the work starts where the Bim stands — a player's own Bim is walked
 /// by its player alone.
 pub const WELD_REACH: f32 = 1.75;
-/// How long a weld takes, in game minutes of working steps — seconds at
-/// 1× — and an engineer's.
-pub const WELD_MINUTES: f32 = 4.0;
-pub const ENGINEER_WELD_MINUTES: f32 = 2.0;
+/// Seconds of one Bim's hands on an ordinary way in to weld it shut; an
+/// engineer's count twice.
+pub const WELD_SECONDS: u32 = 4;
+/// How long the room's errand runs, in game minutes: longer than any weld,
+/// so the world's count always ends it first.
+const ERRAND_MINUTES: f32 = 600.0;
+/// Steps of the world a second at 1×.
+const STEPS_A_SECOND: u32 = 60;
 
 /// A way in as the app draws it: where its doorway's middle is on the
 /// crew's deck, which way is out, whether it is welded, and whether the
@@ -50,6 +58,9 @@ pub struct EntryLook {
     pub width: f32,
     pub welded: bool,
     pub next: bool,
+    /// How far through its weld it is, nought to one: nought when nobody
+    /// has put a hand to it.
+    pub progress: f32,
     /// The doorway's middle and the way out in the site's own design
     /// units, for a painter drawing in the station's frame.
     pub site_at: DVec2,
@@ -59,11 +70,11 @@ pub struct EntryLook {
 /// A way in of a site, in its own design's units: the middle of its
 /// doorway, a unit step out, its width in tiles.
 #[derive(Clone, Copy, Debug)]
-struct WayIn {
-    index: u32,
-    at: DVec2,
-    outward: DVec2,
-    width: f32,
+pub(super) struct WayIn {
+    pub(super) index: u32,
+    pub(super) at: DVec2,
+    pub(super) outward: DVec2,
+    pub(super) width: f32,
 }
 
 impl World {
@@ -73,7 +84,7 @@ impl World {
     /// index among the design's airlocks; a town's gates in their order.
     /// None at the Machine Heart's fortress, which keeps its own turn, and
     /// none at a station with only the port.
-    fn ways_in(station: &Station) -> Vec<WayIn> {
+    pub(super) fn ways_in(station: &Station) -> Vec<WayIn> {
         if crate::heart::is_heart(station.id) {
             return Vec::new();
         }
@@ -159,6 +170,11 @@ impl World {
     /// through the one its turn names, and that weld is gone. Nothing
     /// otherwise.
     pub(super) fn burn_through(&mut self, station: &Station, wave: u32) {
+        // At Seal the breaches nothing burns through: every breach welded
+        // is no wave at all.
+        if self.is_breaches(station.id) {
+            return;
+        }
         let ways = Self::ways_in(station);
         if let Some((k, true)) = self.turn_of(&ways, wave) {
             let index = ways[k].index;
@@ -224,6 +240,7 @@ impl World {
                     width: w.width,
                     welded: self.run.welded.contains(&w.index),
                     next: next == Some(k),
+                    progress: self.weld_share(w.index),
                     site_at: w.at,
                     site_out: w.outward,
                 })
@@ -275,50 +292,108 @@ impl World {
     /// room, the way in's index back.
     pub(super) fn weld(&mut self, slot: u32) -> Result<u32, Refusal> {
         let (index, tile) = self.can_weld(slot)?;
-        let minutes = if self.is_engineer(slot) {
-            ENGINEER_WELD_MINUTES
-        } else {
-            WELD_MINUTES
-        };
         if !self
             .aboard
             .room
-            .deploy(slot as usize, tile, WELD_CODE, minutes)
+            .deploy(slot as usize, tile, WELD_CODE, ERRAND_MINUTES)
         {
             return Err(Refusal::NoWayInNear);
         }
         Ok(index)
     }
 
-    /// The room says `who` finished a weld at `at`: the way in whose weld
-    /// tile it is, welded — if the mission still runs there and it is not
-    /// welded already.
-    pub(super) fn finish_weld(
-        &mut self,
-        who: usize,
-        at: bims::math::Vec2,
-        events: &mut Vec<WorldEvent>,
-    ) {
+    /// Steps of welding a way in of `station` wants: a breach's at Seal
+    /// the breaches, else an ordinary one's.
+    fn weld_steps(&self, station: u32) -> u32 {
+        let seconds = if self.is_breaches(station) {
+            data::BREACH_WELD_SECONDS
+        } else {
+            WELD_SECONDS
+        };
+        seconds * STEPS_A_SECOND
+    }
+
+    /// How far through its weld way in `index` of the site alongside is,
+    /// nought to one.
+    pub fn weld_share(&self, index: u32) -> f32 {
+        let Some(station) = self.ship.state.alongside() else {
+            return 0.0;
+        };
+        let done = self
+            .run
+            .weld_work
+            .iter()
+            .find(|&&(e, _)| e == index)
+            .map_or(0, |&(_, work)| work);
+        (done as f32 / self.weld_steps(station).max(1) as f32).min(1.0)
+    }
+
+    /// The welding this step, after the rooms: a step of work to the way
+    /// in under every Bim's hands on a weld (an engineer's two), and every
+    /// way in whose work is done welded — said once, with the first Bim on
+    /// it — and the Bims on it let go.
+    pub(super) fn settle_welds(&mut self, events: &mut Vec<WorldEvent>) {
         let Some(station) = self.site_for_welds() else {
             return;
         };
+        let ways = Self::ways_in(&station);
         let half = shipdesign::TILE as f32 * 0.5;
-        let Some(way) = Self::ways_in(&station).into_iter().find(|w| {
-            self.weld_tile(w)
-                .is_some_and(|tile| (tile - at).len() <= half)
-        }) else {
-            return;
-        };
-        if self.run.welded.contains(&way.index) {
-            return;
+        let tiles: Vec<(u32, bims::math::Vec2)> = ways
+            .iter()
+            .filter_map(|w| Some((w.index, self.weld_tile(w)?)))
+            .collect();
+        let mut hands: Vec<(usize, u32)> = Vec::new();
+        for who in 0..self.aboard.room.crew_count() as usize {
+            let Some((at, code, laying)) = self.aboard.room.deploy_work(who) else {
+                continue;
+            };
+            if code != WELD_CODE {
+                continue;
+            }
+            let Some(&(index, _)) = tiles.iter().find(|(_, tile)| (*tile - at).len() <= half)
+            else {
+                continue;
+            };
+            if self.run.welded.contains(&index) {
+                // Welded by others meanwhile: nothing left to do here.
+                self.aboard.room.end_deploy(who);
+                continue;
+            }
+            hands.push((who, index));
+            if !laying {
+                continue;
+            }
+            let step = if self.is_engineer(who as u32) { 2 } else { 1 };
+            match self.run.weld_work.iter_mut().find(|(e, _)| *e == index) {
+                Some((_, work)) => *work += step,
+                None => self.run.weld_work.push((index, step)),
+            }
         }
-        self.run.welded.push(way.index);
-        self.run.welded.sort_unstable();
-        events.push(WorldEvent::Welding {
-            who: who as u32,
-            entry: way.index,
-            done: true,
-        });
+        let needed = self.weld_steps(station.id);
+        let done: Vec<u32> = self
+            .run
+            .weld_work
+            .iter()
+            .filter(|&&(_, work)| work >= needed)
+            .map(|&(e, _)| e)
+            .collect();
+        for index in done {
+            self.run.weld_work.retain(|&(e, _)| e != index);
+            self.run.welded.push(index);
+            self.run.welded.sort_unstable();
+            let mut first = None;
+            for &(who, at) in &hands {
+                if at == index {
+                    first.get_or_insert(who);
+                    self.aboard.room.end_deploy(who);
+                }
+            }
+            events.push(WorldEvent::Welding {
+                who: first.unwrap_or(0) as u32,
+                entry: index,
+                done: true,
+            });
+        }
     }
 
     /// The burns since last asked, each said once: the step's events get
@@ -326,6 +401,23 @@ impl World {
     pub(super) fn say_burns(&mut self, events: &mut Vec<WorldEvent>) {
         for entry in std::mem::take(&mut self.run.burnt) {
             events.push(WorldEvent::WeldBurnt { entry });
+        }
+    }
+
+    /// For a look (`BIMS_WELDS=1`): the site's first way in welded and
+    /// the second half way through its weld.
+    pub fn show_welds_for_probe(&mut self) {
+        let Some(station) = self.site_for_welds() else {
+            return;
+        };
+        let ways = Self::ways_in(&station);
+        if let Some(first) = ways.first() {
+            self.weld_for_probe(first.index);
+        }
+        if let Some(second) = ways.get(1) {
+            let half = self.weld_steps(station.id) / 2;
+            self.run.weld_work.retain(|&(e, _)| e != second.index);
+            self.run.weld_work.push((second.index, half));
         }
     }
 

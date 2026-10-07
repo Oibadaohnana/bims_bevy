@@ -33,6 +33,9 @@ pub struct FloorMark {
     pub area: bool,
     /// The Machine Heart's fortress.
     pub heart: bool,
+    /// What the fight asks beyond its waves (October 2026,
+    /// [`World::mission_at`]).
+    pub mission: crate::run::Mission,
     /// The tier the row is marked ([`World::floor_tier`]).
     pub tier: Tier,
 }
@@ -395,6 +398,7 @@ impl World {
                     area,
                     heart: heart::is_heart(node.station),
                     tier: self.floor_tier(row as u32),
+                    mission: self.mission_at(node.star, node.station, quote.kind, quote.elite),
                 });
             }
         }

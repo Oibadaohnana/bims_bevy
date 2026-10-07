@@ -48,6 +48,8 @@ impl World {
         }
         match self.defense(id) {
             Some(d) if d.area.is_some() => defense::area_waves(),
+            // Seal the breaches: a wave a breach and one more, near enough.
+            Some(d) if d.breaches.is_some() => d.breaches.map_or(1, |b| b.total + 1),
             Some(d) => d.wave.saturating_add(d.waves_left).max(1),
             None => 1,
         }
@@ -210,7 +212,11 @@ impl World {
             return false;
         }
         let attack = self.infestation(id).is_some_and(|it| it.heart.is_none());
-        let defence = self.site_threatened(id) && !self.is_area_defense(id);
+        // Not at an Area defend nor a mission the map shapes, which run
+        // on a clock rather than a count of waves.
+        let defence = self.site_threatened(id)
+            && !self.is_area_defense(id)
+            && self.mission_here(id) == crate::run::Mission::Plain;
         attack || defence
     }
 

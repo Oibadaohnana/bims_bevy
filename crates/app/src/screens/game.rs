@@ -868,6 +868,16 @@ fn open(
             if let (Some(dark), Some(game)) = (crate::dev::dark(), session.game.as_mut()) {
                 game.world.set_dark_for_probe(Some(dark));
             }
+            // `BIMS_MISSION` (October 2026): every station fight that
+            // mission, whatever the roll.
+            if let (Some(mission), Some(game)) = (crate::dev::mission(), session.game.as_mut()) {
+                game.world.set_mission_for_probe(Some(mission));
+            }
+            if crate::dev::show_welds()
+                && let Some(game) = session.game.as_mut()
+            {
+                game.world.show_welds_for_probe();
+            }
             // Every run on the combat ship opens with everything there is
             // in the armory — every weapon and piece at every tier it is
             // made at — for trying any kit on aboard before stepping off.
@@ -5048,7 +5058,7 @@ fn chart_mission_line(ui: &mut egui::Ui, mission: &world::run::StarMission) {
         }
         let word = format!(
             "{} {}",
-            mission_kind_word(mission.kind, mission.area),
+            mission_word(mission.kind, mission.area, mission.mission),
             site_place_word(mission.site.station)
         );
         ui.label(egui::RichText::new(word).strong().color(colour));

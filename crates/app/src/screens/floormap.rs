@@ -445,7 +445,7 @@ pub fn paint(painter: &egui::Painter, rect: egui::Rect, chart: &FloorChart, view
                 } else {
                     format!(
                         "{} {}",
-                        mission_kind_word(m.kind, m.area),
+                        mission_word(m.kind, m.area, m.mission),
                         site_place_word(m.site.station)
                     )
                 },

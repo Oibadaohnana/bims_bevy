@@ -133,7 +133,12 @@ mod site_xp;
 // 2026). A child for the same reason.
 #[path = "entry.rs"]
 mod entry;
+
+// The missions the map shapes (October 2026). A child for the same reason.
+#[path = "missions.rs"]
+mod missions;
 pub use entry::{EntryLook, WELD_CODE};
+pub use missions::BREACHES_ODDS;
 
 /// What a player can ask the world to do.
 ///
@@ -858,6 +863,11 @@ pub struct World {
     /// `machines_forced` is.
     #[cfg_attr(feature = "serde", serde(default))]
     area_defense_off: bool,
+    /// The probes' mission for every station fight (October 2026,
+    /// `World::set_mission_for_probe`): `None` is the roll. Saved, not
+    /// hashed.
+    #[cfg_attr(feature = "serde", serde(default))]
+    mission_forced: Option<crate::run::Mission>,
     /// The `heart` command's word (October 2026): a trader's shelf never
     /// runs out — a thing bought is on it again, the kind a tier up, and an
     /// item may be bought or upgraded again and again in one visit. Saved
@@ -1295,6 +1305,7 @@ impl World {
             droid_kinds_forced: None,
             machines_forced: false,
             area_defense_off: false,
+            mission_forced: None,
             endless_shelf: false,
             droid_origin,
             droid_hops,
@@ -1636,13 +1647,13 @@ impl World {
         }
         //    And the kits laid, each a deployable put down.
         for (who, at, kind) in self.aboard.room.take_deployed() {
-            if kind == WELD_CODE {
-                self.finish_weld(who, at, &mut events);
-            } else {
+            // A weld is never laid: the world counts its work.
+            if kind != WELD_CODE {
                 self.finish_deploy(who, at, kind, &mut events);
             }
         }
-        //    And the welds a wave burnt through, said.
+        //    The welding, and the welds a wave burnt through, said.
+        self.settle_welds(&mut events);
         self.say_burns(&mut events);
 
         // 8. The run (feature 103): the bounty paid the step the site is
@@ -7112,8 +7123,14 @@ impl World {
             .filter(|_| self.residents.as_ref().map(|r| r.station) == self.ship.state.station())
             .cloned();
         let Some(area) = area else {
+            // At Seal the breaches the machines make for the weld being
+            // worked (October 2026); nothing anywhere else.
+            let spots = match self.ship.state.station() {
+                Some(id) if self.is_breaches(id) => self.breach_objectives(id),
+                _ => Vec::new(),
+            };
             if let Some(residents) = &mut self.residents {
-                residents.aboard.room.set_objectives(&[]);
+                residents.aboard.room.set_objectives(&spots);
             }
             return;
         };
@@ -7238,6 +7255,15 @@ impl World {
                 let mut area = defense::Area::new(tx as i32 * t, ty as i32 * t);
                 area.bags = self.fob_bags(&area);
                 fresh.area = Some(area);
+            } else if self.mission_here(id) == crate::run::Mission::Breaches
+                && let Some(site) = self.station(id)
+            {
+                // Seal the breaches (October 2026): the site's ways in are
+                // its breaches, every one open.
+                let total = Self::ways_in(site).len() as u32;
+                if total > 0 {
+                    fresh.breaches = Some(defense::Breaches { total, open: total });
+                }
             }
             let at = self.defenses.partition_point(|d| d.station < id);
             self.defenses.insert(at, fresh);
@@ -7320,6 +7346,11 @@ impl World {
                 return;
             }
         }
+        // **Seal the breaches' count** (October 2026): the waves come while
+        // a breach is open.
+        if self.is_breaches(id) {
+            self.count_the_breaches(id);
+        }
         let mut arrive = false;
         let mut last = false;
         let mut won = false;
@@ -7341,22 +7372,32 @@ impl World {
             // **An Area defend's waves are on a clock** (October 2026):
             // while the hold runs one lands `defense::area_gap` after the
             // last, down or not — they stack — and none after it.
+            // Seal the breaches' waves are on a clock as well, every
+            // `BREACH_WAVE_STEPS` while a breach is open.
             let area = d.area.is_some();
-            if standing > 0 && !(area && d.wave > 0 && d.more_to_come()) {
+            let clocked = area || d.breaches.is_some();
+            let gap = |wave: u32| {
+                if area {
+                    defense::area_gap(wave)
+                } else {
+                    data::BREACH_WAVE_STEPS
+                }
+            };
+            if standing > 0 && !(clocked && d.wave > 0 && d.more_to_come()) {
                 // A fight is on: the clock does not run.
                 d.next_in = None;
             } else if d.wave == 0 || d.more_to_come() {
                 match d.next_in {
-                    None if area => d.next_in = Some(defense::area_gap(d.wave)),
+                    None if clocked => d.next_in = Some(gap(d.wave)),
                     None => d.next_in = Some(reinforce),
                     Some(left) if left <= 1 => {
-                        if d.wave > 0 && !area {
+                        if d.wave > 0 && !clocked {
                             d.waves_left -= 1;
                         }
                         d.wave += 1;
-                        d.next_in = (area && d.more_to_come()).then(|| defense::area_gap(d.wave));
+                        d.next_in = (clocked && d.more_to_come()).then(|| gap(d.wave));
                         arrive = true;
-                        last = !area && d.waves_left == 0;
+                        last = !clocked && d.waves_left == 0;
                     }
                     Some(left) => d.next_in = Some(left - 1),
                 }
@@ -7376,7 +7417,10 @@ impl World {
             if standing == 0 {
                 self.clear_wrecks();
             }
-            let n = self.landing_wave_size();
+            // Seal the breaches' waves are as much smaller as breaches are
+            // welded.
+            let full = self.landing_wave_size();
+            let n = self.breach_wave_size(id, full);
             self.lay_defense_wave(id, n);
             if let Some(d) = self.defense_mut(id) {
                 d.standing = standing + n;

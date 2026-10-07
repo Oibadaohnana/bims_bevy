@@ -1314,6 +1314,23 @@ pub fn night() -> Option<bool> {
     }
 }
 
+/// `BIMS_WELDS=1` (October 2026): the site's first way in welded and the
+/// second half welded, for a look at the markers.
+pub fn show_welds() -> bool {
+    std::env::var("BIMS_WELDS").is_ok_and(|v| v.trim() == "1")
+}
+
+/// The mission every station fight is (October 2026, the missions the map
+/// shapes): `BIMS_MISSION=breaches` makes every station's defence Seal the
+/// breaches, `BIMS_MISSION=plain` none. Unset is the game's own roll.
+pub fn mission() -> Option<world::run::Mission> {
+    match std::env::var("BIMS_MISSION").ok()?.trim() {
+        "breaches" => Some(world::run::Mission::Breaches),
+        "plain" => Some(world::run::Mission::Plain),
+        _ => None,
+    }
+}
+
 /// A dark station (task 152): `BIMS_DARK=1` switches off the lamps of
 /// every station an enemy holds — the `droids` commands' dock and the
 /// stations of any run — and `BIMS_DARK=0` keeps them all lit. Unset is

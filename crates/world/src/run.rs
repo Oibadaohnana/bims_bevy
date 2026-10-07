@@ -109,6 +109,35 @@ impl SiteKind {
     }
 }
 
+/// What a fight at a station asks of the crew beyond its waves (October
+/// 2026, `World::mission_at`): the plain fight, or one of the missions
+/// the map shapes. Derived off the galaxy's seed, the star and the site,
+/// never saved.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum Mission {
+    /// Every wave down: an attack cleared, a defence held.
+    #[default]
+    Plain,
+    /// **Seal the breaches** (a defence): the machines come in by every
+    /// way in left open, on a clock, until the crew have welded every one
+    /// shut and destroyed what is aboard.
+    Breaches,
+}
+
+impl Mission {
+    /// Every one, in code order.
+    pub const ALL: [Mission; 2] = [Mission::Plain, Mission::Breaches];
+
+    /// The number that indexes the name tables.
+    pub fn code(self) -> u32 {
+        match self {
+            Mission::Plain => 0,
+            Mission::Breaches => 1,
+        }
+    }
+}
+
 /// A mission's **bonus wave** (October 2026): chosen by the crew in the
 /// ready check, before the fight starts, it is one more wave at the end
 /// of the site's own — half as big again, worth half the site's
@@ -430,6 +459,11 @@ pub struct Run {
     /// through the one its turn names. None at every mission's start.
     #[cfg_attr(feature = "serde", serde(default))]
     pub welded: Vec<u32>,
+    /// The welding under way (October 2026): each way in a hand has been
+    /// put to and the steps of work it has had (`World::settle_welds`).
+    /// Cleared with `welded`.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub weld_work: Vec<(u32, u32)>,
     /// The welds a wave burnt through this step, for the step to say
     /// (`World::say_burns`); empty between steps.
     #[cfg_attr(feature = "serde", serde(skip))]
@@ -477,6 +511,7 @@ impl Run {
             clean_spoiled: false,
             bonus: BonusWave::None,
             welded: Vec::new(),
+            weld_work: Vec::new(),
             burnt: Vec::new(),
         }
     }
@@ -589,4 +624,6 @@ pub struct StarMission {
     pub cleared: bool,
     /// A defence that is an Area defend (October 2026).
     pub area: bool,
+    /// What the fight asks beyond its waves (October 2026).
+    pub mission: Mission,
 }

@@ -842,6 +842,29 @@ fn ways_in(list: &mut DrawList, game: &Game, station: u32) {
         }
         let colour = if e.next { WAY_IN_NEXT } else { WAY_IN };
         bar(list, t * 0.9, 5.0, colour);
+        // A weld under way: a seam growing across the doorway from one
+        // side, glowing, as far as the work has got.
+        if e.progress > 0.0 {
+            let (cx, cy) = (x - ox * t * 0.5, y - oy * t * 0.5);
+            let reach = half * 2.0 * e.progress.min(1.0);
+            let (sx, sy) = (cx - ax * half, cy - ay * half);
+            list.line(
+                sx,
+                sy,
+                cx + ax * half,
+                cy + ay * half,
+                t * 0.3,
+                WELD_PLATE.alpha(0.5),
+            );
+            list.line(
+                sx,
+                sy,
+                sx + ax * reach,
+                sy + ay * reach,
+                4.0,
+                WELD_SEAM.glowing(1.4 + 0.6 * pulse),
+            );
+        }
         if e.next {
             // Two chevrons pointing in, pulsing.
             for k in 0..2 {

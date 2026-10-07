@@ -69,6 +69,20 @@ pub struct Defense {
     /// — `None` at a station or a derelict, and in a save from before.
     #[cfg_attr(feature = "serde", serde(default))]
     pub area: Option<Area>,
+    /// **Seal the breaches** (October 2026, `crate::world` `missions.rs`):
+    /// `None` at every other defence, and in a save from before.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub breaches: Option<Breaches>,
+}
+
+/// A Seal the breaches fight's count of its ways in: how many it has, and
+/// how many are not welded yet — said again every step of the fight
+/// (`World::count_the_breaches`). The waves come while one is open.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Breaches {
+    pub total: u32,
+    pub open: u32,
 }
 
 /// An **Area defend**: the crew hold a ring of the town's ground, the FOB,
@@ -197,6 +211,7 @@ impl Defense {
             won: false,
             lost: false,
             area: None,
+            breaches: None,
         }
     }
 
@@ -214,9 +229,10 @@ impl Defense {
     /// Whether any wave is still to come after the one on the ground —
     /// at an Area defend, while its hold has time to run.
     pub fn more_to_come(&self) -> bool {
-        match &self.area {
-            Some(area) => area.left > 0,
-            None => self.waves_left > 0,
+        match (&self.area, &self.breaches) {
+            (Some(area), _) => area.left > 0,
+            (None, Some(breaches)) => breaches.open > 0,
+            (None, None) => self.waves_left > 0,
         }
     }
 

@@ -173,6 +173,7 @@ impl WorldMap {
                 kind: m.kind,
                 cleared: m.cleared,
                 area: m.area,
+                mission: m.mission,
             })
             .collect();
     }

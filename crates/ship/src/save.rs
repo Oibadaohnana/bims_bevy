@@ -321,7 +321,9 @@ use crate::game::Game;
 /// 123: a station's crates and fuel drums (`bims::sight::Prop`, the
 /// layout's `props`, a drum's burst on `Grenade::barrel`) and the ways in
 /// welded (`world::Run::welded`).
-pub const SAVE_VERSION: u32 = 123;
+/// 124: Seal the breaches (`world::defense::Breaches` on a `Defense`) and
+/// the welding under way (`world::Run::weld_work`).
+pub const SAVE_VERSION: u32 = 124;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

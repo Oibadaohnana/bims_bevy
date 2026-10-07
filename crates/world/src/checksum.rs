@@ -753,6 +753,13 @@ pub fn world_checksum(world: &World) -> u64 {
             hash.eat(u64::from(entry));
         }
     }
+    if !run.weld_work.is_empty() {
+        hash.eat(0x_574F_524B);
+        for &(entry, work) in &run.weld_work {
+            hash.eat(u64::from(entry));
+            hash.eat(u64::from(work));
+        }
+    }
     if !run.clean_xp.is_empty() || run.clean_spoiled {
         hash.eat(0x_434C_4541);
         hash.eat(u64::from(run.clean_spoiled));
@@ -900,6 +907,12 @@ fn eat_defenses(hash: &mut Fnv, defenses: &[crate::defense::Defense]) {
             hash.eat(a.held);
             hash.eat(u64::from(a.taken));
             hash.eat(a.bags.len() as u64);
+        }
+        // Seal the breaches' count (October 2026), only where it is one.
+        if let Some(b) = &d.breaches {
+            hash.eat(0x_4252_4541);
+            hash.eat(u64::from(b.total));
+            hash.eat(u64::from(b.open));
         }
     }
 }

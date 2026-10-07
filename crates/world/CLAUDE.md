@@ -8554,3 +8554,55 @@ Meant to alter play: every generated station is another building, so
 `REFERENCE_CHECKSUM`, `SURVIVORS` and the ship's `PINNED`/`PICTURES`
 move where a run meets one; no `GENERATOR_VERSION` (the galaxy is
 untouched). **`SAVE_VERSION` 123.**
+
+## Missions the map shapes: Seal the breaches (October 2026)
+
+The player's word, after the combat maps: missions shaped by the map —
+Seal the breaches first, then Sabotage, Evacuation and the nest hunt.
+`missions.rs` (a child of `world`) is the rule; `run::Mission` is the
+type (`Plain`, `Breaches`; saved nowhere, derived).
+
+- **Which** (`World::mission_at(star, station, kind, elite)`, the live
+  `mission_here`): a roll off the galaxy's seed, the star and the station
+  on `MISSION_SALT`, for a **station's** fight (never a town, the Heart, a
+  trader or an elite) **on the floor from the tier-one area on**; a
+  defence is Seal the breaches one time in `BREACHES_ODDS` (3). Off the
+  floor every fight is plain unless `set_mission_for_probe` (saved, not
+  hashed; `BIMS_MISSION=breaches|plain` in the app) forces one.
+  `FloorMark::mission` and `StarMission::mission` carry it to the map
+  (`names::mission_word`, "SEAL BREACHES").
+- **Seal the breaches** (`Defense::breaches: Option<defense::Breaches {
+  total, open }>`, saved, hashed where `Some`): set when the defence
+  begins at a site whose mission it is and which has a way in but the
+  port (`entry.rs`'s `ways_in`). Its waves are **on a clock** like an Area
+  defend's — `data::BREACH_WAVE_STEPS` (30 s) apart, stacking — while a
+  breach is open (`Defense::more_to_come` is `open > 0`), each laid at
+  the next open breach in turn and **as much smaller** as breaches are
+  welded (`breach_wave_size`: its share of the open ones, rounded up).
+  `count_the_breaches` says the count every step. Nothing burns through
+  (`burn_through` returns at once there). Every breach welded and the
+  last machine counted down: won, as any defence. The machines make for
+  the breach being welded (`breach_objectives`, said through
+  `say_the_fob`'s no-FOB branch onto `Game::set_objectives`). No bonus
+  wave (`bonus_wave_allowed`); `site_waves` is the breaches and one.
+- **A weld is the world's work now** (`entry.rs`): `Command::Weld` hands
+  the room a deploy errand of `WELD_CODE` long enough never to end on its
+  own, and `settle_welds`, after the rooms step, counts a step of work
+  (`Run::weld_work`, saved, hashed where any) to the way in under every
+  Bim whose hands are on it (`Game::deploy_work`: its tile, its code,
+  whether it is laying) — an engineer's two — and at `WELD_SECONDS` (4)
+  or a breach's `data::BREACH_WELD_SECONDS` (15) of it welds it, says
+  `Welding { done: true }` and lets every hand go (`Game::end_deploy`).
+  So two Bims weld a breach in half the time. `World::weld_share` and
+  `EntryLook::progress` are the bar; `world_paint::ways_in` draws it as a
+  seam growing across the doorway. `show_welds_for_probe`
+  (`BIMS_WELDS=1`) is a look at both markers.
+- **The app**: the top count shows the machines up or the clock and
+  "Breaches open n/m · weld: V" (`hud::Counter::breaches`), the threat
+  line `names::breaches_line`, `BREACHES_TIP`.
+
+`tests_defense.rs`'
+`the_waves_come_while_a_breach_is_open_and_the_fight_is_won_once_all_are_welded`
+and `two_bims_weld_a_breach_twice_as_fast` are the rule. Meant to alter
+play (a third of the station defences on the floor past area 0); the
+pins run off the floor and do not meet one.

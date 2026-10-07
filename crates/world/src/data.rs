@@ -401,6 +401,14 @@ pub const DEFENSE_DELAY_STEPS: u64 = 300;
 /// [`DROID_REINFORCE_STEPS`] (fifteen) apart. The probes' reinforcement
 /// dial still shortens it.
 pub const DEFENSE_REINFORCE_STEPS: u64 = 600;
+/// **Seal the breaches** (October 2026): a wave lands every so many steps
+/// of the mission clock — thirty seconds — while a breach is open, the
+/// last down or not.
+pub const BREACH_WAVE_STEPS: u64 = 1_800;
+/// Seconds of hands on a breach to weld it shut — a Bim's second a second,
+/// an engineer's two — where an ordinary way in takes
+/// `world::entry::WELD_SECONDS`.
+pub const BREACH_WELD_SECONDS: u32 = 15;
 /// How many of a defended town's surviving people join the crew when the
 /// last wave is destroyed: two, not more and not less, whatever the
 /// town's size — fewer only when fewer than two are left besides the

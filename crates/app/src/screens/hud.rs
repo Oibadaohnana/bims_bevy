@@ -148,6 +148,24 @@ fn droid_line(world: &world::World) -> Option<(String, &'static str)> {
         };
         return Some((words, AREA_DEFENSE_TIP));
     }
+    // Seal the breaches (October 2026): the breaches open, the machines
+    // up and the next wave on its clock.
+    if let Some(defending) = world.defense_here()
+        && let Some(b) = defending.breaches
+    {
+        let standing = world.droids_standing();
+        let due = world.defense_wave_due().map(crate::format::countdown);
+        let words = if defending.wave == 0
+            && let Some(due) = due.as_deref()
+        {
+            breaches_prepare(b.open, due)
+        } else if b.open == 0 {
+            breaches_sealed(standing)
+        } else {
+            breaches_line(b.open, b.total, standing, due.as_deref())
+        };
+        return Some((words, BREACHES_TIP));
+    }
     if let Some(defending) = world.defense_here() {
         let waves = defending.wave + defending.waves_left;
         let standing = world.droids_standing();
@@ -750,6 +768,8 @@ pub struct Counter {
     pub core: Option<f32>,
     /// An Area defend's count (October 2026), in place of `wave`.
     pub area: Option<AreaCount>,
+    /// Seal the breaches' (October 2026): how many are open of how many.
+    pub breaches: Option<(u32, u32)>,
 }
 
 /// What the top count says of an Area defend: the wave (there is no
@@ -803,6 +823,27 @@ pub fn counter(world: &world::World, flying: u32) -> Option<Counter> {
                 fob,
                 contested,
             }),
+            breaches: None,
+        });
+    }
+    // Seal the breaches (October 2026): on a clock like an Area defend,
+    // so no "of how many" — the count up, or the clock to the next.
+    if let Some(defending) = world.defense_here()
+        && defending.breaches.is_some()
+    {
+        let big = if standing > 0 {
+            up(standing)
+        } else if let Some(due) = world.defense_wave_due() {
+            counting(due)
+        } else {
+            down()
+        };
+        return Some(Counter {
+            big,
+            wave: None,
+            core: None,
+            area: None,
+            breaches: defending.breaches.map(|b| (b.open, b.total)),
         });
     }
     if let Some(defending) = world.defense_here() {
@@ -822,6 +863,7 @@ pub fn counter(world: &world::World, flying: u32) -> Option<Counter> {
             wave: Some((wave.min(waves.max(1)), waves.max(1))),
             core: None,
             area: None,
+            breaches: None,
         });
     }
     let core = world.heart_status().map(|heart| {
@@ -837,6 +879,7 @@ pub fn counter(world: &world::World, flying: u32) -> Option<Counter> {
             wave: None,
             core: Some(core),
             area: None,
+            breaches: None,
         });
     };
     let waves = wave + left;
@@ -854,6 +897,7 @@ pub fn counter(world: &world::World, flying: u32) -> Option<Counter> {
         wave: Some((wave, waves)),
         core,
         area: None,
+        breaches: None,
     })
 }
 
@@ -1004,6 +1048,19 @@ pub fn top_frame(
                         }
                         if let Some(area) = count.as_ref().and_then(|c| c.area.as_ref()) {
                             area_count(ui, area);
+                        }
+                        if let Some((open, total)) = count.as_ref().and_then(|c| c.breaches) {
+                            let (words, colour) = if open == 0 {
+                                (BREACHES_SEALED_COUNT.to_string(), theme::HEAL)
+                            } else {
+                                (breaches_count(open, total), theme::BAD)
+                            };
+                            ui.label(
+                                egui::RichText::new(words)
+                                    .size(COUNT_WAVE_SIZE)
+                                    .strong()
+                                    .color(colour),
+                            );
                         }
                     });
                 })

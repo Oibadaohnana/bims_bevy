@@ -1330,3 +1330,148 @@ fn a_station_whose_people_die_mid_wave_keeps_its_wave_and_its_defence() {
     assert_eq!(machines(&world).len(), landed.len(), "the wave was swapped");
     assert!(world.droids_standing() > 0);
 }
+
+// --- Seal the breaches (October 2026) ---------------------------------------
+
+/// The spawn's defence as **Seal the breaches**: its ways in but the port
+/// are its breaches.
+fn breaches(waves_of: u32) -> (World, u32) {
+    breaches_after(waves_of, data::DEFENSE_DELAY_STEPS)
+}
+
+/// [`breaches`] with the first wave `delay` steps off.
+fn breaches_after(waves_of: u32, delay: u64) -> (World, u32) {
+    let (mut world, id) = a_station_defence(1, waves_of);
+    world.set_defense_delay_for_probe(delay as f64 * data::STEP_MINUTES);
+    world.set_mission_for_probe(Some(crate::run::Mission::Breaches));
+    world.step(&[]);
+    assert!(
+        world.is_breaches(id),
+        "the defence began as Seal the breaches"
+    );
+    (world, id)
+}
+
+/// The waves come on a clock while a breach is open, stacking on those
+/// still standing; each is the smaller for every breach welded; with
+/// every one welded none comes, and the fight is won once what is aboard
+/// is destroyed.
+#[test]
+fn the_waves_come_while_a_breach_is_open_and_the_fight_is_won_once_all_are_welded() {
+    let (mut world, id) = breaches(6);
+    let (open, total) = world.breaches_open().expect("breaches");
+    assert!(total >= 2, "the spawn has two ways in or more but its port");
+    assert_eq!(open, total);
+    // The first wave after the delay.
+    assert!(until(
+        &mut world,
+        data::DEFENSE_DELAY_STEPS as u32 + 5,
+        |w| w.droids_standing() > 0
+    ));
+    let first = world.droids_standing();
+    assert_eq!(first, 6);
+    // The next lands on the clock with the first still standing.
+    let wave = |w: &World| w.defense(id).unwrap().wave;
+    assert!(until(
+        &mut world,
+        data::BREACH_WAVE_STEPS as u32 + 5,
+        |w| wave(w) == 2
+    ));
+    let laid = |w: &World| w.residents.as_ref().unwrap().aboard.room.droid_count();
+    assert_eq!(laid(&world), 12, "stacked on the first, wrecks and all");
+    // One breach welded: the next wave is its share of the open ones.
+    let one = world.entries()[0].index;
+    world.weld_for_probe(one);
+    world.step(&[]);
+    assert_eq!(world.breaches_open(), Some((total - 1, total)));
+    let before = laid(&world);
+    assert!(until(
+        &mut world,
+        data::BREACH_WAVE_STEPS as u32 + 5,
+        |w| wave(w) == 3
+    ));
+    assert_eq!(
+        laid(&world) - before,
+        (6 * (total - 1)).div_ceil(total),
+        "a smaller wave"
+    );
+    // Every one welded: no wave comes, none burns through, and the fight is
+    // won with the deck cleared.
+    for e in world.entries() {
+        world.weld_for_probe(e.index);
+    }
+    let mut events = Vec::new();
+    for _ in 0..data::BREACH_WAVE_STEPS + 10 {
+        events.extend(world.step(&[]));
+    }
+    assert_eq!(wave(&world), 3, "no wave with every breach welded");
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::WeldBurnt { .. }))
+    );
+    assert!(!world.defense(id).unwrap().won, "not while machines stand");
+    destroy_the_wave(&mut world);
+    assert!(until(&mut world, 20, |w| w
+        .defense(id)
+        .is_some_and(|d| d.won)));
+}
+
+/// A breach takes `BREACH_WELD_SECONDS` of hands on it, and two Bims
+/// welding it together take half as long; the bar reads the share.
+#[test]
+fn two_bims_weld_a_breach_twice_as_fast() {
+    let weld_with = |hands: u32| -> u32 {
+        // No wave while they work.
+        let (mut world, _id) = breaches_after(2, 100_000);
+        let way = world.entries()[0];
+        let t = shipdesign::TILE as f32;
+        let at = way.at - way.outward * (2.0 * t);
+        for slot in 0..hands {
+            world.aboard.room.stand_at(slot as usize, at);
+        }
+        let orders: Vec<Command> = (0..hands).map(|slot| Command::Weld { slot }).collect();
+        let events = world.step(&orders);
+        assert!(
+            events
+                .iter()
+                .filter(|e| matches!(e, WorldEvent::Welding { done: false, .. }))
+                .count()
+                == hands as usize,
+            "{events:?}"
+        );
+        for step in 1..5_000 {
+            let events = world.step(&[]);
+
+            if step == 300 {
+                let share = world.weld_share(way.index);
+                assert!(share > 0.0 && share < 1.0, "half way: {share}");
+            }
+            if events
+                .iter()
+                .any(|e| matches!(e, WorldEvent::Welding { done: true, .. }))
+            {
+                assert!(
+                    world
+                        .entries()
+                        .iter()
+                        .any(|e| e.index == way.index && e.welded)
+                );
+                assert!(
+                    (0..hands).all(|who| world.aboard.room.deploy_work(who as usize).is_none()),
+                    "every hand let go"
+                );
+                return step;
+            }
+        }
+        panic!("never welded with {hands}");
+    };
+    let one = weld_with(1);
+    let two = weld_with(2);
+    let full = data::BREACH_WELD_SECONDS * 60;
+    assert!(one + 2 >= full && one <= full + 30, "one Bim: {one} steps");
+    assert!(
+        two * 2 + 4 >= full && two <= full / 2 + 30,
+        "two Bims: {two} steps"
+    );
+}
