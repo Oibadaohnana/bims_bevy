@@ -751,6 +751,22 @@ fn open(
                     size.x,
                     size.y,
                 ),
+                // A mission the map shapes, for a playtest (October 2026):
+                // the combat crew and the fight made that mission.
+                Launch::Mission(mission) => {
+                    let session = Session::mission(
+                        seed,
+                        mission,
+                        crate::dev::droid_tier(),
+                        crate::dev::droid_reinforce(DROID_REINFORCE_IN_PROBE),
+                        crate::dev::droid_wave_max(),
+                        crate::dev::droid_waves(DROID_WAVES_IN_PROBE),
+                        size.x,
+                        size.y,
+                    );
+                    say_where(&session);
+                    session
+                }
                 // The relics looked at (feature 106): the arena with one
                 // wave short enough to clear, and the reward screen after.
                 Launch::Relics => Session::relics(

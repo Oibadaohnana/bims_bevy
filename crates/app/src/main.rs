@@ -140,6 +140,10 @@ pub enum Launch {
     /// points to spend (every class a ranked kit since task 139) — and
     /// `BIMS_LEVEL` says otherwise; `BIMS_RANKS=q,c,e,r` sets the ranks.
     DroidsAs(world::Class),
+    /// A mission the map shapes, for a playtest (October 2026): the
+    /// `breaches`, `sabotage`, `evacuation` and `nests` commands
+    /// (`Session::mission`).
+    Mission(world::run::Mission),
     /// `TestPlanet` with the town droid-held, the same shortcut.
     DroidsPlanet,
     /// `TestPlanet` with the town **threatened** (feature 94): the
@@ -235,7 +239,7 @@ fn usage() -> ! {
 /// — the one list, printed by [`list`] and nothing else. A new command is
 /// a row here and an arm in `main`; the classes' commands are not written
 /// out, since [`class_words`] reads them off `Class::ALL`.
-const COMMANDS: [(&str, &str); 24] = [
+const COMMANDS: [(&str, &str); 28] = [
     (
         "game",
         "The whole game in order: menu, setup or lobby, world and station, then the run: a mission where you docked, on the default ship, 5 000 a Bim in the pool",
@@ -293,6 +297,22 @@ const COMMANDS: [(&str, &str); 24] = [
     (
         "conductor",
         "The fight at tier two with every wave a Conductor, two Troopers and a Husk: its link, its mark, its blink and its strike call",
+    ),
+    (
+        "breaches",
+        "Seal the breaches: the combat crew at the spawn's arena under attack, every way in but the port a breach the machines come by every 30 s until all are welded shut (V at one, 15 s, faster with two)",
+    ),
+    (
+        "sabotage",
+        "Sabotage: the droids arena held by the machines; plant the charge at the amber mark (V, 12 s), hold it 45 s against the machines making to disarm it, then get to the green way out before it blows",
+    ),
+    (
+        "evacuation",
+        "Evacuation: the combat crew at the spawn's arena under attack; take up the flag (V) and lead the site's people and its refugees aboard the ship, put it down to make them hold",
+    ),
+    (
+        "nests",
+        "A nest hunt: the droids arena held by the machines, nests in its walls (ringed red) building a machine each every 20 s until they are destroyed",
     ),
     (
         "relics",
@@ -422,6 +442,10 @@ fn main() {
         Some("lancer") => Launch::TierTwo(bims::droid::DroidKind::Lancer),
         Some("conductor") => Launch::TierTwo(bims::droid::DroidKind::Conductor),
         Some("relics") => Launch::Relics,
+        Some("breaches") => Launch::Mission(world::run::Mission::Breaches),
+        Some("sabotage") => Launch::Mission(world::run::Mission::Sabotage),
+        Some("evacuation") => Launch::Mission(world::run::Mission::Evacuation),
+        Some("nests") => Launch::Mission(world::run::Mission::Nests),
         Some("heart") => Launch::Heart,
         Some("manufacturers") => Launch::Manufacturers,
         Some("end") => match std::env::args().nth(2).as_deref() {
@@ -525,6 +549,7 @@ fn open(launch: Res<Launch>, mut commands: Commands, mut next: ResMut<NextState<
         | Launch::Guardian
         | Launch::TierTwo(_)
         | Launch::Relics
+        | Launch::Mission(_)
         | Launch::Heart
         | Launch::Manufacturers
         | Launch::Defense => next.set(Screen::Game),

@@ -558,6 +558,45 @@ impl Session {
         session
     }
 
+    /// The `breaches`, `sabotage`, `evacuation` and `nests` commands
+    /// (October 2026, the missions the map shapes), for a playtest: the
+    /// combat ship and its sixteen crew, a gun in every hand, and the fight
+    /// made that mission. An attack — Sabotage, a nest hunt — is
+    /// [`Session::droids`]' arena held by the machines at `tier`; a defence
+    /// — Seal the breaches, an Evacuation — the same arena as the spawn
+    /// it is, under threat from the first step, its waves the machines'.
+    /// Waves of `wave_max` (the `droids` size unless said).
+    #[allow(clippy::too_many_arguments)]
+    pub fn mission(
+        seed: u64,
+        mission: world::run::Mission,
+        tier: Option<bims::combat::Tier>,
+        reinforce: f64,
+        wave_max: Option<u32>,
+        waves: u32,
+        width: f32,
+        height: f32,
+    ) -> Session {
+        use world::run::Mission;
+        let attack = matches!(mission, Mission::Sabotage | Mission::Nests);
+        let mut session = if attack {
+            Session::droids(seed, tier, reinforce, wave_max, waves, width, height)
+        } else {
+            let mut session = Session::combat(seed, width, height);
+            if let Some(game) = session.game.as_mut() {
+                game.world
+                    .set_droid_wave_for_probe(wave_max.unwrap_or(COMBAT_WAVE));
+                game.world.set_droid_tier_for_probe(tier);
+                game.world.set_machines_only_for_probe();
+            }
+            session
+        };
+        if let Some(game) = session.game.as_mut() {
+            game.world.set_mission_for_probe(Some(mission));
+        }
+        session
+    }
+
     /// The `guardian` command (feature 100): [`Session::droids`] at **tier
     /// three**, every wave exactly **one Guardian and two Troopers**
     /// (`World::set_droid_kinds_for_probe`) — the machine looked at on
