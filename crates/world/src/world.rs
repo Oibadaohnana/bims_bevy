@@ -151,7 +151,12 @@ mod nests;
 // a prison break, a fuel run and a salvage sweep.
 #[path = "attacks.rs"]
 mod attacks;
+// The defences' missions (October 2026): Bomb disposal, Hold the doors,
+// Protect the commander.
+#[path = "defences.rs"]
+mod defences;
 pub use attacks::{CUT_CODE, HACK_CODE, Interaction, Mark, MarkKind, ObjectiveLook};
+pub use defences::DEFUSE_CODE;
 pub use entry::{EntryLook, WELD_CODE};
 pub use evacuation::EvacuationLook;
 pub use missions::BREACHES_ODDS;
@@ -1557,6 +1562,8 @@ impl World {
         self.defense_waves(&mut events);
         //    And an Evacuation's people by its flag (October 2026).
         self.evacuation_step(&mut events);
+        //    And Bomb disposal, Hold the doors, Protect the commander.
+        self.guard_step(&mut events);
         //    And an Area defend's FOB said to both rooms: the sandbags,
         //    and where each body makes for (October 2026).
         self.say_the_fob();
@@ -6113,7 +6120,10 @@ impl World {
         let room = &self.aboard.room;
         (self.players()..room.crew_count())
             .filter(|&who| {
-                room.is_alive(who as usize) && !self.is_reinforcement(who) && !self.is_captive(who)
+                room.is_alive(who as usize)
+                    && !self.is_reinforcement(who)
+                    && !self.is_captive(who)
+                    && !self.is_vip(who)
             })
             .count() as u32
     }
@@ -7242,8 +7252,13 @@ impl World {
                 Some(id) if self.is_breaches(id) => self.breach_objectives(id),
                 Some(_) => {
                     let spots = self.sabotage_objectives();
-                    if spots.is_empty() {
+                    let spots = if spots.is_empty() {
                         self.objective_spots()
+                    } else {
+                        spots
+                    };
+                    if spots.is_empty() {
+                        self.guard_spots()
                     } else {
                         spots
                     }
@@ -7389,6 +7404,9 @@ impl World {
                 // An Evacuation (October 2026): its people counted, the
                 // flag where the first of them stands.
                 fresh.evacuation = self.begin_evacuation();
+            } else {
+                // Bomb disposal, Hold the doors, Protect the commander.
+                fresh.guard = self.begin_guard(id);
             }
             let at = self.defenses.partition_point(|d| d.station < id);
             self.defenses.insert(at, fresh);
@@ -7493,6 +7511,7 @@ impl World {
                     .filter(|&who| room.is_manufacturer(who))
                     .all(|who| r.xp_down.get(who).copied().unwrap_or(false))
         });
+        let guard_gap = self.guard_gap(id);
         if let Some(d) = self.defense_mut(id) {
             // **An Area defend's waves are on a clock** (October 2026):
             // while the hold runs one lands `defense::area_gap` after the
@@ -7501,12 +7520,14 @@ impl World {
             // `BREACH_WAVE_STEPS` while a breach is open.
             let area = d.area.is_some();
             let breach = d.breaches.is_some();
-            let clocked = area || breach || d.evacuation.is_some();
+            let clocked = area || breach || d.evacuation.is_some() || guard_gap.is_some();
             let gap = |wave: u32| {
                 if area {
                     defense::area_gap(wave)
                 } else if breach {
                     data::BREACH_WAVE_STEPS
+                } else if let Some(gap) = guard_gap {
+                    gap
                 } else {
                     data::EVAC_WAVE_STEPS
                 }
@@ -7549,6 +7570,7 @@ impl World {
             // welded.
             let full = self.landing_wave_size();
             let n = self.breach_wave_size(id, full);
+            let n = self.guard_wave_size(id, n);
             self.lay_defense_wave(id, n);
             if let Some(d) = self.defense_mut(id) {
                 d.standing = standing + n;
@@ -7591,10 +7613,15 @@ impl World {
             return;
         };
         let t = shipdesign::TILE as f64;
-        let room = &mut self.aboard.room;
         let mut placed = 0usize;
+        let posted = self
+            .defense(id)
+            .and_then(|d| d.guard.as_ref())
+            .and_then(|g| g.vip());
+        let room = &mut self.aboard.room;
         for who in 0..room.crew_count() as usize {
-            if !room.is_alive(who) || room.is_down(who) {
+            // A defence's commander stays where he is posted.
+            if !room.is_alive(who) || room.is_down(who) || posted == Some(who as u32) {
                 continue;
             }
             let at = if placed == 0 {
@@ -8779,6 +8806,12 @@ impl World {
             .collect();
         for (who, outfit) in outfits.into_iter().enumerate() {
             self.aboard.room.set_outfit(who, outfit);
+        }
+        // A defence's commander (October 2026) in the commander's kit.
+        if let Some(vip) = self.guard_here().and_then(|(_, g)| g.vip()) {
+            self.aboard
+                .room
+                .set_outfit(vip as usize, Class::Commander.outfit());
         }
         // A commander's reinforcements are the Republic's soldiers, in
         // their caller's colour.

@@ -77,6 +77,8 @@ pub enum Interaction {
     Take(usize),
     /// The one carried put down.
     Drop,
+    /// Bomb disposal's charge of that index defused.
+    Defuse(usize),
 }
 
 /// What a mark on the map is.
@@ -98,6 +100,12 @@ pub enum MarkKind {
     Overseer { fleeing: bool },
     /// His airlock.
     Escape,
+    /// A charge to defuse, or defused.
+    Charge { defused: bool },
+    /// A vault's door, standing or broken in.
+    Gate { breached: bool },
+    /// The site's commander, down or up.
+    Vip { down: bool },
 }
 
 /// One mark: where in the site's own design units, what, and how far its
@@ -122,6 +130,9 @@ pub struct ObjectiveLook {
     /// open (1); nought otherwise.
     pub phase: u32,
     pub wave_in: Option<f32>,
+    /// The seconds the mission's own timer has left: Bomb disposal's, the
+    /// doors' hold, the commander's two minutes.
+    pub time_left: Option<f32>,
 }
 
 /// The map a mission of the second set wants.
@@ -132,6 +143,7 @@ pub fn feature_of(mission: Mission) -> Option<Feature> {
         Mission::Prison => Some(Feature::Brig),
         Mission::FuelRun => Some(Feature::FuelRun),
         Mission::Salvage => Some(Feature::Cargo),
+        Mission::Doors => Some(Feature::Vault),
         _ => None,
     }
 }
@@ -157,7 +169,7 @@ fn middle(tile: (u32, u32)) -> DVec2 {
 /// design without one), spread out: the first the farthest from `from`
 /// (or the nearest, with `near`), each next the farthest from `from` and
 /// every one chosen. Ties to the lower row, then column.
-fn spots(
+pub(super) fn spots(
     design: &ShipDesign,
     room: Option<[u32; 4]>,
     n: usize,
@@ -503,7 +515,7 @@ impl World {
     }
 
     /// A design tile's middle on the crew's deck.
-    fn tile_on_deck(&self, tile: (u32, u32)) -> Option<bims::math::Vec2> {
+    pub(super) fn tile_on_deck(&self, tile: (u32, u32)) -> Option<bims::math::Vec2> {
         let q = self.aboard.from_station(middle(tile))?;
         Some(bims::math::vec2(q.x as f32, q.y as f32))
     }
@@ -632,6 +644,10 @@ impl World {
         if !self.fit_to_act(slot) || slot >= self.players() || !self.in_mission() {
             return Err(Refusal::OutOfReach);
         }
+        // Bomb disposal's charges (October 2026).
+        if let Some(i) = self.can_defuse(slot) {
+            return Ok(Interaction::Defuse(i));
+        }
         let Some((_, o)) = self.objective_here() else {
             return Err(Refusal::NothingToUse);
         };
@@ -693,6 +709,9 @@ impl World {
         events: &mut Vec<WorldEvent>,
     ) -> Result<(), Refusal> {
         let what = self.can_interact(slot)?;
+        if let Interaction::Defuse(i) = what {
+            return self.defuse(slot, i);
+        }
         let Some((id, o)) = self.objective_here() else {
             return Err(Refusal::NothingToUse);
         };
@@ -789,7 +808,7 @@ impl World {
 
     /// The hands on the room's errand `code` at `at` this step: who, and
     /// the steps of work they did between them (an engineer's two).
-    fn hands_on(&self, code: u32, at: bims::math::Vec2) -> (Vec<usize>, u32) {
+    pub(super) fn hands_on(&self, code: u32, at: bims::math::Vec2) -> (Vec<usize>, u32) {
         let half = shipdesign::TILE as f32 * 0.5;
         let mut hands = Vec::new();
         let mut work = 0;
@@ -1212,7 +1231,9 @@ impl World {
 
     /// The second set's mission at the site alongside as the app draws it.
     pub fn objective_look(&self) -> Option<ObjectiveLook> {
-        let (id, o) = self.objective_here()?;
+        let Some((id, o)) = self.objective_here() else {
+            return self.guard_look();
+        };
         let station = self.station(id)?;
         let from_deck = |at: (i32, i32)| self.aboard.to_station(dvec2(at.0 as f64, at.1 as f64));
         let carried_at = |l: &Load| match (l.state, l.carrier) {
@@ -1254,6 +1275,7 @@ impl World {
                     total: 1,
                     phase: o.phase.code(),
                     wave_in: alive.then(|| wave_in(o.next_wave)).flatten(),
+                    time_left: None,
                 }
             }
             Objective::Heist(h) => {
@@ -1272,6 +1294,7 @@ impl World {
                     total: h.terminals.len() as u32,
                     phase: 0,
                     wave_in: left.then(|| wave_in(h.next_wave)).flatten(),
+                    time_left: None,
                 }
             }
             Objective::Prison(p) => {
@@ -1300,6 +1323,7 @@ impl World {
                     total: p.prisoners.len() as u32,
                     phase: u32::from(p.open),
                     wave_in: None,
+                    time_left: None,
                 }
             }
             Objective::FuelRun(f) => {
@@ -1330,6 +1354,7 @@ impl World {
                     total: data::FUEL_NEEDED,
                     phase: u32::from(f.critical),
                     wave_in: (!f.critical).then(|| wave_in(f.next_wave)).flatten(),
+                    time_left: None,
                 }
             }
             Objective::Salvage(s) => {
@@ -1353,6 +1378,7 @@ impl World {
                     total: s.crates.len() as u32,
                     phase: 0,
                     wave_in: None,
+                    time_left: None,
                 }
             }
         };

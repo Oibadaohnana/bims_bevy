@@ -657,6 +657,7 @@ fn a_station_is_built_for_its_mission_s_rooms() {
         Feature::Brig,
         Feature::FuelRun,
         Feature::Cargo,
+        Feature::Vault,
     ];
     for kind in [
         StationKind::Relay,
@@ -674,10 +675,14 @@ fn a_station_is_built_for_its_mission_s_rooms() {
                     let want = match feature {
                         Feature::Office | Feature::Brig => 1,
                         Feature::Servers => 3,
-                        Feature::FuelRun | Feature::Cargo => 2,
+                        Feature::FuelRun | Feature::Cargo | Feature::Vault => 2,
                     };
                     assert_eq!(fitted.rooms.len(), want, "{kind:?} {feature:?}");
                     assert_eq!(fitted.door.is_some(), feature == Feature::Brig);
+                    assert_eq!(
+                        fitted.doors.len(),
+                        if feature == Feature::Vault { 3 } else { 0 }
+                    );
                     let side = g.placer.design.build_area;
                     for r in &fitted.rooms {
                         assert!(r[0] <= r[2] && r[1] <= r[3] && r[2] < side && r[3] < side);

@@ -143,6 +143,26 @@ pub const BRIG_MIN: (u32, u32) = (6, 5);
 pub const DEPOT_MIN: (u32, u32) = (6, 5);
 pub const REACTOR_MIN: (u32, u32) = (8, 8);
 pub const CARGO_MIN: (u32, u32) = (7, 6);
+/// A vault's least deck, the long way first: six of antechamber, the
+/// partition and four of core.
+pub const VAULT_MIN: (u32, u32) = (11, 6);
+/// How deep a vault's core is, behind its partition.
+const VAULT_CORE: u32 = 4;
+
+/// A vault's partition, for its deck `inner` (October 2026): whether it
+/// runs across the long way being `x`, the tile along it the partition
+/// stands at, and the partition door's first tile.
+fn vault_partition(inner: Block) -> (bool, u32, (u32, u32)) {
+    let (w, h) = (inner.x1 - inner.x0 + 1, inner.y1 - inner.y0 + 1);
+    let long_x = w >= h;
+    if long_x {
+        let px = inner.x0 + w - VAULT_CORE - 1;
+        (true, px, (px, inner.y0 + h / 2 - 1))
+    } else {
+        let py = inner.y0 + h - VAULT_CORE - 1;
+        (false, py, (inner.x0 + w / 2 - 1, py))
+    }
+}
 /// The salt a station built for a mission is drawn off, beside its own.
 const FIT_SALT: u64 = 0x_4649_5454_4544;
 /// One room in so many — and one combat room in two — has windows onto
@@ -309,6 +329,11 @@ enum Role {
     Reactor,
     /// A cargo hold: crates stacked in rows, the salvage among them.
     Cargo,
+    /// A vault (a defence's, Hold the doors): an antechamber with two
+    /// doors onto the corridors, and behind a partition across it with a
+    /// door of its own the core, four tiles deep, where the commander
+    /// stands.
+    Vault,
 }
 
 impl Role {
@@ -330,6 +355,7 @@ impl Role {
             Role::Depot => DEPOT_MIN,
             Role::Reactor => REACTOR_MIN,
             Role::Cargo => CARGO_MIN,
+            Role::Vault => VAULT_MIN,
         }
     }
 }
@@ -350,6 +376,9 @@ pub enum Feature {
     FuelRun,
     /// Two cargo holds, far from the port.
     Cargo,
+    /// A vault, the room farthest from the port: an antechamber with two
+    /// doors and a core behind a partition door (Hold the doors).
+    Vault,
 }
 
 impl Feature {
@@ -361,6 +390,7 @@ impl Feature {
             Feature::Brig => &[Role::Brig],
             Feature::FuelRun => &[Role::Depot, Role::Reactor],
             Feature::Cargo => &[Role::Cargo, Role::Cargo],
+            Feature::Vault => &[Role::Vault],
         }
     }
 }
@@ -374,6 +404,10 @@ pub struct Fitted {
     pub feature: Feature,
     pub rooms: Vec<[u32; 4]>,
     pub door: Option<(u32, u32)>,
+    /// A vault's doors' first tiles: its two outer doors, then the
+    /// partition's; its `rooms` the antechamber's deck, then the core's.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub doors: Vec<(u32, u32)>,
 }
 
 /// A station drawn but not yet furnished: the blocks and the port's row.
@@ -1276,6 +1310,24 @@ fn room_pieces(room: Block, role: Role, rng: &mut Rng) -> Vec<(PartKind, (u32, u
                 }
             }
         }
+        Role::Vault => {
+            // The partition across the room with a two-tile gap for its
+            // door, which `candidate` puts in.
+            let (long_x, at, door) = vault_partition(i);
+            if long_x {
+                for y in y0..=y1 {
+                    if y != door.1 && y != door.1 + 1 {
+                        out.push((PartKind::Wall, (at, y)));
+                    }
+                }
+            } else {
+                for x in x0..=x1 {
+                    if x != door.0 && x != door.0 + 1 {
+                        out.push((PartKind::Wall, (x, at)));
+                    }
+                }
+            }
+        }
         Role::Cargo => {
             // Crate pairs on a grid, lanes between them.
             let mut y = y0 + 2;
@@ -1988,8 +2040,33 @@ fn candidate(
     let locks = airlocks(kind, &raster, &sketch, &trial, array, rng);
     let mut doors = Vec::new();
     let mut brig_door = None;
+    let mut vault_doors: Vec<(u32, u32)> = Vec::new();
     for (room, &role) in rooms.iter().zip(&roles) {
-        let sites = door_sites(*room, &raster, &trial);
+        let mut sites = door_sites(*room, &raster, &trial);
+        // A vault's outer doors on its antechamber's walls alone, two of
+        // them apart, and its partition's door (October 2026).
+        if role == Role::Vault {
+            let (long_x, at, inner_door) = vault_partition(room.inner());
+            sites.retain(|&((x, y), r)| {
+                let far = if r == Rotation::R0 {
+                    (x, y + 1)
+                } else {
+                    (x + 1, y)
+                };
+                if long_x { far.0 < at } else { far.1 < at }
+            });
+            let first = *rng.pick(&sites).ok_or(Fail::NoDoor)?;
+            let apart = |&((x, y), _): &((u32, u32), Rotation)| {
+                let ((fx, fy), _) = first;
+                x.abs_diff(fx) + y.abs_diff(fy) >= 4
+            };
+            let others: Vec<_> = sites.iter().copied().filter(apart).collect();
+            let second = *rng.pick(&others).ok_or(Fail::NoDoor)?;
+            let rot = if long_x { Rotation::R0 } else { Rotation::R90 };
+            doors.extend([first, second, (inner_door, rot)]);
+            vault_doors = vec![first.0, second.0, inner_door];
+            continue;
+        }
         let first = *rng.pick(&sites).ok_or(Fail::NoDoor)?;
         doors.push(first);
         // A cell has the one door (October 2026).
@@ -2022,7 +2099,7 @@ fn candidate(
     for (room, &role) in rooms.iter().zip(&roles) {
         let odds = if is_combat(role) { 2 } else { WINDOW_ODDS };
         // A cell is always seen into: the prisoners behind its windows.
-        if role == Role::Brig || one_in(rng, odds) {
+        if role == Role::Brig || (role != Role::Vault && one_in(rng, odds)) {
             combat.extend(
                 windows_of(*room, &raster, &doors)
                     .into_iter()
@@ -2052,10 +2129,22 @@ fn candidate(
                 rooms_of.push([b.x0, b.y0, b.x1, b.y1]);
             }
         }
+        // A vault's rooms are its antechamber and its core.
+        if feature == Feature::Vault
+            && let Some(&[x0, y0, x1, y1]) = rooms_of.first()
+        {
+            let (long_x, at, _) = vault_partition(Block::new(x0, y0, x1, y1));
+            rooms_of = if long_x {
+                vec![[x0, y0, at - 1, y1], [at + 1, y0, x1, y1]]
+            } else {
+                vec![[x0, y0, x1, at - 1], [x0, at + 1, x1, y1]]
+            };
+        }
         Fitted {
             feature,
             rooms: rooms_of,
             door: brig_door,
+            doors: vault_doors.clone(),
         }
     });
     Ok((placer, floor, sketch.side_on, fitted))

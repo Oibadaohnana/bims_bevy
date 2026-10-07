@@ -77,6 +77,10 @@ pub struct Defense {
     /// `None` at every other defence.
     #[cfg_attr(feature = "serde", serde(default))]
     pub evacuation: Option<Evacuation>,
+    /// **Bomb disposal, Hold the doors, Protect the commander** (October
+    /// 2026, `crate::world` `defences.rs`): `None` at every other defence.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub guard: Option<crate::objective::Guard>,
 }
 
 /// An Evacuation's state: how many of the site's people there were, which
@@ -230,6 +234,7 @@ impl Defense {
             area: None,
             breaches: None,
             evacuation: None,
+            guard: None,
         }
     }
 
@@ -247,6 +252,9 @@ impl Defense {
     /// Whether any wave is still to come after the one on the ground —
     /// at an Area defend, while its hold has time to run.
     pub fn more_to_come(&self) -> bool {
+        if let Some(guard) = &self.guard {
+            return guard.more_to_come() && !self.over();
+        }
         match (&self.area, &self.breaches, &self.evacuation) {
             (Some(area), _, _) => area.left > 0,
             (None, Some(breaches), _) => breaches.open > 0,

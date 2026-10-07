@@ -1138,6 +1138,67 @@ fn objective_marks(list: &mut DrawList, game: &Game, station: u32) {
                 );
                 bar(list, x, y + t * 1.1, m.progress, c.glowing(1.3));
             }
+            MarkKind::Charge { defused } => {
+                if defused {
+                    ring(list, x, y, t * 0.6, 4.0, DONE_GREEN.glowing(1.2));
+                } else {
+                    let blink = ((game.frame / 10) % 2) as f32;
+                    disc(list, x, y, t * 0.4, CHARGE_ARMED.glowing(1.3 + 0.8 * blink));
+                    ring(
+                        list,
+                        x,
+                        y,
+                        t * (0.9 + 0.15 * pulse),
+                        6.0,
+                        CHARGE.glowing(1.3 + 0.6 * pulse),
+                    );
+                    if m.progress > 0.0 {
+                        bar(list, x, y + t * 1.0, m.progress, DONE_GREEN.glowing(1.3));
+                    }
+                }
+            }
+            MarkKind::Gate { breached } => {
+                let c = if breached {
+                    CHARGE_ARMED
+                } else {
+                    TERMINAL_SCREEN
+                };
+                ring(list, x, y, t * 1.1, 6.0, c.glowing(1.2 + 0.5 * pulse));
+                if !breached && m.progress > 0.0 {
+                    bar(list, x, y + t * 1.3, m.progress, CHARGE_ARMED.glowing(1.4));
+                }
+            }
+            MarkKind::Vip { down } => {
+                let c = if down { CHARGE_ARMED } else { OVERSEER_GOLD };
+                ring(
+                    list,
+                    x,
+                    y,
+                    t * (0.9 + 0.1 * pulse),
+                    6.0,
+                    c.glowing(1.4 + 0.6 * pulse),
+                );
+                let top = y - t * 1.2;
+                for k in [-1.0, 0.0, 1.0] {
+                    let px = x + k * t * 0.25;
+                    list.line(
+                        px,
+                        top,
+                        px,
+                        top - t * 0.3,
+                        5.0,
+                        TERMINAL_SCREEN.glowing(1.6),
+                    );
+                }
+                list.line(
+                    x - t * 0.3,
+                    top,
+                    x + t * 0.3,
+                    top,
+                    6.0,
+                    TERMINAL_SCREEN.glowing(1.6),
+                );
+            }
             MarkKind::Escape => {
                 ring(
                     list,

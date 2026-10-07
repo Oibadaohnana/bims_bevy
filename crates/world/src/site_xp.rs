@@ -223,7 +223,9 @@ impl World {
         let attack = self.infestation(id).is_some_and(|it| it.heart.is_none())
             && matches!(
                 self.mission_here(id),
-                crate::run::Mission::Plain | crate::run::Mission::Prison | crate::run::Mission::Salvage
+                crate::run::Mission::Plain
+                    | crate::run::Mission::Prison
+                    | crate::run::Mission::Salvage
             );
         // Not at an Area defend nor a mission the map shapes, which run
         // on a clock rather than a count of waves.

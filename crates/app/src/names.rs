@@ -743,6 +743,9 @@ pub fn dev_mission_name(mission: world::run::Mission) -> &'static str {
         world::run::Mission::Prison => "Prison break",
         world::run::Mission::FuelRun => "Fuel run",
         world::run::Mission::Salvage => "Salvage sweep",
+        world::run::Mission::Bombs => "Bomb disposal",
+        world::run::Mission::Doors => "Hold the doors",
+        world::run::Mission::Chief => "Protect the commander",
     }
 }
 pub const SETUP_TITLE: &str = "New run";
@@ -3665,6 +3668,7 @@ pub const USE_CUT: &str = "cut the cell open";
 pub const USE_TAKE_DRUM: &str = "take up the drum";
 pub const USE_TAKE_CRATE: &str = "take up the crate";
 pub const USE_PUT_DOWN: &str = "put it down";
+pub const USE_DEFUSE: &str = "defuse the charge";
 
 /// The log's line for the second set of attacks moving on (October 2026,
 /// `WorldEvent::Objective`, its `what` codes).
@@ -3690,6 +3694,16 @@ pub fn objective_event(what: u32, n: u32, w: u32) -> String {
         11 => "The Overseer got away, and the bounty with him.".into(),
         12 => "The Overseer is down.".into(),
         13 => "A fresh drum stands in the depot.".into(),
+        20 if n == 0 => "Every charge defused. Clear the deck.".into(),
+        20 => format!("A charge defused: {n} left."),
+        21 => "The timer ran out: the station went up.".into(),
+        22 if n == 2 => "The machines broke the inner door: protect the commander!".into(),
+        22 => "The machines broke an outer door: the inner one is next.".into(),
+        23 => "The commander is down.".into(),
+        24 => "The hold is done: the Republic's soldiers are on their way.".into(),
+        25 => format!("{n} of the Republic's soldiers came aboard."),
+        26 => "The commander is dead: the site falls.".into(),
+        27 => "The commander is safe. Clear the deck.".into(),
         _ => String::new(),
     }
 }
@@ -3701,7 +3715,34 @@ pub fn objective_line(look: &world::ObjectiveLook) -> String {
         .wave_in
         .map(|s| format!(" · next wave {}", crate::format::countdown(s as f64)))
         .unwrap_or_default();
+    let time = || crate::format::countdown(look.time_left.unwrap_or(0.0) as f64);
     match look.mission {
+        Mission::Bombs if look.done < look.total => format!(
+            "BOMB DISPOSAL — {} of {} charges defused · V at one, 8 s · {} left",
+            look.done,
+            look.total,
+            time()
+        ),
+        Mission::Bombs => "BOMB DISPOSAL — every charge defused: clear the deck".into(),
+        Mission::Doors => match look.phase {
+            0 => format!("HOLD THE DOORS — the outer doors stand · hold {}", time()),
+            1 => format!(
+                "HOLD THE DOORS — an outer door is broken: the inner one · hold {}",
+                time()
+            ),
+            2 => format!(
+                "HOLD THE DOORS — the vault is open: keep the commander up · hold {}",
+                time()
+            ),
+            _ => "HOLD THE DOORS — held: the Republic's soldiers are coming, clear the deck".into(),
+        },
+        Mission::Chief if look.phase == 0 => {
+            format!(
+                "PROTECT THE COMMANDER — every machine hunts him · {} left",
+                time()
+            )
+        }
+        Mission::Chief => "PROTECT THE COMMANDER — he is safe: clear the deck".into(),
         Mission::Overseer => match look.phase {
             0 => format!("KILL THE OVERSEER — in his office, slow on his feet{wave}"),
             1 => format!("THE OVERSEER IS FLEEING — stop him before his airlock{wave}"),
@@ -3746,6 +3787,17 @@ pub fn objective_count(look: &world::ObjectiveLook) -> String {
         Mission::FuelRun if look.phase == 0 => format!("Drums {}/{}", look.done, look.total),
         Mission::FuelRun => "Reactor critical".into(),
         Mission::Salvage => format!("Salvage aboard {}/{}", look.done, look.total),
+        Mission::Bombs | Mission::Doors | Mission::Chief => match look.time_left {
+            Some(s) => {
+                let what = match look.mission {
+                    Mission::Bombs => format!("Charges {}/{} ·", look.done, look.total),
+                    Mission::Doors => format!("Doors broken {}/3 ·", look.done),
+                    _ => "Commander ·".into(),
+                };
+                format!("{what} {}", crate::format::countdown(s as f64))
+            }
+            None => "Clear the deck".into(),
+        },
         _ => String::new(),
     }
 }
@@ -3780,6 +3832,22 @@ pub fn objective_tip(mission: world::run::Mission) -> &'static str {
 • Each taken brings a bigger wave at once
 • Carried aboard the ship: paid at once
 • Leave whenever you like"
+        }
+        Mission::Bombs => {
+            "• Hold V at a charge, 8 s (engineer: 4 s)
+• All charges share one 3:00 timer
+• Timer out: the station explodes, the run is lost"
+        }
+        Mission::Doors => {
+            "• The machines break a door in 20 s at it, unbroken
+• Two outer doors, then the inner one, then the commander
+• The commander down: the run is lost
+• Hold 3:00, then the Republic's soldiers come"
+        }
+        Mission::Chief => {
+            "• Every machine hunts the commander
+• Keep him alive 2:00; downed, revive him
+• Dead: the site falls"
         }
         _ => "",
     }
@@ -3830,6 +3898,10 @@ pub fn sabotage_count_escape(left: &str) -> String {
 }
 /// The run lost to a charge disarmed.
 pub const OVER_TITLE_SABOTAGE: &str = "The charge was disarmed";
+pub const OVER_TITLE_BOMBS: &str = "The station went up";
+pub const OVER_LINE_BOMBS: &str = "A charge was left when the timer ran out.";
+pub const OVER_TITLE_DOORS: &str = "The commander fell";
+pub const OVER_LINE_DOORS: &str = "The machines broke into the vault and brought him down.";
 pub const OVER_LINE_SABOTAGE: &str = "The machines got to the charge before it could be armed.";
 /// And for a planting refused (October 2026).
 pub fn plant_refused(why: world::Refusal) -> String {

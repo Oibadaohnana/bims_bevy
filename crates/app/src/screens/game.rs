@@ -547,8 +547,17 @@ fn over(
                     .game
                     .as_ref()
                     .is_some_and(|game| game.world.sabotage_failed());
+                let guard = session
+                    .0
+                    .game
+                    .as_ref()
+                    .and_then(|game| game.world.guard_failed());
                 let (title, line) = if fob {
                     (OVER_TITLE_AREA, OVER_LINE_AREA)
+                } else if guard == Some(1) {
+                    (OVER_TITLE_BOMBS, OVER_LINE_BOMBS)
+                } else if guard == Some(2) {
+                    (OVER_TITLE_DOORS, OVER_LINE_DOORS)
                 } else if sabotage {
                     (OVER_TITLE_SABOTAGE, OVER_LINE_SABOTAGE)
                 } else {
@@ -4433,6 +4442,7 @@ fn frame(
                 (Ok(world::Interaction::Take(_)), _) if carrying_drums => Some(USE_TAKE_DRUM),
                 (Ok(world::Interaction::Take(_)), _) => Some(USE_TAKE_CRATE),
                 (Ok(world::Interaction::Drop), _) => Some(USE_PUT_DOWN),
+                (Ok(world::Interaction::Defuse(_)), _) => Some(USE_DEFUSE),
                 (_, Ok(true)) => Some(USE_TAKE_FLAG),
                 (_, Ok(false)) => Some(USE_DROP_FLAG),
                 _ if game.world.can_plant(slot).is_ok() => Some(USE_PLANT),

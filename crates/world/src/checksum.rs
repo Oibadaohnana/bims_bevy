@@ -926,6 +926,52 @@ fn eat_defenses(hash: &mut Fnv, defenses: &[crate::defense::Defense]) {
             hash.eat(e.at.0 as u32 as u64);
             hash.eat(e.at.1 as u32 as u64);
         }
+        // Bomb disposal, Hold the doors, Protect the commander (October
+        // 2026), only where it is one.
+        if let Some(g) = &d.guard {
+            eat_guard(hash, g);
+        }
+    }
+}
+
+/// A defence's mission of these three (October 2026,
+/// `crate::objective::Guard`), its kind first.
+fn eat_guard(hash: &mut Fnv, g: &crate::objective::Guard) {
+    use crate::objective::Guard;
+    let tile = |t: (u32, u32)| u64::from(t.0) << 32 | u64::from(t.1);
+    match g {
+        Guard::Bombs(b) => {
+            hash.eat(0x_424F_4D42);
+            for (i, &c) in b.charges.iter().enumerate() {
+                hash.eat(tile(c));
+                hash.eat(u64::from(b.work.get(i).copied().unwrap_or(0)));
+                hash.eat(u64::from(b.defused.get(i).copied().unwrap_or(false)));
+            }
+            hash.eat(b.left);
+        }
+        Guard::Doors(d) => {
+            hash.eat(0x_444F_4F52);
+            for gate in d.outer.iter().chain(std::iter::once(&d.inner)) {
+                hash.eat(tile(gate.door));
+                hash.eat(tile(gate.outside));
+                hash.eat(u64::from(gate.held));
+                hash.eat(u64::from(gate.breached));
+            }
+            hash.eat(tile(d.core));
+            hash.eat(u64::from(d.vip));
+            hash.eat(d.left);
+            hash.eat(d.soldiers_at);
+        }
+        Guard::Chief(c) => {
+            hash.eat(0x_4348_4946);
+            hash.eat(u64::from(c.vip));
+            for &t in &c.spots {
+                hash.eat(tile(t));
+            }
+            hash.eat(u64::from(c.next));
+            hash.eat(c.move_at);
+            hash.eat(c.left);
+        }
     }
 }
 

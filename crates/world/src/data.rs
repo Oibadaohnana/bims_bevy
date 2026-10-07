@@ -479,6 +479,25 @@ pub const SALVAGE_WAVE_GROWTH_PERCENT: u32 = 20;
 /// over (the Overseer, a heist, a fuel run): what its experience and its
 /// money are shared out over.
 pub const OBJECTIVE_WAVES: u32 = 4;
+/// **Bomb disposal** (October 2026, the player's: "a 3 min mission timer
+/// in which all charges have to be defused"): the charges (one more from
+/// the third player), the timer, a charge's defusing and the waves' gap.
+pub const BOMB_CHARGES: u32 = 2;
+pub const BOMB_STEPS: u64 = 10_800;
+pub const DEFUSE_SECONDS: u32 = 8;
+pub const BOMB_WAVE_STEPS: u64 = 1_800;
+/// **Hold the doors**: twenty seconds of the machines at a door unbroken
+/// break it, a wave every twenty-five seconds fixed, and the hold's
+/// length (not given by the player: three minutes, as Bomb disposal's).
+pub const DOOR_BREAK_STEPS: u32 = 1_200;
+pub const DOORS_WAVE_STEPS: u64 = 1_500;
+pub const DOORS_STEPS: u64 = 10_800;
+/// **Protect the commander**: two minutes, the spots of his round and how
+/// long he stands at each, and the waves' gap.
+pub const CHIEF_STEPS: u64 = 7_200;
+pub const CHIEF_SPOTS: u32 = 4;
+pub const CHIEF_MOVE_STEPS: u64 = 1_200;
+pub const CHIEF_WAVE_STEPS: u64 = 1_500;
 /// How near a drum or a crate a Bim takes it up, in tiles.
 pub const LOAD_REACH_TILES: f32 = 1.5;
 pub const FLAG_REACH_TILES: f32 = 1.75;

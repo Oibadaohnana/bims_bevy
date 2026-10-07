@@ -150,3 +150,99 @@ pub struct Salvage {
     pub taken: u32,
     pub home: u32,
 }
+
+/// The defences' missions of October 2026 (the player's D1, D3 and D5):
+/// **Bomb disposal**, **Hold the doors** and **Protect the commander**,
+/// kept on the site's `Defense` (`guard`), saved, hashed; the rules are
+/// `crate::world`'s `defences.rs`.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum Guard {
+    Bombs(Bombs),
+    Doors(Doors),
+    Chief(Chief),
+}
+
+/// **Bomb disposal**: each charge's tile, the steps of hands on it,
+/// whether it is defused, and the steps the timer has left.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Bombs {
+    pub charges: Vec<(u32, u32)>,
+    pub work: Vec<u32>,
+    pub defused: Vec<bool>,
+    pub left: u64,
+}
+
+impl Bombs {
+    pub fn all_defused(&self) -> bool {
+        self.defused.iter().all(|&d| d)
+    }
+}
+
+/// A vault's door: its first tile, the tile before it the machines stand
+/// at, how many steps they have stood there unbroken, and whether it is
+/// broken in.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Gate {
+    pub door: (u32, u32),
+    pub outside: (u32, u32),
+    pub held: u32,
+    pub breached: bool,
+}
+
+/// **Hold the doors**: the vault's two outer doors and its inner one, the
+/// core's tile, the commander by crew index, the steps the hold has left,
+/// and when the Republic's next soldiers come once it is up.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Doors {
+    pub outer: Vec<Gate>,
+    pub inner: Gate,
+    pub core: (u32, u32),
+    pub vip: u32,
+    pub left: u64,
+    pub soldiers_at: u64,
+}
+
+/// **Protect the commander**: the commander by crew index, the spots of
+/// his round (design tiles), which he walks to next and when, and the
+/// steps he has still to be kept alive.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Chief {
+    pub vip: u32,
+    pub spots: Vec<(u32, u32)>,
+    pub next: u32,
+    pub move_at: u64,
+    pub left: u64,
+}
+
+impl Guard {
+    /// Whether its waves still come: charges left, or the time not up.
+    pub fn more_to_come(&self) -> bool {
+        match self {
+            Guard::Bombs(b) => !b.all_defused() && b.left > 0,
+            Guard::Doors(d) => d.left > 0,
+            Guard::Chief(c) => c.left > 0,
+        }
+    }
+
+    /// The commander's crew index, where there is one.
+    pub fn vip(&self) -> Option<u32> {
+        match self {
+            Guard::Bombs(_) => None,
+            Guard::Doors(d) => Some(d.vip),
+            Guard::Chief(c) => Some(c.vip),
+        }
+    }
+
+    pub fn vip_mut(&mut self) -> Option<&mut u32> {
+        match self {
+            Guard::Bombs(_) => None,
+            Guard::Doors(d) => Some(&mut d.vip),
+            Guard::Chief(c) => Some(&mut c.vip),
+        }
+    }
+}

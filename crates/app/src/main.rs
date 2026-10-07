@@ -239,7 +239,7 @@ fn usage() -> ! {
 /// — the one list, printed by [`list`] and nothing else. A new command is
 /// a row here and an arm in `main`; the classes' commands are not written
 /// out, since [`class_words`] reads them off `Class::ALL`.
-const COMMANDS: [(&str, &str); 33] = [
+const COMMANDS: [(&str, &str); 36] = [
     (
         "game",
         "The whole game in order: menu, setup or lobby, world and station, then the run: a mission where you docked, on the default ship, 5 000 a Bim in the pool",
@@ -333,6 +333,18 @@ const COMMANDS: [(&str, &str); 33] = [
     (
         "salvage",
         "A salvage sweep: the dock laid out with cargo holds; carry crates (V) aboard the ship for money, each taken bringing a bigger wave",
+    ),
+    (
+        "bombs",
+        "Bomb disposal: the combat crew defending the spawn; defuse every charge (V, 8 s) inside 3:00 or the station goes up with the run",
+    ),
+    (
+        "doors",
+        "Hold the doors: the spawn laid out with a vault; the machines break each door in 20 s at it, the commander inside down loses the run; hold 3:00 and the Republic comes",
+    ),
+    (
+        "chief",
+        "Protect the commander: the spawn's commander walks his rounds, every machine hunting him; keep him alive 2:00",
     ),
     (
         "relics",
@@ -471,6 +483,9 @@ fn main() {
         Some("prison") => Launch::Mission(world::run::Mission::Prison),
         Some("fuelrun") => Launch::Mission(world::run::Mission::FuelRun),
         Some("salvage") => Launch::Mission(world::run::Mission::Salvage),
+        Some("bombs") => Launch::Mission(world::run::Mission::Bombs),
+        Some("doors") => Launch::Mission(world::run::Mission::Doors),
+        Some("chief") => Launch::Mission(world::run::Mission::Chief),
         Some("heart") => Launch::Heart,
         Some("manufacturers") => Launch::Manufacturers,
         Some("end") => match std::env::args().nth(2).as_deref() {

@@ -8832,3 +8832,46 @@ the whole of it; `crate::objective` the states, on `Infestation::objective`
   of them (`what` codes in `event.rs`); `World::objective_look` is the
   app's (marks for `world_paint::objective_marks`, the HUD's line and
   count). `tests_attacks.rs` plays each through. **`SAVE_VERSION` 128.**
+
+## The defences' missions: Bomb disposal, Hold the doors, Protect the commander (October 2026)
+
+The player's D1, D3 and D5 — "a 3 min mission timer in which all charges
+have to be defused … if it runs out the whole station explodes losing the
+run"; the doors' "2 stages … each door taking enemies 20 seconds to break
+into … progress … not saved … 3/4 the usual enemies … every 25 seconds …
++1 enemy per player … if time runs out … republic soldiers … if this
+commander goes down the run is lost"; "make him a commander too … also
+work on planets … defended for 2 minutes"; and "3. yes": **every station
+defence is a mission**, `Mission::DEFENCES` (Breaches, Evacuation, Bombs,
+Doors, Chief) one in five each, and a town's defence that is no Area
+defend is Protect the commander. `defences.rs` (a child of `world`) is the
+rule — its module note is the whole of it — and
+`crate::objective::Guard` the state, on `Defense::guard` (saved, hashed
+where `Some`, `SAVE_VERSION` 129).
+
+- Begun with the defence (`begin_guard`, in `defense_waves`); its waves
+  are on the defence's clock (`guard_gap`), Hold the doors' three
+  quarters and one a player (`guard_wave_size`); `Defense::more_to_come`
+  is the guard's (charges left; the time not up).
+- **The commander** is a crew bot (`enlist_commander`: a rifle and armour
+  at the zone's tier, posted), in the commander's kit
+  (`hand_the_room_the_outfits`), off `crew_bots`, never stood ashore,
+  dropped at the mission's end (`leave_the_commander`; `vip_after_drop`
+  through `drop_crew_member`). The enemies make for him through
+  `guard_spots` (`say_the_fob`).
+- **The vault** is `stationgen::Feature::Vault` / `Role::Vault`: a
+  partition `VAULT_CORE` deep across the room farthest from the port, its
+  door added in `candidate`, two outer doors on the antechamber's walls,
+  `Fitted::doors` the three, `Fitted::rooms` antechamber and core. The
+  doors are sealed (`seal_door_at`, both rooms, every step); a door
+  breaks after `DOOR_BREAK_STEPS` with an enemy within a tile and a half
+  of its outside tile unbroken, the count back to nought otherwise.
+  Built for every kind 12 of 12 seeds.
+- After the hold the Republic's soldiers are `enlist_republic`
+  reinforcements of slot 0 (a wave's worth every `DOORS_WAVE_STEPS` while
+  an enemy stands, `call_the_republic`).
+- `World::guard_failed` (1 the station gone up, 2 the vault's commander
+  down) is the crew-down screen's title. `WorldEvent::Objective` codes
+  20–27. `Interaction::Defuse` is the Use key's (`DEFUSE_CODE` 104).
+- Tests: `tests_defense.rs`' last five; the commands `bombs`, `doors`,
+  `chief`.

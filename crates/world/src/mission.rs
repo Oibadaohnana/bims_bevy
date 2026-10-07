@@ -1339,6 +1339,7 @@ impl World {
         self.ship.crew_count = self.aboard.crew;
         // A prison break's prisoners are crew indices too (October 2026).
         self.prisoners_after_drop(who);
+        self.vip_after_drop(who);
         if index < self.crew_down.len() {
             self.crew_down.remove(index);
         }
@@ -1695,8 +1696,10 @@ impl World {
         self.run.weld_work.clear();
         // The commanders' reinforcements off the crew first, alive or not
         // (task 129): nothing of theirs is left behind, paid for or kept.
-        // A prison break's prisoners never freed go with the cell.
+        // A prison break's prisoners never freed go with the cell, and a
+        // defence's commander with his site.
         self.leave_the_prisoners();
+        self.leave_the_commander();
         self.send_reinforcements_home();
         self.bring_home();
         for who in self.left_behind() {

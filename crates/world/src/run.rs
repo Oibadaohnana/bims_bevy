@@ -153,11 +153,24 @@ pub enum Mission {
     /// **A salvage sweep** (an attack): cargo carried back to the ship,
     /// each paying, each bringing a bigger wave.
     Salvage,
+    /// **Bomb disposal** (a defence): the machines' charges spread over
+    /// the site, all on one three-minute timer; every one defused, or the
+    /// station goes up and the run with it.
+    Bombs,
+    /// **Hold the doors** (a defence): the site's commander in a vault
+    /// behind two outer doors and an inner one, each twenty seconds of the
+    /// machines at it; held for the time, the Republic's soldiers come.
+    /// The commander down is the run lost.
+    Doors,
+    /// **Protect the commander** (a defence, a station's or a town's): the
+    /// site's commander walking his rounds, every machine hunting him, for
+    /// two minutes; dead, the site falls.
+    Chief,
 }
 
 impl Mission {
     /// Every one, in code order.
-    pub const ALL: [Mission; 10] = [
+    pub const ALL: [Mission; 13] = [
         Mission::Plain,
         Mission::Breaches,
         Mission::Sabotage,
@@ -168,7 +181,25 @@ impl Mission {
         Mission::Prison,
         Mission::FuelRun,
         Mission::Salvage,
+        Mission::Bombs,
+        Mission::Doors,
+        Mission::Chief,
     ];
+
+    /// A station defence's missions, the roll's order (October 2026): a
+    /// station defence is one of these, each as likely.
+    pub const DEFENCES: [Mission; 5] = [
+        Mission::Breaches,
+        Mission::Evacuation,
+        Mission::Bombs,
+        Mission::Doors,
+        Mission::Chief,
+    ];
+
+    /// Whether it is a defence's mission.
+    pub fn is_defence(self) -> bool {
+        Mission::DEFENCES.contains(&self)
+    }
 
     /// The attacks' missions, the roll's order (October 2026): a station
     /// attack is one of these, each as likely.
@@ -201,6 +232,9 @@ impl Mission {
             Mission::Prison => 7,
             Mission::FuelRun => 8,
             Mission::Salvage => 9,
+            Mission::Bombs => 10,
+            Mission::Doors => 11,
+            Mission::Chief => 12,
         }
     }
 }

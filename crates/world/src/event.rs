@@ -266,7 +266,12 @@ pub enum WorldEvent {
     /// in somebody's arms, 7 a drum in the reactor (`n` in), 8 the
     /// reactor critical, 9 the cell cut open (`n` prisoners), 10 the
     /// Overseer fleeing, 11 the Overseer out, 12 the Overseer down, 13 a
-    /// drum stood again in the depot — and `who` the crew member it was,
+    /// drum stood again in the depot; and the defences' (`defences.rs`):
+    /// 20 a charge defused (`n` left), 21 the station gone up, 22 a vault
+    /// door broken in (`n` 0 and 1 the outer, 2 the inner), 23 the vault's
+    /// commander down, 24 the hold's time up, 25 the Republic's soldiers in
+    /// (`n` of them), 26 the commander dead, 27 the commander kept alive
+    /// his two minutes — and `who` the crew member it was,
     /// `u32::MAX` for nobody.
     Objective { station: u32, what: u32, n: u32, who: u32 },
     /// The host said that player has left the game.

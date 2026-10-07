@@ -329,7 +329,9 @@ use crate::game::Game;
 /// 128: the second set of attacks (`world::objective::Objective` on an
 /// `Infestation`), a station laid out for its mission (`Station::fitted`)
 /// and a cell's sealed door (`bims::door::Door::sealed`).
-pub const SAVE_VERSION: u32 = 128;
+/// 129: the defences' missions (`world::objective::Guard` on a `Defense`)
+/// and a vault's doors (`stationgen::Fitted::doors`).
+pub const SAVE_VERSION: u32 = 129;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

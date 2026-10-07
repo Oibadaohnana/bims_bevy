@@ -6,10 +6,10 @@
 //! from — for a station's fight on the floor from its first row on, at
 //! every tier (the player's: "also in tier one those new mission types
 //! should appear"), never at the start at home, an elite, the Heart, a
-//! trader or a town. A defence is **Seal the breaches** one time in
-//! [`BREACHES_ODDS`] and an **Evacuation** one in as many; an attack a
-//! **Sabotage** or a **nest hunt** the same. The map never says which:
-//! a mission is found on arrival. Off the floor (the tests, the staged commands) every
+//! trader or a town. A station's defence is one of `Mission::DEFENCES`
+//! and its attack one of `Mission::ATTACKS`, each as likely; a town's
+//! defence that is no Area defend is Protect the commander. The map never
+//! says which: a mission is found on arrival. Off the floor (the tests, the staged commands) every
 //! fight is plain unless a probe forces one ([`World::set_mission_for_probe`]).
 //!
 //! **Seal the breaches**: the site's ways in (`entry.rs`: its airlocks
@@ -42,14 +42,32 @@ impl World {
             // defence, an attack's at an attack.
             let fits = match forced {
                 Mission::Plain => true,
-                Mission::Breaches | Mission::Evacuation => kind == SiteKind::Defend,
+                defence if defence.is_defence() => {
+                    kind == SiteKind::Defend
+                        && (surface::surface_body(station).is_none() || defence == Mission::Chief)
+                }
                 attack => kind == SiteKind::Attack && attack.is_attack(),
             };
-            return if mapped && fits {
+            // A town's defence may be Protect the commander, and nothing
+            // else of the map's (October 2026).
+            let town = surface::surface_body(station).is_some()
+                && !heart::is_heart(station)
+                && kind == SiteKind::Defend;
+            return if (mapped || town) && fits {
                 forced
             } else {
                 Mission::Plain
             };
+        }
+        // A town's defence on the floor that is no Area defend (October
+        // 2026, the player's: "This should also work on planets"): Protect
+        // the commander.
+        let town_defence = surface::surface_body(station).is_some()
+            && kind == SiteKind::Defend
+            && !elite
+            && !self.is_area_defense_at(star, station);
+        if town_defence && self.floor_row_of(star).is_some_and(|row| row > 0) {
+            return Mission::Chief;
         }
         if !mapped || elite {
             return Mission::Plain;
@@ -66,16 +84,14 @@ impl World {
             ^ worldgen::rng::mix(u64::from(station).wrapping_add(0x_5354));
         let mut rng = worldgen::rng::Rng::new(seed);
         match kind {
-            SiteKind::Defend => match rng.below(BREACHES_ODDS) {
-                0 => Mission::Breaches,
-                1 => Mission::Evacuation,
-                _ => Mission::Plain,
-            },
+            // Every station defence is a mission too, each as likely
+            // (October 2026, the player's: "3. yes").
+            SiteKind::Defend => {
+                Mission::DEFENCES[rng.below(Mission::DEFENCES.len() as u32) as usize]
+            }
             // Every station attack is a mission, each as likely (October
             // 2026, the player's: "drop the plain … it is to boring").
-            SiteKind::Attack => {
-                Mission::ATTACKS[rng.below(Mission::ATTACKS.len() as u32) as usize]
-            }
+            SiteKind::Attack => Mission::ATTACKS[rng.below(Mission::ATTACKS.len() as u32) as usize],
             SiteKind::Trader => Mission::Plain,
         }
     }

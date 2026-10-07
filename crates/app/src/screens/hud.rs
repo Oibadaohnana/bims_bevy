@@ -166,6 +166,13 @@ fn droid_line(world: &world::World) -> Option<(String, &'static str)> {
         };
         return Some((words, BREACHES_TIP));
     }
+    // Bomb disposal, Hold the doors, Protect the commander (October
+    // 2026): the mission's line.
+    if world.defense_here().is_some_and(|d| d.guard.is_some())
+        && let Some(look) = world.objective_look()
+    {
+        return Some((objective_line(&look), objective_tip(look.mission)));
+    }
     // An Evacuation (October 2026): how many are aboard and the flag.
     if let Some(look) = world.evacuation_look() {
         return Some((
@@ -878,6 +885,31 @@ pub fn counter(world: &world::World, flying: u32) -> Option<Counter> {
                     (breaches_count(b.open, b.total), theme::BAD)
                 }
             }),
+        });
+    }
+    // Bomb disposal, Hold the doors, Protect the commander (October
+    // 2026): on a clock, the mission's count and its timer under it.
+    if world.defense_here().is_some_and(|d| d.guard.is_some())
+        && let Some(look) = world.objective_look()
+    {
+        let big = if standing > 0 {
+            up(standing)
+        } else if let Some(due) = world.defense_wave_due() {
+            counting(due)
+        } else {
+            down()
+        };
+        let colour = if look.time_left.is_some() {
+            theme::CAUTION
+        } else {
+            theme::HEAL
+        };
+        return Some(Counter {
+            big,
+            wave: None,
+            core: None,
+            area: None,
+            objective: Some((objective_count(&look), colour)),
         });
     }
     // An Evacuation (October 2026): on a clock as well, its line under the

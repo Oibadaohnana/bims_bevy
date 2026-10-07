@@ -1609,3 +1609,255 @@ fn a_dropped_flag_holds_them_there_and_none_left_alive_loses_the_site() {
     );
     assert!(world.defense(id).unwrap().lost);
 }
+
+/// The defences' missions of October 2026 (`defences.rs`): a defence at
+/// the spawn made that mission, the dock laid out for it, and the first
+/// wave a step after the defence begins.
+fn guarded(mission: crate::run::Mission) -> (World, u32) {
+    let (mut world, id) = a_station_defence(1, 4);
+    world.set_defense_delay_for_probe(data::STEP_MINUTES);
+    world.set_mission_for_probe(Some(mission));
+    world.fit_dock_for_probe();
+    world.step(&[]);
+    assert!(world.guard_now().is_some(), "{mission:?} began");
+    (world, id)
+}
+
+/// Every machine on the residents' deck destroyed where it stands.
+fn wreck_them(world: &mut World) {
+    if let Some(residents) = world.residents.as_mut() {
+        let room = &mut residents.aboard.room;
+        for i in 0..room.droid_count() as usize {
+            room.strike_droid(i, bims::droid::DroidPart::Chassis, 1e6);
+        }
+    }
+}
+
+#[test]
+fn a_charge_is_defused_by_hand_and_the_timer_out_blows_the_station_and_the_run() {
+    use crate::objective::Guard;
+    let (mut world, id) = guarded(crate::run::Mission::Bombs);
+    let Some(Guard::Bombs(b)) = world.guard_now() else {
+        panic!("bombs");
+    };
+    assert_eq!(b.charges.len() as u32, data::BOMB_CHARGES);
+    assert!(
+        b.left <= data::BOMB_STEPS && b.left > data::BOMB_STEPS - 60,
+        "three minutes"
+    );
+    let look = world.objective_look().expect("a look");
+    let at = look
+        .marks
+        .iter()
+        .find(|m| matches!(m.kind, crate::MarkKind::Charge { defused: false }))
+        .map(|m| world.aboard.from_station(m.at).unwrap())
+        .unwrap();
+    let at = bims::math::vec2(at.x as f32, at.y as f32);
+    world
+        .aboard
+        .room
+        .stand_at(0, at + bims::math::vec2(shipdesign::TILE as f32, 0.0));
+    assert!(matches!(
+        world.can_interact(0),
+        Ok(crate::Interaction::Defuse(_))
+    ));
+    world.step(&[crate::world::Command::Interact { slot: 0 }]);
+    let mut defused = false;
+    for _ in 0..(data::DEFUSE_SECONDS * 60 + 120) {
+        wreck_them(&mut world);
+        if world
+            .step(&[])
+            .iter()
+            .any(|e| matches!(e, WorldEvent::Objective { what: 20, .. }))
+        {
+            defused = true;
+            break;
+        }
+    }
+    assert!(defused, "a charge defused by hand");
+    // The timer out with one left: the station goes up, and the run.
+    world.set_guard_time_for_probe(2);
+    let mut blew = false;
+    for _ in 0..4 {
+        if world
+            .step(&[])
+            .iter()
+            .any(|e| matches!(e, WorldEvent::Objective { what: 21, .. }))
+        {
+            blew = true;
+            break;
+        }
+    }
+    assert!(blew);
+    assert!(world.lost, "the run is lost");
+    assert!(world.defense(id).unwrap().lost);
+}
+
+#[test]
+fn the_vault_s_doors_are_sealed_broken_by_an_unbroken_stand_and_the_commander_down_loses_the_run() {
+    use crate::objective::Guard;
+    let (mut world, id) = guarded(crate::run::Mission::Doors);
+    let Some(Guard::Doors(d)) = world.guard_now() else {
+        panic!("doors");
+    };
+    assert_eq!(d.outer.len(), 2, "two outer doors");
+    // The commander is in the core, posted, in the commander's kit.
+    let vip = d.vip as usize;
+    let fitted = world.station(id).unwrap().fitted.clone().unwrap();
+    let core = fitted.rooms[1];
+    let p = world.aboard.room.bim_pos(vip);
+    let q = world
+        .aboard
+        .to_station(worldgen::math::dvec2(p.x as f64, p.y as f64))
+        .unwrap();
+    let t = shipdesign::TILE as f64;
+    let (tx, ty) = ((q.x / t).floor() as u32, (q.y / t).floor() as u32);
+    assert!(
+        tx >= core[0] && tx <= core[2] && ty >= core[1] && ty <= core[3],
+        "the commander stands in the core: ({tx}, {ty}) in {core:?}"
+    );
+    assert!(world.is_vip(vip as u32), "the commander");
+    // Every door sealed in the crew's room.
+    let mid = |world: &World, tile: (u32, u32)| {
+        let p = world
+            .aboard
+            .from_station(worldgen::math::dvec2(
+                (tile.0 as f64 + 0.5) * t,
+                (tile.1 as f64 + 0.5) * t,
+            ))
+            .unwrap();
+        bims::math::vec2(p.x as f32, p.y as f32)
+    };
+    for gate in d.outer.iter().chain(std::iter::once(&d.inner)) {
+        let door = world
+            .aboard
+            .room
+            .door_index_at(mid(&world, gate.door))
+            .expect("a door there");
+        assert!(world.aboard.room.door_sealed(door), "sealed");
+    }
+    // A machine at an outer door for twenty seconds unbroken: broken in.
+    let gate = d.outer[0];
+    let outside = world
+        .residents
+        .as_ref()
+        .unwrap()
+        .aboard
+        .to_room(worldgen::math::dvec2(
+            (gate.outside.0 as f64 + 0.5) * t,
+            (gate.outside.1 as f64 + 0.5) * t,
+        ));
+    assert!(until(&mut world, 60, |w| w.droids_standing() > 0), "a wave");
+    let mut broke = false;
+    for _ in 0..(data::DOOR_BREAK_STEPS + 30) {
+        if let Some(residents) = world.residents.as_mut()
+            && let Some(d) = residents.aboard.room.droid_mut_for_probe(0)
+        {
+            d.pos = outside;
+            d.destroyed = false;
+        }
+        if world
+            .step(&[])
+            .iter()
+            .any(|e| matches!(e, WorldEvent::Objective { what: 22, .. }))
+        {
+            broke = true;
+            break;
+        }
+    }
+    assert!(broke, "broken in by an unbroken stand");
+    let Some(Guard::Doors(d)) = world.guard_now() else {
+        panic!();
+    };
+    assert!(d.outer[0].breached);
+    let door = world
+        .aboard
+        .room
+        .door_index_at(mid(&world, d.outer[0].door))
+        .unwrap();
+    assert!(!world.aboard.room.door_sealed(door), "let go");
+    // The commander down: the run lost.
+    world.aboard.room.kill_now(vip);
+    let mut said = false;
+    for _ in 0..3 {
+        if world
+            .step(&[])
+            .iter()
+            .any(|e| matches!(e, WorldEvent::Objective { what: 23, .. }))
+        {
+            said = true;
+            break;
+        }
+    }
+    assert!(said);
+    assert!(world.lost, "the run is lost");
+}
+
+#[test]
+fn hold_the_doors_waves_are_three_quarters_and_one_a_player_every_twenty_five_seconds() {
+    let (mut world, id) = guarded(crate::run::Mission::Doors);
+    assert!(until(&mut world, 60, |w| w.droids_standing() > 0));
+    let players = world.players();
+    assert_eq!(world.droids_standing(), 4 * 3 / 4 + players);
+    let wave = |w: &World| w.defense(id).unwrap().wave;
+    let was = wave(&world);
+    assert!(until(
+        &mut world,
+        data::DOORS_WAVE_STEPS as u32 + 5,
+        |w| wave(w) == was + 1
+    ));
+    assert!(world.droids_standing() > 4 * 3 / 4 + players, "stacked");
+}
+
+#[test]
+fn the_commander_dead_loses_the_site_and_not_the_run() {
+    use crate::objective::Guard;
+    let (mut world, id) = guarded(crate::run::Mission::Chief);
+    let Some(Guard::Chief(c)) = world.guard_now() else {
+        panic!("chief");
+    };
+    assert!(c.spots.len() >= 2, "a round");
+    world.aboard.room.kill_now(c.vip as usize);
+    let mut fell = false;
+    for _ in 0..3 {
+        if world
+            .step(&[])
+            .iter()
+            .any(|e| matches!(e, WorldEvent::Objective { what: 26, .. }))
+        {
+            fell = true;
+            break;
+        }
+    }
+    assert!(fell);
+    assert!(world.defense(id).unwrap().lost, "the site falls");
+    assert!(!world.lost, "the run goes on");
+}
+
+#[test]
+fn the_hold_done_the_republic_s_soldiers_come_while_an_enemy_stands() {
+    let (mut world, _) = guarded(crate::run::Mission::Doors);
+    assert!(until(&mut world, 60, |w| w.droids_standing() > 0));
+    let crew = world.aboard.crew_count();
+    world.set_guard_time_for_probe(2);
+    let mut up = false;
+    let mut came = 0;
+    for _ in 0..10 {
+        for e in world.step(&[]) {
+            match e {
+                WorldEvent::Objective { what: 24, .. } => up = true,
+                WorldEvent::Objective { what: 25, n, .. } => came = n,
+                _ => {}
+            }
+        }
+        if came > 0 {
+            break;
+        }
+    }
+    assert!(up, "the hold's time up");
+    assert!(came > 0, "the Republic's soldiers in");
+    assert_eq!(world.aboard.crew_count(), crew + came);
+    for who in crew..crew + came {
+        assert!(world.is_reinforcement(who), "gone at the mission's end");
+    }
+}

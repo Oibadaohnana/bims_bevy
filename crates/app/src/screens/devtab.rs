@@ -205,7 +205,7 @@ pub fn dev_page(ui: &mut egui::Ui, dev: &mut DevSetup, editable: bool) {
 /// The mission picks: the roll, plain, and the four, each with where it
 /// goes.
 fn mission_rows(ui: &mut egui::Ui, dev: &mut DevSetup, editable: bool) {
-    let options: [(Option<Mission>, &str, &str); 11] = [
+    let options: [(Option<Mission>, &str, &str); 14] = [
         (None, DEV_ROLLED, DEV_AS_PLAYED),
         (
             Some(Mission::Plain),
@@ -220,6 +220,21 @@ fn mission_rows(ui: &mut egui::Ui, dev: &mut DevSetup, editable: bool) {
         (
             Some(Mission::Evacuation),
             dev_mission_name(Mission::Evacuation),
+            DEV_EVERY_DEFENCE,
+        ),
+        (
+            Some(Mission::Bombs),
+            dev_mission_name(Mission::Bombs),
+            DEV_EVERY_DEFENCE,
+        ),
+        (
+            Some(Mission::Doors),
+            dev_mission_name(Mission::Doors),
+            DEV_EVERY_DEFENCE,
+        ),
+        (
+            Some(Mission::Chief),
+            dev_mission_name(Mission::Chief),
             DEV_EVERY_DEFENCE,
         ),
         (
