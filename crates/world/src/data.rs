@@ -210,12 +210,17 @@ pub const ENEMIES_PER_PLAYER: u32 = 2;
 /// Enemies each bot brings — the crew's bots and a defence's
 /// defenders — the product rounded up.
 pub const ENEMIES_PER_BOT: f32 = 1.0;
+/// The budget a row of `scaling.ron` written without one reads: four
+/// waves, the tier-one area's (not nought, as every other dial left out).
+pub const BUDGET_LEFT_OUT: f32 = 4.0;
 /// The four areas the run is (October 2026, `crate::droid::Area`): how
 /// many days each is, how much a player's share grows a day in it, its
 /// waves, the Bombers and Lancers on top of a wave, an elite's Guardians
 /// (a player) and Bombers, and a defence's defenders. Area 0 is the
 /// Manufacturers alone, no elite; the floor is
-/// [`FLOOR_HOPS`] rows with these days.
+/// [`FLOOR_HOPS`] rows with these days. And each one's **budget**: waves
+/// of the day's size a mission brings in all (`crate::run::Budget`),
+/// 3 / 4 / 5 / 5.
 pub const AREA_0: crate::droid::Area = crate::droid::Area {
     days: 5,
     growth_per_day: 0.2,
@@ -225,6 +230,7 @@ pub const AREA_0: crate::droid::Area = crate::droid::Area {
     guardians: 0,
     elites: 0,
     defenders: 2,
+    budget: 3.0,
 };
 pub const TIER_1_AREA: crate::droid::Area = crate::droid::Area {
     days: 14,
@@ -235,6 +241,7 @@ pub const TIER_1_AREA: crate::droid::Area = crate::droid::Area {
     guardians: 1,
     elites: 0,
     defenders: 3,
+    budget: 4.0,
 };
 pub const TIER_2_AREA: crate::droid::Area = crate::droid::Area {
     days: 9,
@@ -245,6 +252,7 @@ pub const TIER_2_AREA: crate::droid::Area = crate::droid::Area {
     guardians: 1,
     elites: 1,
     defenders: 5,
+    budget: 5.0,
 };
 pub const TIER_3_AREA: crate::droid::Area = crate::droid::Area {
     days: 3,
@@ -255,6 +263,7 @@ pub const TIER_3_AREA: crate::droid::Area = crate::droid::Area {
     guardians: 1,
     elites: 1,
     defenders: 7,
+    budget: 5.0,
 };
 /// How many Guardians the Machine Heart sends for each conduit shot down
 /// (October 2026; the player's words: "first 1 guardian, then 2 all the
@@ -438,6 +447,11 @@ pub const NESTS_PER_PLAYER: u32 = 1;
 pub const NESTS_MOST: u32 = 5;
 pub const NEST_HEALTH: [f32; 4] = [180.0, 260.0, 360.0, 480.0];
 pub const NEST_BUILD_STEPS: u64 = 1_200;
+/// How many rounds of every nest a wave is sliced into (October 2026,
+/// `crate::run::Budget`): a round of every nest is a third of a wave, so
+/// a nest builds `⌈wave ÷ (3 × nests)⌉` a round until the mission's
+/// budget is spent, then one a player a round between them.
+pub const NEST_SLICE_ROUNDS: u32 = 3;
 pub const EVAC_WAVE_STEPS: u64 = 1_500;
 /// **Kill the Overseer** (October 2026): his health by the area the fight
 /// is in (area 0 to tier three, the player's: "scaling hp with tier

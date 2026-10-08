@@ -336,10 +336,13 @@ pub struct Sight {
     /// The light the bolts in flight throw this step (`set_flares`), a
     /// byte a tile like `light`, and which tiles it is on, so the next
     /// step clears only those. Read by the rule beside the lamps'; the
-    /// picture draws a bolt's own glow instead.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// picture draws a bolt's own glow instead. Saved: what the next step
+    /// clears and compares against is the step before's, and a world read
+    /// back without them (a guest's resync) traces its mask again where
+    /// the original did not.
+    #[cfg_attr(feature = "serde", serde(default))]
     flare: Vec<u8>,
-    #[cfg_attr(feature = "serde", serde(skip))]
+    #[cfg_attr(feature = "serde", serde(default))]
     flared: Vec<usize>,
     lights: Vec<Light>,
     /// The lamps, one a light: what each has left and how bright it is

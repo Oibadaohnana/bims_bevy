@@ -83,6 +83,22 @@ fn a_player_gone_is_not_waited_for() {
     assert!(!world.awaiting_ready());
 }
 
+/// A player whose line dropped and came back (`Command::PlayerBack`) is
+/// waited for again.
+#[test]
+fn a_player_back_is_waited_for_again() {
+    let mut world = held();
+    world.apply_now(Command::PlayerGone { slot: 1 });
+    assert!(!world.run.is_connected(1));
+    world.apply_now(Command::PlayerBack { slot: 1 });
+    assert!(world.run.is_connected(1));
+    let events = world.apply_now(Command::Ready { slot: 0, yes: true });
+    assert!(!events.contains(&WorldEvent::AllReady));
+    assert!(world.awaiting_ready(), "the one back is waited for");
+    let events = world.apply_now(Command::Ready { slot: 1, yes: true });
+    assert!(events.contains(&WorldEvent::AllReady));
+}
+
 #[test]
 fn a_peaceful_stop_and_a_world_without_the_switch_start_at_once() {
     // The tests' quiet dial: nothing to fight, nothing to wait for.

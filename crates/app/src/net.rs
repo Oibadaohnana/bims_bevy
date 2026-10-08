@@ -78,7 +78,7 @@ use std::time::{Duration, Instant};
 use bevy::prelude::*;
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Message as Frame, WebSocket};
-use wire::{ClientCtl, Closed, PeerId, PeerInfo, Refusal, ServerCtl, To, decode, encode};
+use wire::{ClientCtl, Closed, PeerId, PeerInfo, Refusal, Resume, ServerCtl, To, decode, encode};
 
 use bims::character::{Hair, Look, Shade, Tint};
 use world::Class;
@@ -93,6 +93,51 @@ const POLL: Duration = Duration::from_millis(1);
 /// How often a quiet connection says something, so nothing in the middle
 /// reaps an idle lobby. The relay drops a socket silent for 45 s.
 const PING_EVERY: f64 = 10.0;
+
+/// How often the network thread itself pings the relay, whatever the
+/// game's frames are doing: a long frame, a load or a world read on
+/// Bevy's thread never leaves the socket quiet long enough for the relay
+/// to drop it (`server`'s `IDLE_TIMEOUT`), and the relay's answer is what
+/// says the line is alive ([`SILENT_DEAD`]).
+const WORKER_PING: Duration = Duration::from_secs(2);
+
+/// How long a player whose line dropped mid-game keeps trying to take
+/// its seat back before it gives up and plays on alone, in seconds — and
+/// how long a guest waits for a host whose line dropped.
+pub const RECONNECT_FOR: f64 = 30.0;
+
+/// How often a dropped line is dialled again while it tries, in seconds.
+const RECONNECT_EVERY: f64 = 1.5;
+
+/// How long the relay may say nothing at all — it answers every ping —
+/// before the connection is taken for dead. A line that died without a
+/// word (Wi-Fi gone, a router restarted) otherwise sits in TCP's own
+/// retries for many minutes, the world stood still waiting on a host
+/// that will never speak again.
+const SILENT_DEAD: Duration = Duration::from_secs(20);
+
+/// This build's fingerprint (`build.rs`): a hash of the source of every
+/// crate the world is stepped by, the app's and the lock file. Two players
+/// with different numbers play two different games — the worlds part at
+/// once and again after every resync — so the lobby will not start one
+/// (`Online::builds_differ`).
+pub const FINGERPRINT: u64 = hex(env!("BIMS_FINGERPRINT"));
+
+const fn hex(text: &str) -> u64 {
+    let bytes = text.as_bytes();
+    let mut value = 0u64;
+    let mut i = 0;
+    while i < bytes.len() {
+        let digit = match bytes[i] {
+            b @ b'0'..=b'9' => b - b'0',
+            b @ b'a'..=b'f' => b - b'a' + 10,
+            _ => panic!("BIMS_FINGERPRINT is not hex"),
+        };
+        value = value << 4 | digit as u64;
+        i += 1;
+    }
+    value
+}
 
 /// The host sends its `world_checksum` with the steps every so many
 /// steps — two seconds of the clock at 1× — and a guest compares.
@@ -152,8 +197,9 @@ impl Link {
     }
 
     /// Start dialling. Any existing connection is dropped first, so this
-    /// doubles as "reconnect".
-    pub fn connect(&mut self, url: &str, name: &str) {
+    /// doubles as "reconnect". `resume` is a seat to take back in a room
+    /// whose game this player's dropped line left (`Online::drain`).
+    pub fn connect(&mut self, url: &str, name: &str, resume: Option<Resume>) {
         self.disconnect();
         let (out_tx, out_rx) = channel::<ClientCtl>();
         let (in_tx, in_rx) = channel::<Incoming>();
@@ -164,6 +210,7 @@ impl Link {
         let hello = ClientCtl::Hello {
             protocol: wire::PROTOCOL,
             name: name.to_string(),
+            resume,
         };
         // Detached deliberately. The handle would only ever be used to
         // join, and joining is exactly what a frame must not do; the thread
@@ -264,8 +311,33 @@ fn worker(url: &str, hello: ClientCtl, out_rx: &Receiver<ClientCtl>, in_tx: &Sen
     let jitter = crate::dev::net_jitter();
     let mut held: VecDeque<(Instant, ServerCtl)> = VecDeque::new();
     let mut dice = 0x9e37_79b9_7f4a_7c15_u64 ^ u64::from(std::process::id());
+    let mut pinged = Instant::now();
+    let mut heard = Instant::now();
+    let drop_at = crate::dev::net_drop().map(|after| Instant::now() + after);
     loop {
         let mut idled = true;
+        if drop_at.is_some_and(|at| Instant::now() >= at) {
+            let _ = in_tx.send(Incoming::Down("dropped on purpose (BIMS_NET_DROP)".into()));
+            return;
+        }
+        if pinged.elapsed() >= WORKER_PING
+            && let Ok(bytes) = encode(&ClientCtl::Ping { stamp: 0 })
+        {
+            pinged = Instant::now();
+            if let Err(e) = socket.write(Frame::Binary(bytes))
+                && !would_block(&e)
+            {
+                let _ = in_tx.send(Incoming::Down(format!("send failed: {e}")));
+                return;
+            }
+        }
+        if heard.elapsed() >= SILENT_DEAD {
+            let _ = in_tx.send(Incoming::Down(format!(
+                "no word from the server for {} s",
+                SILENT_DEAD.as_secs()
+            )));
+            return;
+        }
         // Outgoing first, so a message queued this frame goes out in this
         // pass rather than waiting behind a sleep.
         loop {
@@ -310,6 +382,7 @@ fn worker(url: &str, hello: ClientCtl, out_rx: &Receiver<ClientCtl>, in_tx: &Sen
             match socket.read() {
                 Ok(Frame::Binary(bytes)) => {
                     idled = false;
+                    heard = Instant::now();
                     match decode::<ServerCtl>(&bytes) {
                         Ok(msg) if jitter.is_some() => {
                             let most = jitter.unwrap_or_default();
@@ -339,7 +412,10 @@ fn worker(url: &str, hello: ClientCtl, out_rx: &Receiver<ClientCtl>, in_tx: &Sen
                 }
                 // Text, ping and pong: tungstenite answers pings itself,
                 // and the relay never sends text.
-                Ok(_) => idled = false,
+                Ok(_) => {
+                    idled = false;
+                    heard = Instant::now();
+                }
                 Err(e) if would_block(&e) => break,
                 Err(e) => {
                     let _ = in_tx.send(Incoming::Down(format!("connection lost: {e}")));
@@ -552,6 +628,10 @@ pub enum Packet {
     /// 84). A code rather than the value, since a stranger's build may
     /// know more colours than this one.
     BimTint(u8),
+    /// This player's game's [`FINGERPRINT`], to everybody: on joining and
+    /// again whenever somebody joins. A Start waits until every player has
+    /// said one, and is refused while they differ.
+    Build(u64),
     /// What class the player chose for their Bim (`world::Class`'s code),
     /// to everybody like the hair: on every change and again whenever
     /// somebody joins (feature 74).
@@ -612,6 +692,12 @@ pub enum Packet {
         save: String,
         at: u64,
         dealt: Option<Box<crate::wavecfg::Dealt>>,
+        /// The host's commands queued for its next step when it wrote the
+        /// world (`ship::game::Game::queued`), which a save leaves out:
+        /// their `Applied`s crossed before this and went to the world it
+        /// replaces, so without them the world arrived parts from the
+        /// host's at its very next step.
+        queued: Vec<world::world::Command>,
     },
 }
 
@@ -675,8 +761,16 @@ pub enum Event {
     Closed(Closed),
     /// The relay said no.
     Rejected(Refusal),
-    /// The connection died, with why.
+    /// The connection died, with why — for good: mid-game it is said only
+    /// once [`RECONNECT_FOR`] has gone by without the seat taken back.
     Lost(String),
+    /// Mid-game, the connection dropped and is being dialled again
+    /// ([`Online::reconnecting`]): nothing goes out or comes in meanwhile.
+    Reconnecting,
+    /// ...and this player is back in its room, under the same id and
+    /// slot. What crossed the wire meanwhile is lost: the host sends its
+    /// world, a guest asks for it.
+    Rejoined,
     /// Somebody said something.
     Packet { from: PeerId, packet: Packet },
 }
@@ -718,6 +812,8 @@ pub struct Online {
     /// What each peer chose for their Bim's class (`Packet::BimClass`);
     /// nothing for a peer who has not said. Dealt at Start like the hair.
     pub classes: Vec<(PeerId, Class)>,
+    /// What each peer said its game's build is (`Packet::Build`).
+    builds: Vec<(PeerId, u64)>,
     /// Where each peer's pointer is over the ship — a design point — for
     /// those whose pointer is over it. Folded in from `Packet::Cursor`
     /// as it arrives, never an event: it is a picture, not a decision.
@@ -737,6 +833,20 @@ pub struct Online {
     /// The pointer as last sent, and when — `Self::point`'s throttle.
     sent_cursor: Option<Spot>,
     cursor_at: f64,
+    /// What the relay's `Welcome` said would take this player's seat back
+    /// if the line drops mid-game.
+    token: Option<u64>,
+    /// A dropped line being dialled again, mid-game.
+    reconnect: Option<Reconnect>,
+}
+
+/// A dropped line being dialled again: since when, when next, and what
+/// the socket said when it went.
+#[derive(Clone, Debug)]
+struct Reconnect {
+    since: f64,
+    next_try: f64,
+    why: String,
 }
 
 impl Online {
@@ -760,12 +870,19 @@ impl Online {
     fn open(&mut self, pending: Pending) {
         self.leave();
         self.pending = Some(pending);
-        self.link.connect(&server_url(), &player_name());
+        self.link.connect(&server_url(), &player_name(), None);
     }
 
-    /// Out of the room and off the wire. The relay tells the others.
+    /// Out of the room and off the wire. The relay tells the others. Said
+    /// to the relay first: a line that only drops keeps its seat in a
+    /// game under way (`Hub::disconnect`), and this is no drop.
     pub fn leave(&mut self) {
+        if self.code.is_some() && self.link.state() == &LinkState::Connected {
+            self.link.send(ClientCtl::Leave);
+        }
         self.link.disconnect();
+        self.token = None;
+        self.reconnect = None;
         self.me = None;
         self.code = None;
         self.host = None;
@@ -775,6 +892,7 @@ impl Online {
         self.hairs.clear();
         self.tints.clear();
         self.classes.clear();
+        self.builds.clear();
         self.cursors.clear();
         self.pings.clear();
         self.choices.clear();
@@ -1044,6 +1162,30 @@ impl Online {
             .collect()
     }
 
+    /// Tell the room which build this player's game is. On joining, and
+    /// again when somebody joins.
+    pub fn say_build(&self) {
+        self.send(To::All, &Packet::Build(FINGERPRINT));
+    }
+
+    /// Whether a Start must wait on the builds: `Some(true)` when somebody
+    /// in the room plays another build than this one, `Some(false)` while
+    /// somebody has not said theirs yet, `None` when everybody's is this.
+    pub fn builds_differ(&self) -> Option<bool> {
+        let mut unsaid = false;
+        for peer in &self.peers {
+            if Some(peer.id) == self.me {
+                continue;
+            }
+            match self.builds.iter().find(|(p, _)| *p == peer.id) {
+                Some((_, build)) if *build != FINGERPRINT => return Some(true),
+                Some(_) => {}
+                None => unsaid = true,
+            }
+        }
+        unsaid.then_some(false)
+    }
+
     fn set_cursor(&mut self, peer: PeerId, at: Option<Spot>) {
         self.cursors.retain(|(p, _)| *p != peer);
         if let Some(at) = at {
@@ -1058,6 +1200,7 @@ impl Online {
         self.hairs.retain(|(p, _)| keep.contains(p));
         self.tints.retain(|(p, _)| keep.contains(p));
         self.classes.retain(|(p, _)| keep.contains(p));
+        self.builds.retain(|(p, _)| keep.contains(p));
         self.cursors.retain(|(p, _)| keep.contains(p));
         self.choices.retain(|(p, _)| keep.contains(p));
     }
@@ -1074,6 +1217,17 @@ impl Online {
     /// What greys a guest's Load (feature 67).
     pub fn is_guest(&self) -> bool {
         self.link.state() == &LinkState::Connected && !self.is_host()
+    }
+
+    /// Mid-game, the line dropped and is being dialled again.
+    pub fn reconnecting(&self) -> bool {
+        self.reconnect.is_some()
+    }
+
+    /// Whether a dropped line may take its seat back: in a room whose
+    /// game has begun, with the relay's token for it.
+    fn resumable(&self) -> bool {
+        self.code.is_some() && !self.slots.is_empty() && self.me.is_some() && self.token.is_some()
     }
 
     pub fn connecting(&self) -> bool {
@@ -1146,7 +1300,14 @@ impl Online {
         let mut events = Vec::new();
         for msg in self.link.drain() {
             match msg {
-                ServerCtl::Welcome { you, .. } => {
+                ServerCtl::Welcome { you, token, .. } => {
+                    self.token = Some(token);
+                    // A seat taken back: the same id, and the room's
+                    // `RoomJoined` behind it.
+                    if self.reconnect.is_some() {
+                        self.me = Some(you);
+                        continue;
+                    }
                     self.me = Some(you);
                     match self.pending.take() {
                         Some(Pending::Create) => self.link.send(ClientCtl::Create),
@@ -1159,6 +1320,13 @@ impl Online {
                     events.push(Event::Connected);
                 }
                 ServerCtl::Rejected { why } => {
+                    // The seat not to be had yet — its old socket not yet
+                    // dropped by the relay, most likely: dialled again
+                    // in a moment, until the time is up.
+                    if self.reconnect.is_some() {
+                        self.link.disconnect();
+                        continue;
+                    }
                     // A refusal of the room asked for is the end of the
                     // connection: there is nothing to stay for.
                     if self.code.is_none() {
@@ -1170,7 +1338,12 @@ impl Online {
                     self.code = Some(code);
                     self.host = Some(host);
                     self.peers = peers;
-                    events.push(Event::Joined);
+                    if self.reconnect.take().is_some() {
+                        self.prune();
+                        events.push(Event::Rejoined);
+                    } else {
+                        events.push(Event::Joined);
+                    }
                 }
                 ServerCtl::RoomUpdate { host, peers } => {
                     self.host = Some(host);
@@ -1219,6 +1392,10 @@ impl Online {
                         self.classes
                             .push((from, Class::from_code(code).unwrap_or_default()));
                     }
+                    Ok(Packet::Build(build)) => {
+                        self.builds.retain(|(p, _)| *p != from);
+                        self.builds.push((from, build));
+                    }
                     Ok(Packet::BimTint(code)) => {
                         self.tints.retain(|(p, _)| *p != from);
                         self.tints.push((from, Tint::from_code(code)));
@@ -1233,8 +1410,36 @@ impl Online {
             }
         }
         if let LinkState::Failed(why) = self.link.state().clone() {
-            self.leave();
-            events.push(Event::Lost(why));
+            if self.resumable() {
+                // Mid-game a dropped line is dialled again rather than
+                // given up: the relay keeps the seat.
+                if self.reconnect.is_none() {
+                    self.reconnect = Some(Reconnect {
+                        since: now,
+                        next_try: now,
+                        why,
+                    });
+                    events.push(Event::Reconnecting);
+                }
+                self.link.disconnect();
+            } else {
+                self.leave();
+                events.push(Event::Lost(why));
+            }
+        }
+        if let Some(r) = &mut self.reconnect {
+            if now - r.since > RECONNECT_FOR {
+                let why = r.why.clone();
+                self.leave();
+                events.push(Event::Lost(why));
+            } else if now >= r.next_try && self.link.state() == &LinkState::Offline {
+                r.next_try = now + RECONNECT_EVERY;
+                let resume = self
+                    .me
+                    .zip(self.token)
+                    .map(|(id, token)| Resume { id, token });
+                self.link.connect(&server_url(), &player_name(), resume);
+            }
         }
         if self.link.state() == &LinkState::Connected && now - self.pinged > PING_EVERY {
             self.pinged = now;
@@ -1291,6 +1496,7 @@ mod tests {
             save: save.clone(),
             at: 7,
             dealt: None,
+            queued: Vec::new(),
         };
         let bytes = encode(&packet).unwrap();
         assert!(
@@ -1307,6 +1513,60 @@ mod tests {
             other => panic!("{other:?}"),
         }
     }
+    /// The host's world sent for a resync carries what the host had queued
+    /// for its next step (`Packet::World::queued`): those orders' `Applied`
+    /// crossed before the world did and went to the world it replaced, so
+    /// without them the guest's world parts from the host's at the very
+    /// next step — and asks again, and parts again.
+    #[test]
+    fn a_world_sent_for_a_resync_carries_the_host_s_queued_orders() {
+        let spawn = ship::session::pick_dock(world::data::DEFAULT_SEED, 0, 0);
+        let mut host = Session::run(
+            100_000,
+            2,
+            0,
+            world::data::DEFAULT_SEED,
+            0,
+            spawn,
+            &[],
+            CANVAS.0,
+            CANVAS.1,
+        );
+        for _ in 0..60 {
+            host.world_step();
+        }
+        // A standing order is queued, not applied at once, and hashed.
+        Net::receive(&mut host, 0, Order::Orders(world::Standing::Retreat));
+        let queued = host.game.as_ref().unwrap().queued.clone();
+        assert!(!queued.is_empty(), "the order waits for the next step");
+        let packet = Packet::World {
+            save: host.save().unwrap(),
+            at: 60,
+            dealt: None,
+            queued,
+        };
+        let Packet::World { save, queued, .. } = decode(&encode(&packet).unwrap()).unwrap() else {
+            unreachable!()
+        };
+        let restore = |queued: Vec<world::world::Command>| {
+            let mut guest = Session::restore_as(&save, 1, CANVAS.0, CANVAS.1).unwrap();
+            guest.game.as_mut().unwrap().queued = queued;
+            guest
+        };
+        let mut guest = restore(queued);
+        let mut forgetful = restore(Vec::new());
+        host.world_step();
+        guest.world_step();
+        forgetful.world_step();
+        let sum = |s: &Session| world::world_checksum(&s.game.as_ref().unwrap().world);
+        assert_eq!(sum(&guest), sum(&host), "the world arrived is the host's");
+        assert_ne!(
+            sum(&forgetful),
+            sum(&host),
+            "without the queue it parts at once"
+        );
+    }
+
     use std::sync::mpsc::Receiver;
     use wire::PROTOCOL;
 
@@ -1328,6 +1588,7 @@ mod tests {
             ClientCtl::Hello {
                 protocol: PROTOCOL,
                 name: format!("P{slot}"),
+                resume: None,
             },
         );
         let spawn = ship::session::pick_dock(world::data::DEFAULT_SEED, 0, 0);

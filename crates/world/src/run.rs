@@ -275,6 +275,95 @@ impl BonusWave {
     }
 }
 
+/// The fight a mission's enemy budget is sliced over (October 2026,
+/// [`Budget`]): every map-shaped mission and the Area defend. A plain
+/// attack or defence, an elite's fight, the Machine Heart and a probe's
+/// forced kinds have none, and keep the area's waves.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum Budgeted {
+    Breaches,
+    Evacuation,
+    Bombs,
+    Doors,
+    Chief,
+    AreaDefend,
+    Sabotage,
+    Nests,
+    Overseer,
+    Heist,
+    Prison,
+    FuelRun,
+    Salvage,
+}
+
+impl Budgeted {
+    /// The number that goes into the checksum: its place in the list.
+    pub fn code(self) -> u32 {
+        match self {
+            Budgeted::Breaches => 0,
+            Budgeted::Evacuation => 1,
+            Budgeted::Bombs => 2,
+            Budgeted::Doors => 3,
+            Budgeted::Chief => 4,
+            Budgeted::AreaDefend => 5,
+            Budgeted::Sabotage => 6,
+            Budgeted::Nests => 7,
+            Budgeted::Overseer => 8,
+            Budgeted::Heist => 9,
+            Budgeted::Prison => 10,
+            Budgeted::FuelRun => 11,
+            Budgeted::Salvage => 12,
+        }
+    }
+}
+
+/// A mission's **enemy budget** (October 2026, the player's: "give every
+/// mission the same total"): the bodies it brings over the whole fight,
+/// fixed the step its wave froze (`World::open_the_budget`), and what of
+/// them has landed. Every count is base bodies of the wave — the area's
+/// Bombers and Lancers counted beside them — and the trickle once it is
+/// spent is never counted. Kept on [`Run::budget`]; saved, and hashed
+/// only where there is one.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Budget {
+    /// What the budget is sliced over.
+    pub of: Budgeted,
+    /// The mission's frozen wave, base bodies (no extras).
+    pub wave: u32,
+    /// The Bombers a full wave carries on top (the area's; nought in area
+    /// 0 and where the kinds are forced)...
+    pub bombers: u32,
+    /// ...and the Lancers.
+    pub lancers: u32,
+    /// The base bodies the mission brings in all: the wave times the
+    /// area's budget times the mission's weight, at least one.
+    pub planned: u32,
+    /// The base bodies of it laid so far.
+    pub laid: u32,
+    /// The Bombers laid so far...
+    pub bombers_laid: u32,
+    /// ...and the Lancers.
+    pub lancers_laid: u32,
+    /// The landings made, the budget's and the trickle's alike.
+    pub landings: u32,
+    /// The base bodies of the first landing: the garrison of an attack, a
+    /// defence's first wave.
+    pub garrison: u32,
+}
+
+/// One landing as the budget lets it be laid ([`Budget`],
+/// `World::budget_take`): its base bodies, the extras on top, and whether
+/// it is the trickle — bodies that pay nothing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Landing {
+    pub base: u32,
+    pub bombers: u32,
+    pub lancers: u32,
+    pub unpaid: bool,
+}
+
 /// Where the run stands.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -542,6 +631,12 @@ pub struct Run {
     /// shares.
     #[cfg_attr(feature = "serde", serde(default))]
     pub money_each: Option<Money>,
+    /// This mission's enemy budget (October 2026, [`Budget`]): opened the
+    /// step its wave froze, at a fight that slices one; `None` before
+    /// that, at a fight that has none, and again at every mission's start
+    /// and end.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub budget: Option<Budget>,
     /// *Clean Sweep*'s book (October 2026): the experience each crew
     /// member earned at this site since its last clear, by crew index...
     #[cfg_attr(feature = "serde", serde(default))]
@@ -566,8 +661,9 @@ pub struct Run {
     #[cfg_attr(feature = "serde", serde(default))]
     pub weld_work: Vec<(u32, u32)>,
     /// The welds a wave burnt through this step, for the step to say
-    /// (`World::say_burns`); empty between steps.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// (`World::say_burns`); empty between steps, and saved all the same
+    /// so a world read back is the world written.
+    #[cfg_attr(feature = "serde", serde(default))]
     pub burnt: Vec<u32>,
 }
 
@@ -608,6 +704,7 @@ impl Run {
             wave_size: None,
             xp_each: None,
             money_each: None,
+            budget: None,
             clean_xp: Vec::new(),
             clean_spoiled: false,
             bonus: BonusWave::None,

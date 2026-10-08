@@ -472,8 +472,9 @@ pub struct Room {
     /// Where every visitor the crew may revive lies this step, by visitor
     /// index — `None` for one that may not be (`Game::set_visitors_revivable`)
     /// — set with `crew`, for a revive's walk to a townsperson down
-    /// (`game::GUEST`). Never saved: the world says it again every step.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// (`game::GUEST`). The world says it again every step; saved like
+    /// `crew`, so a world read back is the world written.
+    #[cfg_attr(feature = "serde", serde(default))]
     pub guests: Vec<Option<Vec2>>,
     /// What happened this step that a host may want to hear — see
     /// `crate::cue`. Said by the doors; drained through `Game::take_cues`.

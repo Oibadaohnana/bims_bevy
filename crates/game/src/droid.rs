@@ -316,8 +316,8 @@ pub struct Rhythm {
     /// A Conductor's strike has been called: once, at half its health.
     pub called: bool,
     /// Where a Conductor last blinked from and how long ago, for the
-    /// picture of it going. Drawing only.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// picture of it going. Drawing only; saved with the rhythm.
+    #[cfg_attr(feature = "serde", serde(default))]
     pub blinked: Option<(Vec2, f32)>,
 }
 
@@ -767,8 +767,9 @@ pub struct Droid {
     /// [`Droid::facing`] for the picture alone.
     pub pos: Vec2,
     /// Where it stood at the top of the room's last step, for the
-    /// picture to blend from (`Game::set_blend`). Drawing only.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// picture to blend from (`Game::set_blend`). Drawing only; saved, so
+    /// a world read back blends from where the original would.
+    #[cfg_attr(feature = "serde", serde(default))]
     pub was: Vec2,
     pub heading: f32,
     /// Which way it faces as a **unit vector**: what a Guardian's shield
@@ -807,8 +808,8 @@ pub struct Droid {
     pub rhythm: Rhythm,
     /// Where the machines a Conductor links stand, said by the room every
     /// step, for the tethers drawn to them. Drawing only; empty for every
-    /// other kind.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// other kind. Saved with the rest.
+    #[cfg_attr(feature = "serde", serde(default))]
     pub tethers: Vec<Vec2>,
     /// Where it is steering, the way a Bim's intent works.
     intent: f32,
@@ -901,6 +902,12 @@ pub struct Droid {
     /// [`Droid::shield`] is `None` for good. Nought for every other kind.
     #[cfg_attr(feature = "serde", serde(default))]
     pub plate_taken: f32,
+    /// Laid by a landing past its mission's budget (October 2026, the
+    /// world's `run::Budget`): the trickle, which pays nothing when it
+    /// goes down — no experience, no money. Set by the world; never
+    /// hashed, since what it decides is.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub unpaid: bool,
     /// How long its plate has been broken, for the picture of it
     /// collapsing; nought while it stands.
     #[cfg_attr(feature = "serde", serde(default))]
@@ -973,6 +980,7 @@ impl Droid {
             stunned: 0.0,
             exposed: false,
             plate_taken: 0.0,
+            unpaid: false,
             plate_age: 0.0,
             wreck_age: 0.0,
             stride: 0.0,

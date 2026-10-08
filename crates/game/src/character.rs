@@ -940,6 +940,7 @@ enum Activity {
 /// answer and not the walk's: a body with something to shoot at backs
 /// away from it, and one with nothing to shoot at runs.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum FallBack {
     /// Backing away, facing that angle — where the enemy is — while the
     /// feet carry it along the route the other way.
@@ -1003,8 +1004,10 @@ pub struct Character {
     pub pos: Vec2,
     /// Where it stood at the top of the room's last step: what the
     /// picture blends from towards `pos` between two steps
-    /// (`Game::set_blend`). Drawing only, never saved or read by a rule.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// (`Game::set_blend`). Drawing only, never read by a rule; saved, so
+    /// a world read back (a guest's resync) blends from where the
+    /// original would.
+    #[cfg_attr(feature = "serde", serde(default))]
     pub was: Vec2,
     /// Which of the crew this is to look at. Read by `draw` and nothing else.
     look: Look,
@@ -1114,18 +1117,21 @@ pub struct Character {
     /// shot. `None` with nothing to shoot at, which is the carry.
     /// Drawing only — but the shot leaves [`Character::muzzle`], which
     /// is the end of that barrel, so `Game::tick_combat` sets this
-    /// **before** it fires. Left out of a save the way `outfit` is: the
-    /// fight sets it every step, so a loaded game has it back before the
-    /// first shot.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// **before** it fires. The fight sets it every step; saved all the
+    /// same, so a world read back (a guest's resync) is the world written
+    /// whatever reads it before the fight says it again.
+    #[cfg_attr(feature = "serde", serde(default))]
     aim: Option<Vec2>,
     /// Falling back to the ship (feature 84): how the body carries
     /// itself along the walk — backing away with the gun up, or running
     /// with its back turned — and `None` for every other walk there is.
     /// Movement and drawing only, set every step by `Game::tick_combat`
-    /// off the player's standing order, and so left out of a save the
-    /// way `aim` is.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// off the player's standing order — **after** the walk has read it,
+    /// so the pace a step walks at is the one the step before set: saved,
+    /// or a world read back mid-retreat (a guest's resync) walks its bots
+    /// a step at the wrong pace and parts from the host's
+    /// (`crates/ship/src/tests_resync.rs`).
+    #[cfg_attr(feature = "serde", serde(default))]
     falling_back: Option<FallBack>,
     /// Its player's keys and pointer (task 144), once they have said
     /// anything: the walk, the aim and the trigger. Saved, since a guest
@@ -1154,26 +1160,28 @@ pub struct Character {
     braced: bool,
     /// How far a Stun Shot charging has come, nought to one (October
     /// 2026): a growing glow at the muzzle. Drawing only; the world says
-    /// it every step.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// it every step, and it is saved with the rest.
+    #[cfg_attr(feature = "serde", serde(default))]
     shot_charge: f32,
     /// How far a reload of the gun in the hands has come, nought to one
     /// (October 2026), nought with none under way: the reload drawn —
     /// the gun canted in, the old magazine out, the fore hand to the
     /// pouch and back with a fresh one; a shotgun's shells one at a time
-    /// and then the pump. Drawing only; the world says it every step.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// and then the pump. Drawing only; the world says it every step,
+    /// and it is saved with the rest.
+    #[cfg_attr(feature = "serde", serde(default))]
     reload: f32,
     /// Where a Stun Shot charging goes (October 2026, the player's word:
     /// he keeps facing it): the body faces it at once whatever the
     /// pointer or its walk says, its feet going their own way. The world
-    /// says it every step, as the glow.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// says it every step, as the glow; saved, since the facing is the
+    /// rule's.
+    #[cfg_attr(feature = "serde", serde(default))]
     shot_at: Option<Vec2>,
     /// Stunned by a Stun Shot (October 2026): the stun's pale blue
     /// flickering over the body. Drawing only; `Game::tick_combat` sets
-    /// it off the Bim's own timer.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// it off the Bim's own timer. Saved with the rest.
+    #[cfg_attr(feature = "serde", serde(default))]
     stunned: bool,
     /// Under a medic's surge (feature 76): a halo round the body while
     /// nothing can hurt it. Drawing only; `Game::tick_combat` sets it
@@ -1186,17 +1194,17 @@ pub struct Character {
     cloaked: bool,
     /// What is left of a relic's shield on it (task 142), nought to one:
     /// a ring of plates. Drawing only; `Game::tick_combat` sets it off the
-    /// Bim's own shield, so it is never saved.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// Bim's own shield. Saved with the rest.
+    #[cfg_attr(feature = "serde", serde(default))]
     shield: f32,
     /// A tank's Riot Shield held up (task 155): what is left of it,
     /// nought to one, or `None` with none up. Drawing only; the world says
-    /// it every step (`Game::set_riot_shields`).
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// it every step (`Game::set_riot_shields`). Saved with the rest.
+    #[cfg_attr(feature = "serde", serde(default))]
     plate: Option<f32>,
     /// A tank's Reflect Barrier running (task 155): the ring of thorns.
-    /// Drawing only, off the body's skill every step.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// Drawing only, off the body's skill every step. Saved with the rest.
+    #[cfg_attr(feature = "serde", serde(default))]
     reflecting: bool,
     /// Out cold for want of blood: lying where it dropped, alive, doing
     /// nothing until it comes round. Set by `Game::tick_bim` off the

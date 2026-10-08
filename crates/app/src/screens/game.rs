@@ -44,6 +44,17 @@ use crate::{Launch, Screen, theme};
 /// a load, a hitch — may catch up before the backlog is given up.
 const MAX_STEPS_PER_FRAME: u32 = 128;
 
+/// Steps of the host's a guest whose world parted waits for the host's
+/// before it asks again (`GameScreen::resyncing`): four checksums, eight
+/// seconds at 1× — long enough for a world to cross a slow line.
+const RESYNC_AGAIN: u64 = 4 * CHECK_EVERY;
+
+/// Steps of its own the host lets go by before it answers the same guest's
+/// ask for its world again (`GameScreen::answered`): half a checksum, so
+/// a guest asking twice in a breath is answered once, and a world that
+/// parted again at the next checksum is answered there.
+const RESYNC_ANSWER_GAP: u64 = CHECK_EVERY / 2;
+
 /// How long the pointer has to rest on the deck before the small readout
 /// of what is under it comes up beside it (feature 107), in seconds:
 /// egui's own tooltip delay and a little more, so crossing the deck on
@@ -222,11 +233,14 @@ pub struct GameScreen {
     /// machine (`Online::names_said`). `None` until said.
     said_name: Option<String>,
     /// A guest whose checksum has parted from the host's and has asked
-    /// for its world (`Packet::Resync`, feature 67): said once, and not
-    /// asked again until the world arrives. The wrong world keeps
-    /// stepping meanwhile — stopping would make it wronger under the
-    /// pointer.
-    resyncing: bool,
+    /// for its world (`Packet::Resync`, feature 67): the host's step it
+    /// last asked at. Said in the log once, and asked again every
+    /// [`RESYNC_AGAIN`] steps of the host's until the world arrives — an
+    /// ask the host passed over, or a world that could not be read, must
+    /// not leave this end on the wrong world for good. The wrong world
+    /// keeps stepping meanwhile — stopping would make it wronger under
+    /// the pointer.
+    resyncing: Option<u64>,
     /// A guest's playout buffer (task 148): the host's steps, orders and
     /// world, held in their order and played out at the world's pace so
     /// a shaky line does not stop and lurch the world. Idle on the clock.
@@ -239,9 +253,14 @@ pub struct GameScreen {
     /// world has not reached, held until it does.
     held: crate::rollback::Held,
     /// The host's side of it: the step each peer was last answered a
-    /// `World` at, so a guest that keeps asking gets one an
-    /// `CHECK_EVERY` at most — the world is megabytes to write.
+    /// `World` at, so a guest that asks twice in a breath gets one —
+    /// the world is megabytes to write. Once [`RESYNC_ANSWER_GAP`] has
+    /// gone by it is answered again.
     answered: Vec<(PeerId, u64)>,
+    /// On a guest, since when (the egui clock's seconds) the host has been
+    /// missing from the room — its line dropped, the relay keeping its
+    /// seat — while it is.
+    host_away: Option<f64>,
     /// `BIMS_DESYNC_AT`: on a guest, the step at which one order is
     /// applied without asking the host — a divergence on purpose, for
     /// looking at the resync. Taken once it has fired.
@@ -610,6 +629,7 @@ fn over(
                     save: text.clone(),
                     at,
                     dealt: Some(Box::new(crate::wavecfg::dealing())),
+                    queued: Vec::new(),
                 },
             );
         }
@@ -1239,7 +1259,8 @@ impl GameScreen {
             picked_star: None,
             gone: Vec::new(),
             said_name: None,
-            resyncing: false,
+            resyncing: None,
+            host_away: None,
             playout: crate::playout::Playout::default(),
             rollback,
             held: crate::rollback::Held::default(),
@@ -1450,14 +1471,21 @@ fn frame(
                     }
                     if let (Some(theirs), Some(game)) = (checksum, &session.game) {
                         let mine = world::world_checksum(&game.world);
-                        if theirs != mine && !screen.resyncing {
+                        let at = game.world.steps;
+                        let due = screen
+                            .resyncing
+                            .is_none_or(|asked| at >= asked + RESYNC_AGAIN);
+                        if theirs != mine && due {
                             // Parted from the host: say so, and ask for
-                            // its world. Once — the steps keep coming
-                            // and keep being applied to the wrong world
-                            // until it arrives (`Packet::World`).
-                            screen.resyncing = true;
-                            screen.log.push(DESYNC.into());
-                            screen.log.push(RESYNC_ASKED.into());
+                            // its world. The steps keep coming and keep
+                            // being applied to the wrong world until it
+                            // arrives (`Packet::World`); asked again if it
+                            // has not come in `RESYNC_AGAIN` steps.
+                            if screen.resyncing.is_none() {
+                                screen.log.push(DESYNC.into());
+                                screen.log.push(RESYNC_ASKED.into());
+                            }
+                            screen.resyncing = Some(at);
                             if let Some(wire) = &screen.net.wire {
                                 wire.send(To::Host, &Packet::Resync { reason: 0 });
                             }
@@ -1497,18 +1525,24 @@ fn frame(
                     let recently = screen
                         .answered
                         .iter()
-                        .any(|&(p, last)| p == from && at < last + CHECK_EVERY);
+                        .any(|&(p, last)| p == from && at < last + RESYNC_ANSWER_GAP);
                     if !recently && let Some(text) = session.save() {
                         screen.answered.retain(|&(p, _)| p != from);
                         screen.answered.push((from, at));
                         if let Some(wire) = &screen.net.wire {
                             let dealt = Some(Box::new(crate::wavecfg::dealing()));
+                            let queued = session
+                                .game
+                                .as_ref()
+                                .map(|g| g.queued.clone())
+                                .unwrap_or_default();
                             wire.send(
                                 To::Peer(from),
                                 &Packet::World {
                                     save: text,
                                     at,
                                     dealt,
+                                    queued,
                                 },
                             );
                         }
@@ -1524,9 +1558,13 @@ fn frame(
                 // the wire and the log kept; the canvas is fitted again
                 // this frame, since it is unmeasured. A host applies
                 // none, and nobody applies one from anybody but the host.
-                Packet::World { save, at, dealt }
-                    if Some(from) == online.host
-                        && screen.net.wire.as_ref().is_some_and(|w| !w.host) =>
+                Packet::World {
+                    save,
+                    at,
+                    dealt,
+                    queued,
+                } if Some(from) == online.host
+                    && screen.net.wire.as_ref().is_some_and(|w| !w.host) =>
                 {
                     let size = screen.size.max(Vec2::splat(64.0));
                     match Session::restore_as(&save, online.my_slot(), size.x, size.y) {
@@ -1557,6 +1595,11 @@ fn frame(
                             {
                                 crate::rollback::hand_dials(&old.world, &mut new.world);
                             }
+                            // And what the host had queued for its next
+                            // step, which the steps behind it take.
+                            if let Some(new) = &mut loaded.game {
+                                new.queued = queued;
+                            }
                             *session = loaded;
                             *screen = screen.again(slot, players);
                             screen.log.push(RESYNC_DONE.into());
@@ -1580,9 +1623,54 @@ fn frame(
                 // went is asked below, every frame.
                 screen.said_name = None;
             }
+            // This end's line dropped mid-game and is being dialled again
+            // (`Online::drain`): nothing crosses meanwhile, and the host's
+            // world stands still for everybody.
+            Event::Reconnecting if screen.net.wire.is_some() => {
+                screen.log.push(RECONNECTING.into());
+            }
+            // ...and its seat is taken back. What crossed the wire in
+            // between is lost both ways, so the worlds are made one again
+            // whole: the host sends its world round, as after a load; a
+            // guest asks for it, as after a desync.
+            Event::Rejoined if screen.net.wire.is_some() => {
+                screen.log.push(RECONNECTED.into());
+                screen.net.wire = online.wire();
+                screen.said_name = None;
+                if screen.net.is_clock() {
+                    screen.answered.clear();
+                    let at = session.game.as_ref().map_or(0, |g| g.world.steps);
+                    if let (Some(text), Some(wire)) = (session.save(), &screen.net.wire) {
+                        let queued = session
+                            .game
+                            .as_ref()
+                            .map(|g| g.queued.clone())
+                            .unwrap_or_default();
+                        wire.send(
+                            To::All,
+                            &Packet::World {
+                                save: text,
+                                at,
+                                dealt: Some(Box::new(crate::wavecfg::dealing())),
+                                queued,
+                            },
+                        );
+                        if crate::dev::auto().is_some() {
+                            println!("world sent: {at} rejoined");
+                        }
+                    }
+                } else if let Some(wire) = &screen.net.wire {
+                    let at = session.game.as_ref().map_or(0, |g| g.world.steps);
+                    screen.resyncing = Some(at);
+                    wire.send(To::Host, &Packet::Resync { reason: 1 });
+                }
+            }
             Event::Closed(_) | Event::Lost(_) if screen.net.wire.is_some() => {
                 screen.net.wire = None;
-                screen.log.push(HOST_GONE.into());
+                screen.log.push(match event {
+                    Event::Lost(_) => LINK_GAVE_UP.into(),
+                    _ => HOST_GONE.into(),
+                });
                 // The clock is this end's now, and nobody else is in the
                 // room: the world told so, or a vote, the ready check or a
                 // departure waits for ever on players who are not there.
@@ -1603,12 +1691,29 @@ fn frame(
     // they were still here, and says they are.
     if screen.net.wire.is_some() && !loading.busy() {
         let host = screen.net.wire.as_ref().is_some_and(|w| w.host);
+        // The host missing from a guest's roster is a dropped line waited
+        // for below, not a player gone.
+        let host_slot = online.host.and_then(|h| online.slot_of(h));
         for slot in 0..screen.net.players {
+            if !host && Some(slot) == host_slot {
+                continue;
+            }
             let there = slot == screen.net.slot
                 || online
                     .slots
                     .get(slot as usize)
                     .is_some_and(|id| online.peers.iter().any(|p| p.id == *id));
+            // Somebody whose line dropped has taken their seat back: the
+            // votes wait on them again, and their world is made the
+            // host's when they ask for it.
+            if there && screen.gone.contains(&slot) {
+                screen.gone.retain(|&g| g != slot);
+                screen.log.push(player_back(&crew_name(slot)));
+                if host {
+                    loading.order(&screen.net, session, Order::PlayerBack(slot));
+                }
+                continue;
+            }
             if there || screen.gone.contains(&slot) {
                 continue;
             }
@@ -1621,6 +1726,37 @@ fn frame(
                 screen.log.push(player_left(&crew_name(slot)));
                 if host {
                     loading.order(&screen.net, session, Order::PlayerGone(slot));
+                }
+            }
+        }
+    }
+
+    // A guest whose host's line dropped waits for it — the world stands
+    // still, no steps coming — and gives up after `RECONNECT_FOR`, playing
+    // on alone as if the host had left.
+    if screen.net.wire.as_ref().is_some_and(|w| !w.host) && !online.reconnecting() {
+        let host_here = online
+            .host
+            .is_some_and(|h| online.peers.iter().any(|p| p.id == h));
+        if host_here {
+            if screen.host_away.take().is_some() {
+                screen.log.push(HOST_BACK.into());
+            }
+        } else {
+            if screen.host_away.is_none() {
+                screen.log.push(HOST_AWAY.into());
+            }
+            let since = *screen.host_away.get_or_insert(now);
+            if now - since > crate::net::RECONNECT_FOR {
+                screen.host_away = None;
+                online.leave();
+                screen.net.wire = None;
+                screen.log.push(HOST_GONE.into());
+                for slot in 0..screen.net.players {
+                    if slot != screen.net.slot && !screen.gone.contains(&slot) {
+                        screen.gone.push(slot);
+                        loading.order(&screen.net, session, Order::PlayerGone(slot));
+                    }
                 }
             }
         }
@@ -1720,11 +1856,17 @@ fn frame(
     // guest can tell it is still the same world.
     let mut steps = 0;
     if screen.net.is_clock() {
-        let times = session
-            .game
-            .as_ref()
-            .map(|g| g.world.effective_speed().multiplier())
-            .unwrap_or(0) as f64;
+        // A host whose line dropped holds the clock until it is back:
+        // the guests' worlds stand still meanwhile, and so does its own.
+        let times = if online.reconnecting() && screen.net.wire.is_some() {
+            0.0
+        } else {
+            session
+                .game
+                .as_ref()
+                .map(|g| g.world.effective_speed().multiplier())
+                .unwrap_or(0) as f64
+        };
         screen.backlog += dt * session.steps_per_second() * times;
         // The steps since the host last said how many went: said before
         // a guest's held order goes out, so every guest applies it after
@@ -3960,6 +4102,7 @@ fn frame(
                                 save: text,
                                 at,
                                 dealt,
+                                queued: Vec::new(),
                             },
                         );
                         if crate::dev::auto().is_some() {

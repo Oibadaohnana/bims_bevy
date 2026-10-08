@@ -15,7 +15,7 @@ use worldgen::{GalaxyType, Node};
 use crate::draw::DrawList;
 use crate::game::Game;
 use crate::world_paint;
-use bims::character::{Hair, Look, Shade, Tint};
+use bims::character::{Hair, Shade, Tint};
 use world::Class;
 
 /// "The lobby did not say." What a star or a station id is when there is
@@ -1227,11 +1227,16 @@ impl Session {
     }
 
     /// Put the hair the players chose onto their crew members
-    /// (`crew_hair`, feature 62): slot *i*'s Bim gets its dealt look
-    /// (`Look::of`) with the hair said for slot *i*, for as many slots as
-    /// have said and are players — a bot, a joiner, a resident keeps what
-    /// the index dealt it. Nothing with no world; called as a run opens
-    /// and by the app whenever a choice arrives late.
+    /// (`crew_hair`, feature 62): slot *i*'s Bim keeps the look it was
+    /// dealt (`Look::of`, at its making) with the hair said for slot *i*,
+    /// for as many slots as have said and are players — a bot, a joiner,
+    /// a resident keeps what the index dealt it. Nothing with no world;
+    /// called as a run opens and by the app whenever a choice arrives late
+    /// — on each machine at a step of its own, so **the hair and its
+    /// colour and nothing else**: the build scales the body, and the body
+    /// is where a shot leaves (`Character::muzzle`), so a build changed
+    /// here on one machine and not another would be a bolt flying from
+    /// another point and two worlds parting.
     pub fn dress_crew(&mut self) {
         let players = self.players as usize;
         let Some(game) = &mut self.game else {
@@ -1240,7 +1245,8 @@ impl Session {
         let room = &mut game.world.aboard.room;
         let crew = room.crew_count() as usize;
         for (slot, &(hair, shade)) in self.crew_hair.iter().enumerate().take(players.min(crew)) {
-            room.set_look(slot, Look::of(slot).with_hair(hair, shade));
+            let look = room.look(slot).with_hair(hair, shade);
+            room.set_look(slot, look);
         }
         // And the ring under each player's own (feature 84): slot *i*'s
         // colour, or the *i*th of `Tint::ALL` for a slot that has not

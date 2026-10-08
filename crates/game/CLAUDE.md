@@ -853,7 +853,18 @@ opaque without being a part, and went in feature 104.
   if no door stood between. `set_shut` marks the mask stale so the next
   `observe` does not skip a trace over doors it was handed already.
   `a_shut_door_stops_a_line_of_sight_without_a_trace` in the world tests
-  pins both.
+  pins both. **And again at the top of every world step**
+  (`Game::settle_sight`, called first thing in `World::step` for both
+  rooms; a no-op off `Fog::Crew`): the trace writes the same cells at
+  the frame, after the station's people have moved and the doors been
+  carried across — both after this room's fight — and a step reads them
+  before its own fight puts them back (a command's line, a healing
+  circle, a Healing Sentry, a runner's look). Without it a world drawn
+  after every step (a host's) and one never drawn (a guest's copy of
+  the host's timeline) read different walls there and parted: **a frame
+  must never decide what a step reads**. `ship`'s `tests_drawn.rs` pins
+  it, a fight drawn every step, every third and never, and a medic's
+  circle through the mated airlock's station door.
 - **The mask is shared** by construction: one trace per eye, OR'd. Every
   Bim in `Game::bims` is an eye, which aboard is the crew and nobody else.
 - **The fog is drawn over `Layout::hull`** (every structure tile), over

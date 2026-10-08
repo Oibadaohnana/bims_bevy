@@ -343,10 +343,27 @@ pub fn room_closed(why: wire::Closed) -> &'static str {
 pub const CONNECTING: &str = "Reaching the server…";
 /// A join with something that is not six of the code's letters.
 pub const NOT_A_CODE: &str = "That is not a room code: six letters or digits.";
+/// The lobby's Start refused: somebody's game is another build — two
+/// builds play two different games, and the worlds would part at once.
+pub const BUILDS_DIFFER: &str = "Not everyone has the same version of the game. Everyone needs the same build to play together.";
+/// ...or somebody's has not been heard yet.
+pub const BUILDS_CHECKING: &str = "Checking everyone has the same version…";
 /// The connection died; what the socket said follows.
 pub const LINK_LOST: &str = "Lost the connection:";
 /// The host has gone mid-game: the ship is this player's own from here.
 pub const HOST_GONE: &str = "The host has gone. The ship is yours now, and the clock with it.";
+/// This player's line dropped mid-game and could not take its seat back
+/// in time: the ship is this player's own from here.
+pub const LINK_GAVE_UP: &str =
+    "The connection could not be found again. The ship is yours now, and the clock with it.";
+/// This player's line dropped mid-game; it is being dialled again.
+pub const RECONNECTING: &str = "Connection lost — reconnecting…";
+/// ...and the seat is taken back.
+pub const RECONNECTED: &str = "Reconnected.";
+/// The host's line dropped mid-game: the world waits for it.
+pub const HOST_AWAY: &str = "The host's connection dropped — waiting for it to come back…";
+/// ...and it came back.
+pub const HOST_BACK: &str = "The host is back.";
 /// A guest's copy of the world disagrees with the host's.
 pub const DESYNC: &str =
     "Your world has drifted from the host's — what you see may not be what they see.";
@@ -389,6 +406,10 @@ pub fn load_players(saved: u32, here: u32) -> String {
 /// The host's world arrived and could not be read.
 pub fn world_refused(why: &str) -> String {
     format!("Could not read the host's world: {why}")
+}
+/// Somebody whose line dropped has taken their seat back.
+pub fn player_back(name: &str) -> String {
+    format!("{name} is back.")
 }
 /// Somebody left the game; their crew member carries on unsteered.
 pub fn player_left(name: &str) -> String {

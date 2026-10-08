@@ -31,11 +31,14 @@ use server::hub::{Hub, Outbound};
 
 /// How long a socket may stay silent before it is dropped.
 ///
-/// The game pings every few seconds, so anything quiet for this long is a
-/// connection that died without saying so — a laptop lid shut mid-game,
-/// most often. Without this they accumulate, holding berths in rooms
-/// nobody can use.
-const IDLE_TIMEOUT: Duration = Duration::from_secs(45);
+/// The game's network thread pings every two seconds whatever its frames
+/// are doing, so anything quiet for this long is a connection that died
+/// without saying so — Wi-Fi gone, a laptop lid shut mid-game. Short, so
+/// a player whose line dropped finds its seat free to take back soon
+/// (`Hub::disconnect` keeps it), and the rest are told soon that the host
+/// is away. Without this they accumulate, holding berths in rooms nobody
+/// can use.
+const IDLE_TIMEOUT: Duration = Duration::from_secs(12);
 
 /// Time allowed between the TCP connection and a finished WebSocket
 /// handshake. Anything slower is a port scanner, not a player.
@@ -188,7 +191,9 @@ async fn serve(
         let _ = sink.close().await;
     });
 
-    let result = read_loop(&shared, id, &mut source).await;
+    // A `Hello` that takes a seat back moves this socket to the seat's id.
+    let mut id = id;
+    let result = read_loop(&shared, &mut id, &mut source).await;
 
     // Cleanup runs on every exit path — error, clean close, or timeout —
     // because a peer left in the hub holds a berth in a room for ever.
@@ -207,7 +212,7 @@ async fn serve(
 
 async fn read_loop(
     shared: &Arc<Shared>,
-    id: PeerId,
+    id: &mut PeerId,
     source: &mut (impl StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin),
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     loop {
@@ -242,7 +247,20 @@ async fn read_loop(
             return Err("undecodable frame".into());
         };
 
-        let out = shared.hub.lock().expect("hub poisoned").handle(id, msg);
+        let out = {
+            let mut hub = shared.hub.lock().expect("hub poisoned");
+            let out = hub.handle(*id, msg);
+            // The seat taken back: this socket's outbox goes with it,
+            // before anything is sent to the seat's id.
+            if let Some((from, to)) = hub.take_resumed() {
+                let mut boxes = shared.outboxes.lock().expect("outboxes poisoned");
+                if let Some(tx) = boxes.remove(&from) {
+                    boxes.insert(to, tx);
+                }
+                *id = to;
+            }
+            out
+        };
         shared.dispatch(out);
     }
 }

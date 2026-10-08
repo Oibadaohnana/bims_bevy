@@ -126,8 +126,9 @@ pub struct Door {
     /// How open the leaves were when the crew last saw them, while they
     /// do not: a door under the fog is drawn as it was left, not sliding
     /// for somebody nobody sees. `None` while it is seen. The picture's
-    /// alone — never saved, never hashed; [`Door::set_seen`].
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// alone — never hashed, but saved, so a world read back draws its
+    /// doors as they were left; [`Door::set_seen`].
+    #[cfg_attr(feature = "serde", serde(default))]
     shown: Option<f32>,
     /// A cell's door, sealed (October 2026, a prison break): locked, and
     /// no panel order and no body's smashing lifts it — the world's weld

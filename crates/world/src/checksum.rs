@@ -741,6 +741,25 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat(0x_4D4F_4E45);
         hash.eat(money);
     }
+    // The mission's enemy budget (October 2026): eaten only where there
+    // is one, every field in order.
+    if let Some(b) = run.budget {
+        hash.eat(0x_4255_4447);
+        for n in [
+            b.of.code(),
+            b.wave,
+            b.bombers,
+            b.lancers,
+            b.planned,
+            b.laid,
+            b.bombers_laid,
+            b.lancers_laid,
+            b.landings,
+            b.garrison,
+        ] {
+            hash.eat(u64::from(n));
+        }
+    }
     if run.bonus.chosen() {
         hash.eat(0x_424F_4E55);
         hash.eat(u64::from(run.bonus.code()));

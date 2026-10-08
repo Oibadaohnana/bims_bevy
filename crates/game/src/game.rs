@@ -69,6 +69,7 @@ const BIM_STRUCK: u32 = 0;
 /// A revive finished (task 120): whose hands brought whom round. For the
 /// world's relics (`Game::take_revives`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Revived {
     pub helper: usize,
     pub patient: usize,
@@ -86,6 +87,7 @@ pub const GUEST: usize = 1 << 16;
 /// in its own room, `GUEST` taken off) and the share of its bar it gets
 /// up at — the helper's, which only this room knows.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct GuestRevived {
     pub helper: usize,
     pub visitor: usize,
@@ -493,9 +495,8 @@ struct Marker {
     kind: Ping,
     /// The Bim the order was for, so that another player's ping is drawn
     /// in their colour and see-through ([`Game::draw_pings`]). A picture
-    /// matter only, left out of a save: a ping lives under a second, and
-    /// one loaded without it is drawn as the viewer's own.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// matter only; saved with the ping, which lives under a second.
+    #[cfg_attr(feature = "serde", serde(default))]
     by: Option<usize>,
 }
 
@@ -686,8 +687,9 @@ pub struct Game {
     outside_blockers: Vec<Rect>,
     /// What a body afield is pushed out of, one list a body: the ground's
     /// runs and the deck's solids that fall in its window. Kept with the
-    /// windows — see `refresh_afield` — and not saved with them.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// windows — see `refresh_afield` — and saved with them
+    /// (`nav::Maps::afield`).
+    #[cfg_attr(feature = "serde", serde(default))]
     afield_blockers: Vec<Vec<Rect>>,
     /// Which version of the rocks the outside grid was built from, so it
     /// is rebuilt when they change and not otherwise.
@@ -705,19 +707,23 @@ pub struct Game {
     /// Which of the visitors may be revived by the crew's hands — a
     /// townsperson downed in its own room, as the world says — index for
     /// index with `visitors`, told right after `set_visitors` every step
-    /// and cleared with it. A revive of one names it `GUEST + i`.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// and cleared with it. A revive of one names it `GUEST + i`. Saved,
+    /// like everything the world says between steps: a world read back (a
+    /// guest's resync) is the world written whatever reads it first.
+    #[cfg_attr(feature = "serde", serde(default))]
     visitors_revivable: Vec<bool>,
     /// Every revive of a visitor finished since the world last asked
     /// (`take_guest_revives`), for it to bring the body round in its own
-    /// room.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// room. Saved, so none is lost to a world read back between the
+    /// revive and the world's asking.
+    #[cfg_attr(feature = "serde", serde(default))]
     guest_revives: Vec<GuestRevived>,
     /// Which of this room's own bodies have somebody else's hands on
     /// them — a crew member kneeling at a townsperson on the joined deck
     /// — as the world says every step (`set_tended`): their countdown
-    /// stands the way a revive in this room stands it.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// stands the way a revive in this room stands it. Saved, as
+    /// `visitors_revivable` is.
+    #[cfg_attr(feature = "serde", serde(default))]
     tended: Vec<bool>,
     /// Whether a Bim nobody steers picks its own work off the list.
     autonomous: bool,
@@ -733,8 +739,8 @@ pub struct Game {
     fog: Fog,
     /// Draw every body whatever the world says is in view: a probe's
     /// switch for a picture (`show_everybody_for_probe`), never set in
-    /// the game and left out of a save with the rest of the picture.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// the game.
+    #[cfg_attr(feature = "serde", serde(default))]
     show_everybody: bool,
     /// Under `Fog::None`, how long each body stays drawn since the world
     /// last said it was in view — [`SEEN_FOR`] from the sighting, counting
@@ -750,8 +756,9 @@ pub struct Game {
     /// cannot work it out for itself: `Room::gangway` on a joined deck
     /// is the *joined* design's first free airlock, and with the ship's
     /// own mated to the station that is the station's far door — the
-    /// other end of the building from the ship.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// other end of the building from the ship. Saved, as
+    /// `visitors_revivable` is.
+    #[cfg_attr(feature = "serde", serde(default))]
     home: Option<Vec2>,
     /// And whose the rest are, as the world last said (`stance`).
     stance: Stance,
@@ -776,8 +783,8 @@ pub struct Game {
     /// 157), by its index on the machines' targets: worked out at the top
     /// of every `tick_droids` off the Conductors' own marks, which are
     /// saved, and read by the aim (`machine_aim`). `None` with no mark
-    /// past its warning.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// past its warning. Saved too, as `visitors_revivable` is.
+    #[cfg_attr(feature = "serde", serde(default))]
     marked: Option<usize>,
     at_war: bool,
     /// The crew's side of that: whether an enemy is within [`ALARM_RANGE`]
@@ -826,10 +833,10 @@ pub struct Game {
     skills: Vec<Skill>,
     /// What each player's standing order to the bots is (`set_orders`,
     /// feature 84): one an entry, by player slot, [`Standing::Follow`] for
-    /// a slot that has not said. The world's word, said every step, and
-    /// left out of a save with it — the order itself is the world's
-    /// (`world::Standing`).
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// a slot that has not said. The world's word, said every step — the
+    /// order itself is the world's (`world::Standing`) — and saved, as
+    /// `visitors_revivable` is.
+    #[cfg_attr(feature = "serde", serde(default))]
     standing: Vec<Standing>,
     /// Which players' own Bims the alarm recruited (September 2026): a
     /// player's Bim takes arms by itself when a fight starts, and the
@@ -838,8 +845,9 @@ pub struct Game {
     #[cfg_attr(feature = "serde", serde(default))]
     alarm_armed: Vec<bool>,
     /// Every revive finished since the world last asked — whose hands, on
-    /// whom — for the relics (`take_revives`, task 120).
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// whom — for the relics (`take_revives`, task 120). Saved, as
+    /// `guest_revives` is.
+    #[cfg_attr(feature = "serde", serde(default))]
     revives: Vec<Revived>,
     /// Whether this room's own Bims revive one another of their own accord
     /// (task 120): the crew's room, and nobody else's — a station's or a
@@ -931,28 +939,29 @@ pub struct Game {
     /// reinforcement of the Manufacturers' standing here, as the world
     /// says every step before it hands the hostiles over (`set_told`) —
     /// what `Droid::seeking` is for the machines'. Worked out again by
-    /// the world every step, so left out of a save.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// the world every step, and saved, as `visitors_revivable` is.
+    #[cfg_attr(feature = "serde", serde(default))]
     told: bool,
     /// Where the world says each of the room's targets stands, seen or
     /// not — index for index with `set_hostiles`, `None` for one down —
     /// and the same for the machines' own list (`set_machine_hostiles`).
     /// What a Husk that has struck one down hunts by (`Droid::blooded`,
     /// `Game::hunt_on`); nobody aims at it. Said again by the world every
-    /// step, so left out of a save.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// step, and saved, as `visitors_revivable` is.
+    #[cfg_attr(feature = "serde", serde(default))]
     whereabouts: Vec<Option<Vec2>>,
-    #[cfg_attr(feature = "serde", serde(skip))]
+    #[cfg_attr(feature = "serde", serde(default))]
     machine_whereabouts: Vec<Option<Vec2>>,
     /// How each of the room's targets went over the last step, in room
     /// units a second — index for index with `whereabouts`, nought for
     /// one down, just come or put somewhere else outright — and where
     /// each stood at the end of the step before (`Game::simulate`). What
     /// the setup's auto-shoot leads its aim by (`Game::auto_aim`); the
-    /// simulation never reads it. Left out of a save.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// simulation never reads it. Saved, so a guest's auto-shoot leads
+    /// the same off a world read back.
+    #[cfg_attr(feature = "serde", serde(default))]
     target_moving: Vec<Vec2>,
-    #[cfg_attr(feature = "serde", serde(skip))]
+    #[cfg_attr(feature = "serde", serde(default))]
     target_was: Vec<Option<Vec2>>,
     /// How far the window's clock is between the last step and the next,
     /// nought to one: the bodies are drawn that far from where they stood
@@ -964,7 +973,7 @@ pub struct Game {
     blend: Option<f32>,
     /// The seconds the last step was, for drawing a bolt back along its
     /// flight by the share of a step still to come (`set_blend`).
-    #[cfg_attr(feature = "serde", serde(skip))]
+    #[cfg_attr(feature = "serde", serde(default))]
     step_dt: f32,
 }
 
@@ -10784,7 +10793,11 @@ impl Game {
     }
 
     /// Give a Bim another look: the hair a player chose at the start
-    /// (feature 62). Drawing only, so nothing the world checks moves.
+    /// (feature 62). The yoke, the hair and its colour are drawing only;
+    /// **the build is not** — it scales the body, and the gun in its
+    /// hands is where a shot leaves (`Character::muzzle`), so a build
+    /// changed on one copy of a world and not another parts them. Change
+    /// the hair with the build the Bim has (`Session::dress_crew`).
     pub fn set_look(&mut self, who: usize, look: Look) {
         if who < self.bims.len() {
             self.bims[who].character.set_look(look);
@@ -11061,6 +11074,36 @@ impl Game {
         // 2026): nobody sees into it or through it.
         shut.extend(self.smoke_in_the_way());
         shut
+    }
+
+    /// The doors as they stand now put into the sight every rule reads a
+    /// line through (`Sight::set_shut` of [`Game::shut_now`]), for a step
+    /// to read before its own fight puts them there again: the world's,
+    /// at the very top of its step, before a command is heard.
+    ///
+    /// **A frame must never decide what a step reads.** The trace
+    /// (`observe`, every frame from `render` through the crew's eyes)
+    /// puts the doors in as they stand *at the frame* — after the
+    /// station's people have moved and the world has carried the doors
+    /// across, both of which happen after this room's `tick_combat` — and
+    /// a step reads those cells before its own fight resets them: a
+    /// command's line, a healing circle, a Healing Sentry, a runner's
+    /// look, a revive's. A world drawn after every step (a host's) and
+    /// one never drawn (a guest's copy of the host's timeline) read
+    /// different walls there and part. Set here from the step's own
+    /// state, the cells are the same whether or not, and however often,
+    /// anything was drawn; and what a drawn world reads is what it read
+    /// before, the frame having put in exactly this.
+    ///
+    /// Only a room traced through the crew's eyes: `observe` writes
+    /// nothing in any other, whose cells are its fight's alone, and
+    /// setting them here would change what its people do for nothing.
+    pub fn settle_sight(&mut self) {
+        if self.fog != Fog::Crew {
+            return;
+        }
+        let shut = self.shut_now();
+        self.room.sight.set_shut(&shut);
     }
 
     /// The smooth picture of what the crew see and what is lit, for the

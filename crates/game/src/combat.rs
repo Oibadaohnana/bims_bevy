@@ -686,8 +686,8 @@ pub struct Trigger {
     #[cfg_attr(feature = "serde", serde(default))]
     pub loaded: u32,
     /// A reload began since the last [`Trigger::tick`]: for the cue the
-    /// room says it with, and nothing else.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// room says it with, and nothing else. Saved with the trigger.
+    #[cfg_attr(feature = "serde", serde(default))]
     pub began: bool,
 }
 
@@ -1252,19 +1252,19 @@ pub struct Sentry {
     /// Which way its barrel points, radians in the room's frame (nought
     /// is east): it swings toward what it aims at by [`SENTRY_TURN`] a
     /// second, and holds where it was left while nothing is in sight.
-    /// **Drawing only** — it never decides a shot — so it is neither saved
-    /// nor hashed, and kept between steps as the trigger is.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// **Drawing only** — it never decides a shot — so it is not hashed;
+    /// kept between steps as the trigger is, and saved with it.
+    #[cfg_attr(feature = "serde", serde(default))]
     pub facing: f32,
     /// Seconds left of the flash at its muzzle after a shot, for the
     /// picture ([`SENTRY_FLASH`] when it fires). Drawing only, like
     /// `facing`.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    #[cfg_attr(feature = "serde", serde(default))]
     pub flash: f32,
     /// The crew member who laid it, whose colour its bolts are drawn in
     /// ([`Combat::fire_for`]). Drawing only, like `facing`: said by the
     /// world with the rest every step.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    #[cfg_attr(feature = "serde", serde(default))]
     pub owner: Option<usize>,
 }
 
@@ -2200,8 +2200,9 @@ pub struct Combat {
     /// The share of an enemy's hit each of this room's own bodies sends
     /// back on whoever struck it, by index: a tank's Reflect Barrier
     /// (task 155), nought for everybody else. Said every step with the
-    /// skills.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// skills, and saved like everything said between steps: a world read
+    /// back (a guest's resync) is the world written.
+    #[cfg_attr(feature = "serde", serde(default))]
     reflects: Vec<f32>,
     /// How wide a shield's front is against each of this room's own
     /// bodies' bolts and blows, as a cosine, by index: a relic's *Wide
@@ -2259,12 +2260,14 @@ pub struct Combat {
     /// The world's Weak Spot stream (task 124), lent for a step and taken
     /// back ([`Combat::lend_crit_rng`]): every critical roll is drawn off
     /// it and nothing else is, so a crit never moves a roll of the fight.
-    /// `None` outside a step, and in every room but the crew's.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// `None` outside a step, and in every room but the crew's; saved all
+    /// the same, so a world read back is the world written.
+    #[cfg_attr(feature = "serde", serde(default))]
     crit_rng: Option<Rng>,
     /// Each own body's chance a weapon hit it lands is critical, by
-    /// index (`Skill::crit_chance`), said every step with the skills.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// index (`Skill::crit_chance`), said every step with the skills, and
+    /// saved as `reflects` is.
+    #[cfg_attr(feature = "serde", serde(default))]
     crit_chances: Vec<f32>,
     /// The passing lights of the fight (feature 98): the muzzles, the
     /// flashes, the scorches, the beams, the cuts, the parts struck and
@@ -2277,13 +2280,14 @@ pub struct Combat {
     /// Republic soldiers', in that player's colour
     /// (`character::Tint::shot`, said by `Game::set_tints` and
     /// `Game::set_outfit`). Drawing only, like [`Combat::fx`]: no rule
-    /// reads it and it is never saved.
+    /// reads it and it is never saved — a load dresses the rooms again
+    /// (`World::dress_the_rooms`), which says it.
     #[cfg_attr(feature = "serde", serde(skip))]
     pub hues: Vec<Option<Color>>,
     /// Whose colour the bolt being fired now is drawn in when no hand
     /// of the crew's fired it: the engineer's, for his sentry
     /// ([`Combat::fire_for`]). `None` outside that call.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    #[cfg_attr(feature = "serde", serde(default))]
     firing_for: Option<usize>,
 }
 

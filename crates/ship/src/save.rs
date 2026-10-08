@@ -333,7 +333,14 @@ use crate::game::Game;
 /// 131: the Overseer's tile away from the crew (`objective::Overseer::away`).
 /// 132: Protect the commander's room and post (`world::objective::Chief`
 /// lost its round), and `stationgen::Feature::Command`.
-pub const SAVE_VERSION: u32 = 132;
+/// 133: a world read back steps as the one written, mid-fight
+/// (`tests_resync.rs`): the room keeps a body's fall-back walk, its aim,
+/// its Stun Shot's mark and the rest of what a step leaves for the next,
+/// the plain's windows (`nav::Maps::afield`) and their blockers, what the
+/// world said between steps (standings, whereabouts, revivable visitors,
+/// the home, the mark, the revives owed), the bolts' flare, the sentries'
+/// facing; the world its probes' wave count and the tuning dials.
+pub const SAVE_VERSION: u32 = 133;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

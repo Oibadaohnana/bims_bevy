@@ -710,6 +710,14 @@ impl World {
         self.relic_if_carried(events);
     }
 
+    /// A player gone come back — see [`Command::PlayerBack`]: the votes
+    /// and the ready check wait on them again from here.
+    pub(super) fn player_back(&mut self, slot: u32) {
+        if let Some(connected) = self.run.connected.get_mut(slot as usize) {
+            *connected = true;
+        }
+    }
+
     // --- travel ---------------------------------------------------------------
 
     /// The trip, resolved (feature 103): nothing is flown. The world clock
@@ -798,6 +806,7 @@ impl World {
         self.run.wave_size = None;
         self.run.xp_each = None;
         self.run.money_each = None;
+        self.run.budget = None;
         self.run.clean_xp.clear();
         self.run.clean_spoiled = false;
         self.run.bonus = run::BonusWave::None;
@@ -1717,6 +1726,7 @@ impl World {
         self.run.wave_size = None;
         self.run.xp_each = None;
         self.run.money_each = None;
+        self.run.budget = None;
         // The relics (feature 106), while the ship is still tied up: an
         // elite's site cleared with machines in it offering its reward.
         let reward = self.relics_on_leaving(station, cleared, events);

@@ -567,9 +567,13 @@ pub struct Maps {
     /// On a planet's plain, a window a body: [`Nav::outside`] built about
     /// whoever is out past the deck's grids — or bound there — by
     /// `Game::refresh_afield`, over the ground and whatever of the deck
-    /// falls in it, and `None` for a body on the deck. Not saved: built
-    /// again on the first step.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// falls in it, and `None` for a body on the deck. **Saved**: a window
+    /// is built about where the body stood when it was last built, and
+    /// one built again on a load about where it stands now covers other
+    /// ground — a far walk's next leg is cut at another edge, and a
+    /// world read back (a guest's resync) walks another route
+    /// (`crates/ship/src/tests_resync.rs`).
+    #[cfg_attr(feature = "serde", serde(default))]
     afield: Vec<Option<Nav>>,
 }
 

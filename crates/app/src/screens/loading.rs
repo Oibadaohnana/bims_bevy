@@ -313,7 +313,7 @@ impl Plugin for LoadingPlugin {
 /// session is handed on — to the game screen opening, or back into
 /// `ShipSession`.
 #[allow(clippy::too_many_arguments)]
-fn show(
+pub(crate) fn show(
     mut contexts: EguiContexts,
     mut loading: ResMut<Loading>,
     session: Option<ResMut<ShipSession>>,

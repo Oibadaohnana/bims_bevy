@@ -214,6 +214,9 @@ pub enum Order {
     /// `Command::PlayerGone`, carrying the gone player's slot rather than
     /// the sender's.
     PlayerGone(u32),
+    /// The host saying that player is back, their dropped line found
+    /// again — `Command::PlayerBack`, the slot the one back.
+    PlayerBack(u32),
 }
 
 /// The seam. [`Net::order`] is the client half and [`Net::receive`] the
@@ -405,6 +408,7 @@ impl Net {
             },
             Order::AcceptRelic(yes) => Command::AcceptRelic { slot, yes },
             Order::PlayerGone(gone) => Command::PlayerGone { slot: gone },
+            Order::PlayerBack(back) => Command::PlayerBack { slot: back },
         });
     }
 }

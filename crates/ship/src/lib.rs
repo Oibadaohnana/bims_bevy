@@ -34,6 +34,10 @@ pub use session::{NONE, Session};
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_drawn;
+#[cfg(test)]
 mod tests_render;
+#[cfg(test)]
+mod tests_resync;
 #[cfg(test)]
 mod tests_survivors;

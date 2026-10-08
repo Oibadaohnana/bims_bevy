@@ -70,7 +70,10 @@
 //! `BIMS_ROLLBACK=0` has a guest wait for the host's word on its own
 //! orders rather than play them at once and roll back (task 156,
 //! [`rollback_on`]); `scratchpad/duo_rollback.sh` walks a guest about
-//! over a slow line with it on or off.
+//! over a slow line with it on or off. `BIMS_NET_DROP=<seconds>` drops
+//! this end's socket once, that long after it connected, without a word
+//! to the relay — a line gone — for looking at the seat taken back
+//! ([`net_drop`]).
 
 use bevy::diagnostic::{DiagnosticsStore, FrameCount, FrameTimeDiagnosticsPlugin};
 use bevy::input::ButtonState;
@@ -555,6 +558,18 @@ pub fn rollback_on() -> bool {
 pub fn net_jitter() -> Option<std::time::Duration> {
     let ms: u64 = std::env::var("BIMS_NET_JITTER").ok()?.parse().ok()?;
     (ms > 0).then(|| std::time::Duration::from_millis(ms))
+}
+
+/// `BIMS_NET_DROP=<seconds>`: how long after it connects the socket's
+/// thread drops the line once (`net::worker`), as a dead Wi-Fi would —
+/// no `Leave` said — for the dialling again and the seat taken back to be
+/// looked at. Once a process: the line dialled again stays up.
+pub fn net_drop() -> Option<std::time::Duration> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static DROPPED: AtomicBool = AtomicBool::new(false);
+    let seconds: f64 = std::env::var("BIMS_NET_DROP").ok()?.parse().ok()?;
+    (seconds > 0.0 && !DROPPED.swap(true, Ordering::Relaxed))
+        .then(|| std::time::Duration::from_secs_f64(seconds))
 }
 
 /// The `end` command's room code: the lobby it opens at the relay, for

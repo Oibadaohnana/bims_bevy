@@ -11,7 +11,7 @@ use std::hash::{BuildHasher, Hasher, RandomState};
 
 use wire::{
     CODE_ALPHABET, CODE_LENGTH, ClientCtl, Closed, MAX_PAYLOAD, PROTOCOL, PeerId, PeerInfo,
-    ROOM_SIZE, Refusal, ServerCtl, To, normalise_code, tidy_name,
+    ROOM_SIZE, Refusal, Resume, ServerCtl, To, normalise_code, tidy_name,
 };
 
 /// One message the caller should put on one socket.
@@ -28,6 +28,9 @@ struct Peer {
     /// it is, which is what stops an unauthenticated socket opening rooms.
     greeted: bool,
     room: Option<String>,
+    /// The secret its `Welcome` carried, which takes its seat back if its
+    /// line drops mid-game (`Hello`'s `resume`).
+    token: u64,
 }
 
 struct Room {
@@ -38,6 +41,12 @@ struct Room {
     /// The host has pressed Start: the crew are laying the ship out, or
     /// flying it, and a fifth pair of hands has no slot. Nobody joins.
     begun: bool,
+    /// Members of a begun room whose line dropped — the socket gone
+    /// without a `Leave` — and the token each may take its seat back
+    /// with. Out of `members` (so the roster goes round without them)
+    /// until they do. The host among them is waited for too: the room
+    /// stays open, `host` still its id, for the guests to wait or leave.
+    away: Vec<(PeerId, u64)>,
 }
 
 #[derive(Default)]
@@ -50,6 +59,10 @@ pub struct Hub {
     /// different codes, and nobody guesses the next one from the last.
     rolls: u64,
     salt: RandomState,
+    /// A `Hello` that took a seat back moved the peer from the id its
+    /// socket was given to the seat's: said once, for the socket's owner
+    /// to follow ([`Hub::take_resumed`]).
+    resumed: Option<(PeerId, PeerId)>,
 }
 
 impl Hub {
@@ -77,17 +90,36 @@ impl Hub {
                 name: String::new(),
                 greeted: false,
                 room: None,
+                token: 0,
             },
         );
         id
     }
 
     /// The socket is gone. Takes the peer out of whatever room it was in
-    /// and tells the rest.
+    /// and tells the rest. A peer in a begun room that went without a
+    /// `Leave` — its line dropped — keeps its seat to take back
+    /// ([`Room::away`]); the host so gone does not close the room.
     pub fn disconnect(&mut self, id: PeerId) -> Vec<Outbound> {
-        let out = self.leave_room(id);
+        let begun = self
+            .peers
+            .get(&id)
+            .and_then(|p| p.room.as_ref())
+            .and_then(|code| self.rooms.get(code))
+            .is_some_and(|room| room.begun);
+        let out = if begun {
+            self.step_away(id)
+        } else {
+            self.leave_room(id)
+        };
         self.peers.remove(&id);
         out
+    }
+
+    /// If the last `Hello` took a seat back: the id the socket was
+    /// connected as, and the seat's id it is known by from now on. Taken.
+    pub fn take_resumed(&mut self) -> Option<(PeerId, PeerId)> {
+        self.resumed.take()
     }
 
     pub fn handle(&mut self, id: PeerId, msg: ClientCtl) -> Vec<Outbound> {
@@ -110,7 +142,11 @@ impl Hub {
 
         if !self.peers[&id].greeted {
             return match msg {
-                ClientCtl::Hello { protocol, name } => self.hello(id, protocol, name),
+                ClientCtl::Hello {
+                    protocol,
+                    name,
+                    resume,
+                } => self.hello(id, protocol, name, resume),
                 _ => reject(id, Refusal::HelloFirst),
             };
         }
@@ -129,7 +165,13 @@ impl Hub {
         }
     }
 
-    fn hello(&mut self, id: PeerId, protocol: u32, name: String) -> Vec<Outbound> {
+    fn hello(
+        &mut self,
+        id: PeerId,
+        protocol: u32,
+        name: String,
+        resume: Option<Resume>,
+    ) -> Vec<Outbound> {
         if protocol != PROTOCOL {
             return reject(id, Refusal::Protocol { server: PROTOCOL });
         }
@@ -137,16 +179,130 @@ impl Hub {
         if name.is_empty() {
             return reject(id, Refusal::NoName);
         }
+        if let Some(resume) = resume {
+            return self.resume(id, name, resume);
+        }
+        let token = self.roll();
         let peer = self.peers.get_mut(&id).expect("checked in handle");
         peer.name = name;
         peer.greeted = true;
+        peer.token = token;
         vec![Outbound {
             to: id,
             msg: ServerCtl::Welcome {
                 you: id,
                 protocol: PROTOCOL,
+                token,
             },
         }]
+    }
+
+    /// A seat taken back: the socket `id` becomes the seat's peer, back in
+    /// its room, and the room hears the roster with it again. Refused —
+    /// as no such room — when no begun room keeps that seat for that
+    /// token, or the seat's own socket is still connected (its owner
+    /// tries again once the relay has dropped that one).
+    fn resume(
+        &mut self,
+        id: PeerId,
+        name: String,
+        Resume { id: seat, token }: Resume,
+    ) -> Vec<Outbound> {
+        let code = self
+            .rooms
+            .iter()
+            .find(|(_, room)| room.away.contains(&(seat, token)))
+            .map(|(code, _)| code.clone());
+        let Some(code) = code.filter(|_| !self.peers.contains_key(&seat)) else {
+            return reject(id, Refusal::NoSuchRoom);
+        };
+        let mut peer = self.peers.remove(&id).expect("checked in handle");
+        peer.name = name;
+        peer.greeted = true;
+        peer.token = token;
+        peer.room = Some(code.clone());
+        self.peers.insert(seat, peer);
+        self.resumed = Some((id, seat));
+        let room = self.rooms.get_mut(&code).expect("found above");
+        room.away.retain(|&(a, _)| a != seat);
+        // The host first, as the roster always has it.
+        if room.host == seat {
+            room.members.insert(0, seat);
+        } else {
+            room.members.push(seat);
+        }
+        let host = room.host;
+        let members = room.members.clone();
+        let roster = self.roster(&code);
+        let mut out = vec![
+            Outbound {
+                to: seat,
+                msg: ServerCtl::Welcome {
+                    you: seat,
+                    protocol: PROTOCOL,
+                    token,
+                },
+            },
+            Outbound {
+                to: seat,
+                msg: ServerCtl::RoomJoined {
+                    code,
+                    host,
+                    peers: roster.clone(),
+                },
+            },
+        ];
+        out.extend(members.iter().filter(|&&m| m != seat).map(|&m| Outbound {
+            to: m,
+            msg: ServerCtl::RoomUpdate {
+                host,
+                peers: roster.clone(),
+            },
+        }));
+        out
+    }
+
+    /// A member of a begun room whose line dropped: out of the roster,
+    /// its seat kept for its token. The room goes once nobody is left
+    /// connected in it.
+    fn step_away(&mut self, id: PeerId) -> Vec<Outbound> {
+        let Some(peer) = self.peers.get_mut(&id) else {
+            return Vec::new();
+        };
+        let token = peer.token;
+        let Some(code) = peer.room.take() else {
+            return Vec::new();
+        };
+        let Some(room) = self.rooms.get_mut(&code) else {
+            return Vec::new();
+        };
+        room.members.retain(|&m| m != id);
+        if room.members.is_empty() {
+            self.rooms.remove(&code);
+            return Vec::new();
+        }
+        room.away.push((id, token));
+        let host = room.host;
+        let members = room.members.clone();
+        let roster = self.roster(&code);
+        members
+            .into_iter()
+            .map(|m| Outbound {
+                to: m,
+                msg: ServerCtl::RoomUpdate {
+                    host,
+                    peers: roster.clone(),
+                },
+            })
+            .collect()
+    }
+
+    /// A number off the salted counter: a code's roll, or a seat's token.
+    fn roll(&mut self) -> u64 {
+        self.rolls = self.rolls.wrapping_add(1);
+        let mut hasher = self.salt.build_hasher();
+        hasher.write_u64(self.rolls);
+        hasher.finish()
     }
 
     /// A fresh room with `id` its host: at a code the relay deals, or at
@@ -171,6 +327,7 @@ impl Hub {
                 host: id,
                 members: vec![id],
                 begun: false,
+                away: Vec::new(),
             },
         );
         self.peers.get_mut(&id).expect("checked in handle").room = Some(code.clone());
@@ -264,6 +421,11 @@ impl Hub {
         }
 
         room.members.retain(|&m| m != id);
+        // The last one out of a room whose host is away shuts it.
+        if room.members.is_empty() {
+            self.rooms.remove(&code);
+            return Vec::new();
+        }
         let host = room.host;
         let members = room.members.clone();
         let roster = self.roster(&code);
@@ -357,10 +519,7 @@ impl Hub {
     /// problem than this function.
     fn free_code(&mut self) -> Option<String> {
         (0..64).find_map(|_| {
-            self.rolls = self.rolls.wrapping_add(1);
-            let mut hasher = self.salt.build_hasher();
-            hasher.write_u64(self.rolls);
-            let mut roll = hasher.finish();
+            let mut roll = self.roll();
             let code: String = (0..CODE_LENGTH)
                 .map(|_| {
                     let c = CODE_ALPHABET[(roll % CODE_ALPHABET.len() as u64) as usize] as char;
@@ -400,6 +559,7 @@ mod tests {
             ClientCtl::Hello {
                 protocol: PROTOCOL,
                 name: name.into(),
+                resume: None,
             },
         );
         id
@@ -433,6 +593,7 @@ mod tests {
             ClientCtl::Hello {
                 protocol: PROTOCOL + 1,
                 name: "x".into(),
+                resume: None,
             },
         );
         assert!(refused(&out, Refusal::Protocol { server: PROTOCOL }));
@@ -441,6 +602,7 @@ mod tests {
             ClientCtl::Hello {
                 protocol: PROTOCOL,
                 name: "  \n ".into(),
+                resume: None,
             },
         );
         assert!(refused(&out, Refusal::NoName));
@@ -658,5 +820,179 @@ mod tests {
         hub.disconnect(b);
         assert_eq!(hub.room_count(), 0);
         assert_eq!(hub.peer_count(), 1);
+    }
+
+    /// The token a peer's `Welcome` carried.
+    fn welcome(out: &[Outbound]) -> (PeerId, u64) {
+        out.iter()
+            .find_map(|o| match o.msg {
+                ServerCtl::Welcome { you, token, .. } => Some((you, token)),
+                _ => None,
+            })
+            .expect("a welcome")
+    }
+
+    /// A begun room keeps the seat of a member whose line dropped: the
+    /// rest hear the roster without them, and the same player is let back
+    /// in under the same id with its token — a guest, and the host too,
+    /// whose drop does not close the room. A wrong token, or a seat still
+    /// connected, is no seat; a `Leave` gives the seat up.
+    #[test]
+    fn a_dropped_line_takes_its_seat_back_and_a_leave_gives_it_up() {
+        let mut hub = Hub::new();
+        let host = hub.connect();
+        let (_, host_token) = welcome(&hub.handle(
+            host,
+            ClientCtl::Hello {
+                protocol: PROTOCOL,
+                name: "Host".into(),
+                resume: None,
+            },
+        ));
+        let code = code_of(&hub.handle(host, ClientCtl::Create));
+        let a = hub.connect();
+        let (_, a_token) = welcome(&hub.handle(
+            a,
+            ClientCtl::Hello {
+                protocol: PROTOCOL,
+                name: "A".into(),
+                resume: None,
+            },
+        ));
+        hub.handle(a, ClientCtl::Join { code: code.clone() });
+        let b = greeted(&mut hub, "B");
+        hub.handle(b, ClientCtl::Join { code: code.clone() });
+        hub.handle(host, ClientCtl::Begin);
+
+        // A's line drops: the others hear a roster of two.
+        let out = hub.disconnect(a);
+        assert_eq!(out.len(), 2);
+        assert!(
+            out.iter()
+                .all(|o| matches!(&o.msg, ServerCtl::RoomUpdate { peers, .. } if peers.len() == 2))
+        );
+        // A wrong token is no seat.
+        let stranger = hub.connect();
+        let out = hub.handle(
+            stranger,
+            ClientCtl::Hello {
+                protocol: PROTOCOL,
+                name: "A".into(),
+                resume: Some(Resume {
+                    id: a,
+                    token: a_token ^ 1,
+                }),
+            },
+        );
+        assert!(refused(&out, Refusal::NoSuchRoom));
+        // The right one: back as `a`, in the room, the others told.
+        let again = hub.connect();
+        let out = hub.handle(
+            again,
+            ClientCtl::Hello {
+                protocol: PROTOCOL,
+                name: "A".into(),
+                resume: Some(Resume {
+                    id: a,
+                    token: a_token,
+                }),
+            },
+        );
+        assert_eq!(hub.take_resumed(), Some((again, a)));
+        assert_eq!(welcome(&out).0, a);
+        assert!(out.iter().any(|o| o.to == a
+            && matches!(&o.msg, ServerCtl::RoomJoined { peers, host: h, .. } if peers.len() == 3 && *h == host)));
+        assert_eq!(
+            out.iter()
+                .filter(
+                    |o| matches!(&o.msg, ServerCtl::RoomUpdate { peers, .. } if peers.len() == 3)
+                )
+                .count(),
+            2
+        );
+        // Its bytes reach the host again.
+        let out = hub.handle(
+            a,
+            ClientCtl::Relay {
+                to: To::Host,
+                payload: vec![1],
+            },
+        );
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].to, host);
+        // A seat whose socket is still connected is not taken twice.
+        let twin = hub.connect();
+        let out = hub.handle(
+            twin,
+            ClientCtl::Hello {
+                protocol: PROTOCOL,
+                name: "A".into(),
+                resume: Some(Resume {
+                    id: a,
+                    token: a_token,
+                }),
+            },
+        );
+        assert!(refused(&out, Refusal::NoSuchRoom));
+
+        // The host's line drops: the room stays, the host out of the
+        // roster, and it comes back as the host.
+        let out = hub.disconnect(host);
+        assert_eq!(hub.room_count(), 1);
+        assert!(out.iter().all(|o| matches!(&o.msg,
+            ServerCtl::RoomUpdate { peers, host: h } if peers.len() == 2 && *h == host)));
+        let back = hub.connect();
+        let out = hub.handle(
+            back,
+            ClientCtl::Hello {
+                protocol: PROTOCOL,
+                name: "Host".into(),
+                resume: Some(Resume {
+                    id: host,
+                    token: host_token,
+                }),
+            },
+        );
+        assert_eq!(welcome(&out).0, host);
+        assert!(out.iter().any(|o| o.to == host
+            && matches!(&o.msg, ServerCtl::RoomJoined { peers, .. } if peers[0].id == host)));
+
+        // B leaves on purpose: no seat kept.
+        hub.handle(b, ClientCtl::Leave);
+        hub.disconnect(b);
+        let b_again = hub.connect();
+        let out = hub.handle(
+            b_again,
+            ClientCtl::Hello {
+                protocol: PROTOCOL,
+                name: "B".into(),
+                resume: Some(Resume { id: b, token: 0 }),
+            },
+        );
+        assert!(refused(&out, Refusal::NoSuchRoom));
+        // Everybody's line drops: the room goes.
+        hub.disconnect(a);
+        hub.disconnect(host);
+        assert_eq!(hub.room_count(), 0);
+    }
+
+    /// Before Start a dropped line is a leave, as it always was: nothing
+    /// is kept, and the host's closes the room.
+    #[test]
+    fn before_start_a_dropped_line_is_a_leave() {
+        let mut hub = Hub::new();
+        let host = greeted(&mut hub, "Host");
+        let code = code_of(&hub.handle(host, ClientCtl::Create));
+        let a = greeted(&mut hub, "A");
+        hub.handle(a, ClientCtl::Join { code });
+        let out = hub.disconnect(host);
+        assert!(out.iter().any(|o| o.to == a
+            && matches!(
+                o.msg,
+                ServerCtl::RoomClosed {
+                    why: Closed::HostLeft
+                }
+            )));
+        assert_eq!(hub.room_count(), 0);
     }
 }

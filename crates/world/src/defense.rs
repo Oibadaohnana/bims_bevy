@@ -138,8 +138,9 @@ pub struct Area {
     pub friend_in: bool,
     /// Whether the ring mended anybody the last step
     /// ([`data::AREA_HEAL_PERCENT`]): the picture's green ring, never
-    /// saved or hashed — a world read back shows it from its next step.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// hashed; saved, so a world read back (a guest's resync) shows it as
+    /// the original does.
+    #[cfg_attr(feature = "serde", serde(default))]
     pub healing: bool,
 }
 

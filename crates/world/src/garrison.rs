@@ -180,12 +180,53 @@ impl World {
         seeking: bool,
         seed: u64,
     ) {
+        self.lay_wave_with(id, n, wave, None, false, first, seeking, seed);
+    }
+
+    /// [`World::lay_wave`] of one landing of a mission's budget (October
+    /// 2026, `run::Landing`): its base bodies, exactly its Bombers and
+    /// Lancers on top in place of the area's, and every body of it marked
+    /// unpaid where it is the trickle.
+    pub(super) fn lay_wave_as(
+        &mut self,
+        id: u32,
+        wave: u32,
+        landing: &run::Landing,
+        first: bool,
+        seeking: bool,
+        seed: u64,
+    ) {
+        let extras = Some((landing.bombers, landing.lancers));
+        self.lay_wave_with(
+            id,
+            landing.base,
+            wave,
+            extras,
+            landing.unpaid,
+            first,
+            seeking,
+            seed,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn lay_wave_with(
+        &mut self,
+        id: u32,
+        n: u32,
+        wave: u32,
+        extras: Option<(u32, u32)>,
+        unpaid: bool,
+        first: bool,
+        seeking: bool,
+        seed: u64,
+    ) {
         let Some(station) = self.station(id).cloned() else {
             return;
         };
         let machines = self.machines_of(n, wave);
         let people = n - machines;
-        let kinds = self.wave_kinds_for(machines, wave);
+        let kinds = self.wave_kinds_with(machines, wave, extras);
         let total = people as usize + kinds.len();
         let placed = if first {
             let Some(residents) = &self.residents else {
@@ -209,11 +250,24 @@ impl World {
         let mut droids = self.build_wave(kinds, wave, rest, facing, station.map_seed);
         for d in &mut droids {
             d.seeking = seeking;
+            d.unpaid = unpaid;
         }
-        // What each of the wave pays in experience (October 2026).
-        self.price_the_wave(id, total as u32);
+        // What each of the wave pays in experience (October 2026) — bar a
+        // mission with a budget, priced once when it opened.
+        if self.run.budget.is_none() {
+            self.price_the_wave(id, total as u32);
+        }
+        let bims_before = self
+            .residents
+            .as_ref()
+            .map_or(0, |r| r.aboard.room.crew_count() as usize);
         self.stand_people(people, theirs, seed);
         if let Some(residents) = &mut self.residents {
+            if unpaid {
+                for who in bims_before..residents.aboard.room.crew_count() as usize {
+                    residents.aboard.room.set_unpaid(who);
+                }
+            }
             residents
                 .aboard
                 .room
@@ -238,12 +292,30 @@ impl World {
         self.lay_wave(id, n, wave, false, false, seed);
     }
 
+    /// [`World::lay_defense_wave`] of one landing of a mission's budget.
+    pub(super) fn lay_defense_wave_as(&mut self, id: u32, landing: &run::Landing) {
+        let Some(wave) = self.defense(id).map(|d| d.wave) else {
+            return;
+        };
+        if wave == 0 || landing.base == 0 {
+            return;
+        }
+        let seed = self.garrison_seed(id, wave) ^ DEFENSE_SALT;
+        self.lay_wave_as(id, wave, landing, false, false, seed);
+    }
+
     /// The wave a held site has aboard laid: [`World::lay_wave`], wave one
     /// about the station's rooms and a reinforcement at its airlock,
     /// looking for the crew.
     pub(super) fn lay_held_wave(&mut self, id: u32, n: u32, wave: u32) {
         let seed = self.garrison_seed(id, wave);
         self.lay_wave(id, n, wave, wave == 1, wave > 1, seed);
+    }
+
+    /// [`World::lay_held_wave`] of one landing of a mission's budget.
+    pub(super) fn lay_held_wave_as(&mut self, id: u32, wave: u32, landing: &run::Landing) {
+        let seed = self.garrison_seed(id, wave);
+        self.lay_wave_as(id, wave, landing, wave == 1, wave > 1, seed);
     }
 
     /// `people` of the Manufacturers' people stood on the residents' deck

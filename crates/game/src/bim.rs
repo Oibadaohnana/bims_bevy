@@ -251,6 +251,11 @@ pub struct Bim {
     /// nothing lying for anybody to take.
     #[cfg_attr(feature = "serde", serde(default))]
     pub manufacturer: bool,
+    /// Laid by a landing past its mission's budget (October 2026, the
+    /// world's `run::Budget`): the trickle, which pays nothing when it
+    /// goes down. Set by the world (`Game::set_unpaid`); never hashed.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub unpaid: bool,
     /// Where an **attack-move** is bound (the F key, a player's own Bim
     /// alone): the body walks there with its weapon out, stands still to
     /// shoot the moment it has something in its sights, and walks on
@@ -348,6 +353,7 @@ impl Bim {
             volley: 0,
             routine: None,
             manufacturer: false,
+            unpaid: false,
             attack_move: None,
             focus: None,
             gone: false,

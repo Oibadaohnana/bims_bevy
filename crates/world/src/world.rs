@@ -155,6 +155,10 @@ mod attacks;
 // Protect the commander.
 #[path = "defences.rs"]
 mod defences;
+// A mission's enemy budget (October 2026): what each landing of a fight
+// may lay, and the trickle once it is spent.
+#[path = "budget.rs"]
+mod budget;
 pub use attacks::{CUT_CODE, HACK_CODE, Interaction, Mark, MarkKind, ObjectiveLook, feature_of};
 pub use defences::DEFUSE_CODE;
 pub use entry::{EntryLook, WELD_CODE};
@@ -580,6 +584,12 @@ pub enum Command {
     PlayerGone {
         slot: u32,
     },
+    /// The host saying a player gone has come back (their connection
+    /// dropped and they found the room again): the votes wait for them
+    /// again. `slot` is the player back.
+    PlayerBack {
+        slot: u32,
+    },
     /// *Ready* for the mission held for the ready check, or taken back
     /// ([`crate::run::Run::briefing`]). The last yes of every connected
     /// player starts it.
@@ -779,8 +789,9 @@ pub struct World {
     /// The crew's hits on the enemies landed this step
     /// (`land_on_enemies`), for `visit` to say as `WorldEvent::Hit`s: on
     /// whom, how much, whether critical, and whose (a crew member's index).
-    /// A picture's; never saved or hashed.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// A picture's; never hashed, but saved so a world read back between
+    /// the landing and the saying (a guest's resync) says them all.
+    #[cfg_attr(feature = "serde", serde(default))]
     shown_hits: Vec<(u32, f32, bool, Option<u32>)>,
     pub ship: Ship,
     /// The people aboard, and the room they live in: the room's whole
@@ -815,9 +826,11 @@ pub struct World {
     pub infested: Vec<Infestation>,
     /// The machines standing in the residents' room, waiting to be put
     /// there the first step it is open: a wave laid at a dock the room
-    /// is not built for yet. Drained by `settle_droids`. Not saved and
-    /// not hashed — it is empty by the end of every step it is filled in.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// is not built for yet. Drained by `settle_droids`. Not hashed — it
+    /// is empty by the end of every step it is filled in — but saved, so a
+    /// world read back between two steps is the world it was whatever
+    /// stands here (a guest's resync, `crates/ship/src/tests_resync.rs`).
+    #[cfg_attr(feature = "serde", serde(default))]
     droids_to_post: Vec<bims::droid::Droid>,
     /// The probes' override of what tier the machines come at
     /// (`BIMS_DROID_TIER`): every machine at it. `None` — the game's own —
@@ -846,11 +859,13 @@ pub struct World {
     droid_wave_forced: Option<u32>,
     /// The wave formula's dials ([`droidplan::WaveScaling`]), the
     /// constants unless the app's `scaling.ron` says otherwise — tuning
-    /// while the game runs. **Neither saved nor hashed**: the app hands
-    /// them over again every frame they differ, a load and a restart
-    /// included, and what they decide (`Infestation::waves_left`, the
-    /// machines laid) is what is kept.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// while the game runs. **Saved, not hashed**: the app hands them over
+    /// again every frame they differ, a load and a restart included, and
+    /// what they decide (`Infestation::waves_left`, the machines laid) is
+    /// what is hashed; but a world read back is the world saved, dials and
+    /// all, before the app says anything (a guest's resync,
+    /// `crates/ship/src/tests_resync.rs`).
+    #[cfg_attr(feature = "serde", serde(default))]
     wave_scaling: droidplan::WaveScaling,
     /// The run's difficulty as the game setup picked it
     /// ([`droidplan::Difficulty`]): every dial of the formula, in place of
@@ -869,17 +884,18 @@ pub struct World {
     ascension: u32,
     /// What a fight pays and what things cost ([`crate::rewards::Rewards`]),
     /// the constants unless the app's `rewards.ron` says otherwise.
-    /// Neither saved nor hashed, like `wave_scaling`: the money and the
+    /// Saved and not hashed, like `wave_scaling`: the money and the
     /// experience they decide are.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    #[cfg_attr(feature = "serde", serde(default))]
     rewards: crate::rewards::Rewards,
     /// How many waves a held station has all told, forced by a probe
     /// (`BIMS_DROID_WAVES`, and three on the `droids` commands) whatever
-    /// the formula says; `None` in the game. **Neither saved nor
-    /// hashed**, unlike the three above: it is read once, at the crew's
-    /// first dock, and what it decides is `Infestation::waves_left`,
-    /// which is both.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// the formula says; `None` in the game. Saved, not hashed: it is
+    /// read once, at the crew's first dock, and what it decides is
+    /// `Infestation::waves_left`, which is both — but a world saved
+    /// before that first dock's step reads it then (a guest's resync,
+    /// `crates/ship/src/tests_resync.rs`).
+    #[cfg_attr(feature = "serde", serde(default))]
     droid_waves_forced: Option<u32>,
     /// Every wave forced to be exactly these machines, in this order, by
     /// a probe — the `guardian` command's one Guardian and two Troopers
@@ -1477,6 +1493,17 @@ impl World {
     pub fn step(&mut self, commands: &[Command]) -> Vec<WorldEvent> {
         let mut events = Vec::new();
 
+        // Before anything reads a line through either room: the doors as
+        // they stand put into the sight (`Game::settle_sight`). A frame's
+        // trace writes them too, at the frame, and a world drawn after
+        // every step (the host's) and one never drawn (a guest's copy of
+        // it) must read the same walls here — a command's line, a healing
+        // circle, a Healing Sentry, a runner's look.
+        self.aboard.room.settle_sight();
+        if let Some(residents) = &mut self.residents {
+            residents.aboard.room.settle_sight();
+        }
+
         // 0. Between missions (feature 103) nothing moves: the map is up
         //    and the crew are choosing where next. The commands are heard
         //    — a vote, a speed — and the step is counted, since it is
@@ -1766,6 +1793,7 @@ impl World {
             | Command::BonusWave { slot, .. }
             | Command::LeaveBehind { slot, .. }
             | Command::PlayerGone { slot }
+            | Command::PlayerBack { slot }
             | Command::Ready { slot, .. }
             | Command::ProposeRelic { slot, .. }
             | Command::AcceptRelic { slot, .. }
@@ -1789,6 +1817,7 @@ impl World {
                     | Command::ProposeRelic { .. }
                     | Command::AcceptRelic { .. }
                     | Command::PlayerGone { .. }
+                    | Command::PlayerBack { .. }
                     | Command::Ready { .. }
                     | Command::Crew { .. }
                     | Command::CrewLater { .. }
@@ -1816,6 +1845,7 @@ impl World {
                     | Command::Ready { .. }
                     | Command::BonusWave { .. }
                     | Command::PlayerGone { .. }
+                    | Command::PlayerBack { .. }
                     | Command::Crew { .. }
                     | Command::CrewLater { .. }
                     | Command::Equip { .. }
@@ -1839,6 +1869,7 @@ impl World {
                     | Command::Return { .. }
                     | Command::LeaveBehind { .. }
                     | Command::PlayerGone { .. }
+                    | Command::PlayerBack { .. }
                     | Command::Ready { .. }
                     | Command::Equip { .. }
                     | Command::EquipAt { .. }
@@ -1867,6 +1898,7 @@ impl World {
             },
             Command::LeaveBehind { yes, .. } => self.answer_departure(slot, yes, events),
             Command::PlayerGone { .. } => self.player_gone(slot, events),
+            Command::PlayerBack { .. } => self.player_back(slot),
             Command::Ready { yes, .. } => self.press_ready(slot, yes, events),
             Command::ProposeRelic { relic, .. } => {
                 self.propose_relic(slot, crate::relic::Relic::from_code(relic), events)
@@ -2988,6 +3020,13 @@ impl World {
                 // A bot's kill pays its share (`kill_bounty`).
                 if let Some(d) = who.checked_sub(bims).and_then(|i| room.droid(i)) {
                     let by = residents.last_hit_by.get(who).copied().flatten();
+                    // The trickle past a mission's budget pays nothing
+                    // (October 2026), though the kill still counts.
+                    let worth = if d.unpaid {
+                        0
+                    } else {
+                        bounty_share(money_each, droid_bounty_percent(d.kind))
+                    };
                     machine_kills.push((
                         by,
                         kill_bounty(
@@ -2996,7 +3035,7 @@ impl World {
                             self.speed_requests.len(),
                             &self.reinforcements,
                             by,
-                            bounty_share(money_each, droid_bounty_percent(d.kind)),
+                            worth,
                         ),
                     ));
                 }
@@ -4877,6 +4916,7 @@ impl World {
                 | Command::Return { .. }
                 | Command::LeaveBehind { .. }
                 | Command::PlayerGone { .. }
+                | Command::PlayerBack { .. }
                 // And *Ready*: a held mission takes no step to start —
                 // nor the bonus wave chosen beside it (October 2026).
                 | Command::Ready { .. }
@@ -6110,7 +6150,19 @@ impl World {
     /// mission's from now on if it is the first.
     pub(crate) fn landing_wave_size(&mut self) -> u32 {
         let n = self.droid_wave_size();
-        self.run.wave_size.get_or_insert(n);
+        if self.run.wave_size.is_none() {
+            self.run.wave_size = Some(n);
+            // The step the mission's wave freezes is the step its enemy
+            // budget opens, where its fight slices one (October 2026).
+            let site = self
+                .residents
+                .as_ref()
+                .map(|r| r.station)
+                .or_else(|| self.ship.state.alongside());
+            if let Some(id) = site {
+                self.open_the_budget(id, n);
+            }
+        }
         // And the site's bonus wave half as big again (October 2026).
         self.bonus_wave_size(n)
     }
@@ -6482,15 +6534,28 @@ impl World {
     /// guardians or bombers only the waves"), though it is an elite fight
     /// for its relics and its pay.
     pub(crate) fn wave_kinds_for(&self, n: u32, wave: u32) -> Vec<bims::droid::DroidKind> {
+        self.wave_kinds_with(n, wave, None)
+    }
+
+    /// [`World::wave_kinds_for`] with the Bombers and Lancers on top said
+    /// outright — a landing of a mission's budget carries its own share of
+    /// them (October 2026, `run::Landing`) — in place of the area's.
+    pub(crate) fn wave_kinds_with(
+        &self,
+        n: u32,
+        wave: u32,
+        extras: Option<(u32, u32)>,
+    ) -> Vec<bims::droid::DroidKind> {
         use bims::droid::DroidKind;
         let zone = self.zone_tier();
         let (index, area) = self.area_now();
         let kinds = self.droid_kinds_forced.clone().unwrap_or_else(|| {
             let mut kinds = bims::droid::wave_kinds(n);
             // No machines in area 0, so nothing on top of them either.
-            let (bombers, lancers) = match index {
-                0 => (0, 0),
-                _ => (area.bombers, area.lancers),
+            let (bombers, lancers) = match (extras, index) {
+                (Some(extras), _) => extras,
+                (None, 0) => (0, 0),
+                (None, _) => (area.bombers, area.lancers),
             };
             kinds.extend(std::iter::repeat_n(DroidKind::Bomber, bombers as usize));
             kinds.extend(std::iter::repeat_n(DroidKind::Lancer, lancers as usize));
@@ -6710,8 +6775,33 @@ impl World {
         // Wave one stands about the station's rooms; a reinforcement was
         // told where the crew are, and comes looking for them rather than
         // waiting at its airlock.
+        let opened = self.run.budget.is_some();
         let n = self.landing_wave_size();
-        self.lay_held_wave(id, n, wave);
+        match self.run.budget {
+            // A mission's budget opened by this very landing (October
+            // 2026): the garrison is its first slice.
+            Some(budget) if !opened => {
+                let landing = self.budget_take(budget.wave);
+                self.lay_held_wave_as(id, wave, &landing);
+            }
+            // Opened before: a room built afresh. What was laid is laid
+            // again, never counted and never taken from the budget — the
+            // garrison, with the extras a full wave of it carried.
+            Some(budget) => {
+                let garrison = budget.garrison.max(1);
+                let share = |extra: u32| {
+                    (u64::from(extra) * u64::from(garrison) / u64::from(budget.wave.max(1))) as u32
+                };
+                let landing = run::Landing {
+                    base: garrison,
+                    bombers: share(budget.bombers),
+                    lancers: share(budget.lancers),
+                    unpaid: false,
+                };
+                self.lay_held_wave_as(id, wave, &landing);
+            }
+            None => self.lay_held_wave(id, n, wave),
+        }
     }
 
     /// The machines' clock, a stage of the step: the first dock settles
@@ -8211,9 +8301,15 @@ impl World {
             // [`class::XP_ENEMY_DOWN`], once. A downed Manufacturer
             // dying after — bled out or finished — is worth nothing more.
             if down && !residents.xp_down[who] {
-                gained.push((at, self.xp_per_down()));
                 let by = residents.last_hit_by.get(who).copied().flatten();
                 downed.push((who, by));
+                // The trickle past a mission's budget (October 2026) is
+                // down like any, and pays nothing: no experience, no
+                // money, nothing floated over it.
+                if room.is_unpaid(who) {
+                    continue;
+                }
+                gained.push((at, self.xp_per_down()));
                 // The Republic's bounty (feature 95), once per enemy at
                 // the first down or death — a bot's kill its share
                 // (`kill_bounty`). A machine is paid in `visit`; here it

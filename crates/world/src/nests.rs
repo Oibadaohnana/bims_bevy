@@ -13,16 +13,27 @@
 //!   a wave counts them standing. Each faces away from its wall, at the
 //!   area's [`data::NEST_HEALTH`] (the relics' and the ascension's enemy
 //!   health on it) and the zone's tier.
-//! - **They build what the area calls for** (October 2026, the player's:
-//!   "the nest should spawn the appropriate enemy type not just tier 3"):
-//!   every [`data::NEST_BUILD_STEPS`] each standing nest puts one enemy
-//!   out of its bay ([`World::nest_build`]) — the day's share of machines
-//!   over everything the nests have built ([`World::machines_of`], so
-//!   the Manufacturers' people in area 0, the machines coming in through
-//!   the tier-one area), the machines at the day's tiers
-//!   ([`World::machine_tiers`]) by turns a Trooper, a Husk, a Trooper, a
-//!   Warden, the people armed at the day's share — all looking for the
-//!   crew. The site's own first wave stands about it as at any attack.
+//! - **They build the mission's budget, a slice a round** (October 2026,
+//!   [`crate::run::Budget`]; the player's: "each build is a slice of the
+//!   wave … and the nests trickle once the total is spent"). The site's
+//!   garrison is the budget's first landing; then every
+//!   [`data::NEST_BUILD_STEPS`] each standing, unstunned nest puts `k`
+//!   enemies out of its bay — `k = ⌈wave ÷ (`[`data::NEST_SLICE_ROUNDS`]` ×
+//!   nests laid)⌉`, a round of every nest a third of a wave — the round
+//!   taken off the budget in nest order until it is spent
+//!   ([`World::nest_build`]). Spent, the nests **trickle**: one a player a
+//!   round between them, every body marked unpaid, so a nest left standing
+//!   pays nothing more. A nest builds no Bombers or Lancers: the
+//!   garrison's are the hunt's. What comes out is what the area calls for
+//!   (the player's: "the nest should spawn the appropriate enemy type not
+//!   just tier 3"): the day's share of machines over everything the nests
+//!   have built ([`World::machines_of`], so the Manufacturers' people in
+//!   area 0, the machines coming in through the tier-one area), the
+//!   machines at the day's tiers ([`World::machine_tiers`]) by turns a
+//!   Trooper, a Husk, a Trooper, a Warden, the people armed at the day's
+//!   share — several out of one bay standing a tile apart, and all of them
+//!   looking for the crew. Until then each nest built one enemy a round
+//!   for ever, never priced: a nest left standing was a farm.
 //! - **Cleared** with every nest destroyed and every machine down: the
 //!   waves' clock clears nothing while a nest stands.
 //!
@@ -272,8 +283,8 @@ impl World {
         self.nests_here().is_some_and(|(_, n)| n.built > 0)
     }
 
-    /// One enemy out of every standing nest's bay at `id`, the `built`
-    /// built before counted: see the module note. How many were built.
+    /// A round of every standing nest's bays at `id`, the `built` built
+    /// before counted: see the module note. How many were built.
     pub(super) fn nest_build(&mut self, id: u32, built: u32) -> u32 {
         const KINDS: [DroidKind; 4] = [
             DroidKind::Trooper,
@@ -282,6 +293,11 @@ impl World {
             DroidKind::Warden,
         ];
         let wave = self.infestation(id).map_or(1, |it| it.wave);
+        let laid = self
+            .infestation(id)
+            .and_then(|it| it.nests.as_ref())
+            .map_or(1, |n| n.spots.len() as u32)
+            .max(1);
         let Some(residents) = self.residents.as_ref() else {
             return 0;
         };
@@ -301,9 +317,55 @@ impl World {
                 )
             })
             .collect();
-        let n = bays.len() as u32;
-        if n == 0 {
+        let standing = bays.len() as u32;
+        if standing == 0 {
             return 0;
+        }
+        // The round's slice of the mission's budget (October 2026): `k` a
+        // nest, a round of every nest laid a third of a wave — or, the
+        // budget spent, the trickle, one a player round the nests. With no
+        // budget (the probes' forced kinds) one a nest, as before.
+        let (k, landing) = match self.run.budget {
+            Some(budget) => {
+                let k = budget
+                    .wave
+                    .div_ceil(data::NEST_SLICE_ROUNDS * laid)
+                    .max(1);
+                (k, self.budget_take_plain(standing * k))
+            }
+            None => (
+                1,
+                run::Landing {
+                    base: standing,
+                    bombers: 0,
+                    lancers: 0,
+                    unpaid: false,
+                },
+            ),
+        };
+        let n = landing.base;
+        // Which bay each body comes out of: `k` a nest in nest order until
+        // the slice is spent, or the trickle dealt round them.
+        let owner = |j: u32| -> usize {
+            if landing.unpaid {
+                (j % standing) as usize
+            } else {
+                ((j / k).min(standing - 1)) as usize
+            }
+        };
+        // Where each stands: its bay, and a tile aside or a row out for
+        // every one before it out of the same bay — never two on a tile.
+        let t = shipdesign::TILE as f32;
+        let mut out_of = vec![0u32; bays.len()];
+        let mut spots: Vec<(bims::math::Vec2, bims::math::Vec2)> = Vec::with_capacity(n as usize);
+        for j in 0..n {
+            let (spot, facing, _) = bays[owner(j)];
+            let m = out_of[owner(j)];
+            out_of[owner(j)] += 1;
+            let aside = bims::math::vec2(-facing.y, facing.x);
+            let col = [0.0, 1.0, -1.0][(m % 3) as usize];
+            let row = (m / 3) as f32;
+            spots.push((spot + (facing * row + aside * col) * t, facing));
         }
         // The day's share over everything built so far, so a share under
         // one a round still comes out right over the fight.
@@ -327,17 +389,26 @@ impl World {
             .collect();
         tiers.resize(machines as usize, self.zone_tier());
         let toughen = self.enemy_health_factor();
-        // Their people out of the first bays, the machines the rest.
-        let (theirs, rest) = bays.split_at(people as usize);
-        let spots: Vec<bims::math::Vec2> = theirs.iter().map(|b| b.0).collect();
+        // Their people the first of the round, the machines the rest.
+        let (theirs, rest) = spots.split_at(people as usize);
+        let at: Vec<bims::math::Vec2> = theirs.iter().map(|s| s.0).collect();
         let seed = self.garrison_seed(id, wave) ^ NEST_SALT ^ u64::from(built);
-        self.stand_people(people, &spots, seed);
+        let bims_before = self
+            .residents
+            .as_ref()
+            .map_or(0, |r| r.aboard.room.crew_count() as usize);
+        self.stand_people(people, &at, seed);
         let Some(residents) = self.residents.as_mut() else {
             return 0;
         };
         let room = &mut residents.aboard.room;
+        if landing.unpaid {
+            for who in bims_before..room.crew_count() as usize {
+                room.set_unpaid(who);
+            }
+        }
         let mut made = Vec::with_capacity(rest.len());
-        for (j, (&(spot, facing, _), &tier)) in rest.iter().zip(&tiers).enumerate() {
+        for (j, (&(spot, facing), &tier)) in rest.iter().zip(&tiers).enumerate() {
             let k = (before as usize) + j;
             let mut droid = Droid::new(
                 KINDS[k % KINDS.len()],
@@ -353,9 +424,13 @@ impl World {
             }
             droid.plan_wait = 0.0;
             droid.seeking = true;
+            droid.unpaid = landing.unpaid;
             made.push(droid);
         }
-        for &(_, _, i) in &bays {
+        for (b, &(_, _, i)) in bays.iter().enumerate() {
+            if out_of[b] == 0 {
+                continue;
+            }
             if let Some(h) = room.heart_state_mut(i) {
                 h.made = bims::droid::HeartState::MADE_FLASH;
             }

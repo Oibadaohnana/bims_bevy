@@ -301,6 +301,12 @@ pub struct Area {
     pub elites: u32,
     /// The armed defenders who stand with a site the crew defend.
     pub defenders: u32,
+    /// Waves of the day's size a mission brings in all (October 2026,
+    /// `run::Budget`): what a map-shaped mission's landings share, however
+    /// it lands them. A row written without it reads
+    /// [`data::BUDGET_LEFT_OUT`], not nought.
+    #[cfg_attr(feature = "serde", serde(default = "Area::budget_left_out"))]
+    pub budget: f32,
 }
 
 impl Area {
@@ -314,7 +320,25 @@ impl Area {
         guardians: 0,
         elites: 0,
         defenders: 0,
+        budget: data::BUDGET_LEFT_OUT,
     };
+
+    /// The budget a row read without one has: [`data::BUDGET_LEFT_OUT`].
+    pub fn budget_left_out() -> f32 {
+        data::BUDGET_LEFT_OUT
+    }
+
+    /// The budget in hundredths of a wave, so two machines agree to the
+    /// enemy.
+    pub fn budget_hundredths(&self) -> u64 {
+        (f64::from(self.budget.max(0.0)) * 100.0).round() as u64
+    }
+
+    /// The budget set to `h` hundredths of a wave — read back by
+    /// [`Area::budget_hundredths`] as exactly `h` (an ascension's).
+    pub(crate) fn set_budget_hundredths(&mut self, h: u64) {
+        self.budget = h as f32 / 100.0;
+    }
 
     /// The growth in hundredths of an enemy a day, so two machines agree
     /// to the enemy.

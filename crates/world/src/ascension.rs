@@ -17,7 +17,8 @@
 //! 4. **More Enemies** — the scaling's growth turned up so the Heart's
 //!    waves are [`HEART_ENEMIES`] per cent more ([`scale`]), day one's as
 //!    it was;
-//! 5. **One More** — every area a wave more a site ([`EXTRA_WAVES`]).
+//! 5. **One More** — every area a wave more a site, and a wave more in
+//!    every mission's budget ([`EXTRA_WAVES`]).
 //!
 //! Nothing here draws from a stream, and level nought is the game exactly.
 
@@ -59,7 +60,8 @@ pub fn enemy_damage(level: u32) -> i32 {
 /// The wave formula as `level` plays it: at four the growth of every area
 /// turned up by one share so a player brings [`HEART_ENEMIES`] per cent
 /// more on the Heart's day (day one's count as it was; with no growth at
-/// all, the count itself), at five every area's waves one more.
+/// all, the count itself), at five every area's waves one more and its
+/// budget a wave more.
 pub fn scale(level: u32, mut s: WaveScaling) -> WaveScaling {
     if level >= 4 {
         let heart = s.heart_day();
@@ -90,6 +92,8 @@ pub fn scale(level: u32, mut s: WaveScaling) -> WaveScaling {
             &mut s.tier_3_area,
         ] {
             area.waves = area.waves.max(1).saturating_add(EXTRA_WAVES);
+            let budget = area.budget_hundredths() + u64::from(EXTRA_WAVES) * 100;
+            area.set_budget_hundredths(budget);
         }
     }
     s
@@ -158,6 +162,7 @@ mod tests {
         let up = scale(5, s);
         for (a, b) in s.areas().iter().zip(up.areas()) {
             assert_eq!(b.waves, a.waves.max(1) + 1);
+            assert_eq!(b.budget_hundredths(), a.budget_hundredths() + 100);
         }
     }
 }

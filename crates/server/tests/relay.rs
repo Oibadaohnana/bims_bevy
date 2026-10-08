@@ -58,9 +58,10 @@ impl Client {
         client.send(ClientCtl::Hello {
             protocol: PROTOCOL,
             name: name.into(),
+            resume: None,
         });
         match client.read() {
-            ServerCtl::Welcome { you, protocol } => {
+            ServerCtl::Welcome { you, protocol, .. } => {
                 assert_eq!(protocol, PROTOCOL);
                 (client, you)
             }
@@ -143,7 +144,8 @@ fn a_room_is_opened_joined_and_talked_through_and_closes_with_its_host() {
     guest.send(ClientCtl::Ping { stamp: 42 });
     assert!(matches!(guest.read(), ServerCtl::Pong { stamp: 42 }));
 
-    // Begun, a third is refused; the host hanging up closes the room.
+    // Begun, a third is refused; the host's line dropping leaves the
+    // room waiting for it, and the host leaving closes the room.
     host.send(ClientCtl::Begin);
     let (mut late, _) = Client::connect(&relay, "Late");
     late.send(ClientCtl::Join { code });
@@ -154,6 +156,24 @@ fn a_room_is_opened_joined_and_talked_through_and_closes_with_its_host() {
         }
     ));
     drop(host);
+    match guest.read() {
+        ServerCtl::RoomUpdate { host, peers } => {
+            assert_eq!(host, host_id, "still the host, away");
+            assert_eq!(peers.len(), 1);
+        }
+        other => panic!("{other:?}"),
+    }
+    let (mut host, _) = Client::connect(&relay, "James");
+    host.send(ClientCtl::Create);
+    let code = match host.read() {
+        ServerCtl::RoomJoined { code, .. } => code,
+        other => panic!("{other:?}"),
+    };
+    let (mut guest, _) = Client::connect(&relay, "Kate");
+    guest.send(ClientCtl::Join { code });
+    assert!(matches!(guest.read(), ServerCtl::RoomJoined { .. }));
+    host.send(ClientCtl::Begin);
+    host.send(ClientCtl::Leave);
     match guest.read() {
         ServerCtl::RoomClosed { why } => assert_eq!(why, Closed::HostLeft),
         other => panic!("{other:?}"),

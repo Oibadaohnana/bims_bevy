@@ -291,3 +291,28 @@ impl Game {
         }
     }
 }
+
+impl Game {
+    /// Mark a body — a Bim by its index, a machine past the Bims — as
+    /// **unpaid** (October 2026): laid by a landing past its mission's
+    /// budget, it pays nothing when it goes down. The world's word, kept
+    /// on the body so it rides every room the body is carried into.
+    pub fn set_unpaid(&mut self, who: usize) {
+        if let Some(i) = self.droid_at(who) {
+            if let Some(d) = self.droids.get_mut(i) {
+                d.unpaid = true;
+            }
+        } else if let Some(b) = self.bims.get_mut(who) {
+            b.unpaid = true;
+        }
+    }
+
+    /// Whether that body was marked unpaid ([`Game::set_unpaid`]); false
+    /// past the end.
+    pub fn is_unpaid(&self, who: usize) -> bool {
+        match self.droid_at(who) {
+            Some(i) => self.droids.get(i).is_some_and(|d| d.unpaid),
+            None => self.bims.get(who).is_some_and(|b| b.unpaid),
+        }
+    }
+}

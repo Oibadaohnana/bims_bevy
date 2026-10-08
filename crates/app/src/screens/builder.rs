@@ -365,9 +365,15 @@ impl Plugin for BuilderPlugin {
             )
             .add_systems(
                 EguiPrimaryContextPass,
-                frame.run_if(|s: Res<State<Screen>>| {
-                    matches!(s.get(), Screen::Menu | Screen::Setup | Screen::Lobby)
-                }),
+                // Before the loading screen's: the frame the run's build
+                // comes back in, this still sees it busy and drains
+                // nothing, where after it the state is still the lobby's
+                // and the host's first steps would be drained and dropped.
+                frame
+                    .run_if(|s: Res<State<Screen>>| {
+                        matches!(s.get(), Screen::Menu | Screen::Setup | Screen::Lobby)
+                    })
+                    .before(super::loading::show),
             );
     }
 }
@@ -464,6 +470,7 @@ fn frame(
         if *state.get() == Screen::Lobby
             && online.is_host()
             && online.peers.len() >= crate::dev::auto_players()
+            && online.builds_differ().is_none()
         {
             if settings.spawn.is_none() {
                 pick_random_start(screen, settings, online);
@@ -492,6 +499,7 @@ fn frame(
             && *state.get() == Screen::Lobby
             && online.is_host()
             && online.peers.len() >= crate::dev::END_PLAYERS
+            && online.builds_differ().is_none()
         {
             if settings.spawn.is_none() {
                 pick_random_start(screen, settings, online);
@@ -517,9 +525,11 @@ fn frame(
     // What the room said since last frame: the relay, and the others in
     // it. A guest's settings and its Start come from the host this way;
     // a refusal or a closed room is a line and the menu again.
-    for event in online.drain(now) {
+    let mut events = online.drain(now).into_iter();
+    while let Some(event) = events.next() {
         match event {
-            Event::Connected => {}
+            // Only a game under way is dialled again, which is not here.
+            Event::Connected | Event::Reconnecting | Event::Rejoined => {}
             Event::Joined => {
                 screen.seen = online.peers.iter().map(|p| p.id).collect();
                 if (crate::dev::auto().is_some() || *launch == crate::Launch::End)
@@ -652,6 +662,13 @@ fn frame(
                     // Start (feature 102): the same numbers, the same world.
                     let size = Vec2::new(window.width().max(64.0), window.height().max(64.0));
                     loading.start_run(&mut commands, settings, size);
+                    // Whatever came behind the Start is the run's — the
+                    // host's first steps and orders, should its build be
+                    // done first — kept for the game screen in order, as
+                    // a trip's leftovers are. Dropped here, this world
+                    // would run behind the host's for good.
+                    loading.stash(events.by_ref());
+                    break;
                 }
                 // The host loaded a game: its world, whole, is this end's
                 // now, and the game screen opens round it as it does for
@@ -682,6 +699,9 @@ fn frame(
                             commands.insert_resource(crate::screens::run::ShipSession(loaded));
                             screen.loading = false;
                             go = Some(Screen::Game);
+                            // What came behind it is that world's.
+                            loading.stash(events.by_ref());
+                            break;
                         }
                         Err(why) => {
                             let line = world_refused(&crate::save::load_error(why));
@@ -722,6 +742,9 @@ fn frame(
         }
         if screen.said_bim_class != Some(screen.bim_class) {
             online.say_bim_class(screen.bim_class);
+            // And which build this game is, with it: on joining and after
+            // every join, so nobody starts a run on two different games.
+            online.say_build();
             screen.said_bim_class = Some(screen.bim_class);
         }
     }
@@ -1094,6 +1117,13 @@ fn start_refusal(settings: &Settings) -> Option<&'static str> {
 fn lobby_start_refusal(settings: &Settings, online: &Online) -> Option<&'static str> {
     if online.connecting() {
         return Some(CONNECTING);
+    }
+    if online.is_online() {
+        match online.builds_differ() {
+            Some(true) => return Some(BUILDS_DIFFER),
+            Some(false) => return Some(BUILDS_CHECKING),
+            None => {}
+        }
     }
     if online.is_online() && !online.is_host() {
         return Some("The host starts the game.");

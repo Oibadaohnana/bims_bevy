@@ -377,7 +377,14 @@ pub enum To {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ClientCtl {
     /// First message on the socket. Anything before it is refused.
-    Hello { protocol: u32, name: String },
+    /// `resume` is a seat to take back: the id and the token a `Welcome`
+    /// handed out before this player's line dropped mid-game — the relay
+    /// puts them back in their room under that id ([`ServerCtl::Welcome`]).
+    Hello {
+        protocol: u32,
+        name: String,
+        resume: Option<Resume>,
+    },
     /// Open a fresh room and be its host.
     Create,
     /// Walk into an existing one. Codes are matched as [`normalise_code`]
@@ -405,10 +412,13 @@ pub enum ClientCtl {
 /// Relay to client.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ServerCtl {
-    /// Hello accepted.
+    /// Hello accepted. `token` is what a `Hello`'s `resume` must carry to
+    /// take this seat back if the line drops. A resumed seat is told its
+    /// old id again, and its room's `RoomJoined` follows.
     Welcome {
         you: PeerId,
         protocol: u32,
+        token: u64,
     },
     /// ...or something was not. A code, for the app to name.
     Rejected {
@@ -484,8 +494,18 @@ pub enum Closed {
     /// clock and the one who applies every edit — and there is no state
     /// on the relay to hand over, so the room ends rather than promoting
     /// somebody. Telling the rest plainly beats leaving three people
-    /// watching a world that stopped.
+    /// watching a world that stopped. A host whose line *dropped* mid-game
+    /// is waited for instead (it is missing from the roster meanwhile);
+    /// this is a host that left on purpose.
     HostLeft,
+}
+
+/// A seat to take back after a dropped line: who the player was, and the
+/// secret the relay gave them for it.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Resume {
+    pub id: PeerId,
+    pub token: u64,
 }
 
 /// One member of a room, as far as the relay is concerned. Deliberately
