@@ -9195,8 +9195,11 @@ the whole wave as before.
 - **Priced once; a bonus wave at a plain fight alone**: every budgeted
   fight is priced when its budget opens (step one), so `site_waves`
   (`site_xp.rs`) is a plain attack's or defence's own count — its
-  objective-clock, breaches, evacuation, guard and Area defend branches
-  went, and `attacks.rs`' `objective_on_a_clock` with them — and
+  breaches, evacuation, guard and Area defend branches went, and
+  `attacks.rs`' `objective_on_a_clock` with them; the objective clock's
+  `OBJECTIVE_WAVES` stays inline for an elite the Dev tab forces to an
+  Overseer, a heist or a fuel run, which `budgeted_here` leaves unbudgeted
+  and so still prices each clock wave — and
   `bonus_wave_allowed` (so the ready check's choice and *Overtime*'s
   forcing) holds only where `mission_here` is `Plain`: an attack with no
   Heart, or a threatened defence that is no Area defend. A prison break
