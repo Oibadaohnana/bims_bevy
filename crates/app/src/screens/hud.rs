@@ -73,11 +73,15 @@ pub struct Threat {
 pub fn threats(world: &world::World, local: u32) -> Vec<Threat> {
     let mut out = Vec::new();
     if let Some((text, tip)) = droid_line(world) {
+        let tip = match budget_line(world) {
+            Some(line) => format!("{tip}\n{line}"),
+            None => tip.into(),
+        };
         out.push(Threat {
             kind: ThreatKind::Droids,
             text,
             colour: theme::BAD,
-            tip: tip.into(),
+            tip,
         });
     }
     let room = &world.aboard.room;
@@ -287,6 +291,21 @@ fn droid_line(world: &world::World) -> Option<(String, &'static str)> {
         droids_standing(wave, waves, 0)
     };
     Some((words, DROIDS_TIP))
+}
+
+/// The machines' tip's last line at a fight on a budget (October 2026,
+/// `world::run::Budget`): how much of it has landed, in waves of the
+/// mission's size — the Scaling tab's unit — or, spent, that whatever comes
+/// now pays nothing. `None` with no budget open.
+fn budget_line(world: &world::World) -> Option<String> {
+    let b = world.run.budget?;
+    let wave = b.wave.max(1) as f32;
+    let all = b.planned as f32 / wave;
+    Some(if b.laid >= b.planned {
+        budget_spent(all)
+    } else {
+        budget_landed(b.laid as f32 / wave, all)
+    })
 }
 
 /// The frame a machines' warning sits in: the panel's, filled and edged
@@ -796,8 +815,10 @@ pub struct Counter {
     /// The big figure and its colour: the enemies standing, red; the
     /// countdown, amber; nought once the last wave is down, grey.
     pub big: Option<(String, egui::Color32)>,
-    /// Which wave of how many: the one on the deck, or the next.
-    pub wave: Option<(u32, u32)>,
+    /// Which wave of how many: the one on the deck, or the next. No "of
+    /// how many" at a fight on a budget (October 2026): the site counts
+    /// one wave, and the mission's own landings follow it.
+    pub wave: Option<(u32, Option<u32>)>,
     /// The Heart's core, its share of its health left.
     pub core: Option<f32>,
     /// An Area defend's count (October 2026), in place of `wave`.
@@ -944,7 +965,7 @@ pub fn counter(world: &world::World, flying: u32) -> Option<Counter> {
         };
         return Some(Counter {
             big,
-            wave: Some((wave.min(waves.max(1)), waves.max(1))),
+            wave: Some((wave.min(waves.max(1)), Some(waves.max(1)))),
             core: None,
             area: None,
             objective: None,
@@ -982,9 +1003,12 @@ pub fn counter(world: &world::World, flying: u32) -> Option<Counter> {
         || world
             .objective_look()
             .is_some_and(|look| look.wave_in.is_some());
+    // A fight on a budget (October 2026): the site counts one wave and the
+    // mission's own landings count up after it, so no "of how many".
+    let of = world.run.budget.is_none().then_some(waves);
     Some(Counter {
         big,
-        wave: (!armed).then_some((wave, waves)),
+        wave: (!armed).then_some((wave, of)),
         core,
         area: None,
         objective: sabotage_count(world),
@@ -1147,9 +1171,13 @@ pub fn top_frame(
                                 ui.painter().galley(rect.min + shake, galley, colour);
                                 kills.aim_at(Some(rect));
                             }
-                            if let Some((wave, waves)) = count.as_ref().and_then(|c| c.wave) {
+                            if let Some((wave, of)) = count.as_ref().and_then(|c| c.wave) {
+                                let words = match of {
+                                    Some(waves) => wave_counter(wave, waves),
+                                    None => budget_wave(wave),
+                                };
                                 ui.label(
-                                    egui::RichText::new(wave_counter(wave, waves))
+                                    egui::RichText::new(words)
                                         .size(COUNT_WAVE_SIZE)
                                         .strong()
                                         .color(theme::INK),
@@ -1777,6 +1805,45 @@ mod tests {
         assert_eq!(xp_text(world::Class::None, 500), "No class");
         // Nothing but digits between the words: no fraction of a point.
         assert!(!xp_text(soldier, 777).contains('.'));
+    }
+
+    /// At a fight on a budget the machines' tip says how much of it has
+    /// landed, in waves of the mission's size, and once it is spent that
+    /// the rest pay nothing; with no budget it says nothing.
+    #[test]
+    fn a_fight_on_a_budget_says_what_has_landed_and_then_that_it_is_spent() {
+        let mut world = world::fixture::simulation_world(
+            shipdesign::fixture::flyer(1),
+            world::fixture::REFERENCE_MONEY,
+            1,
+        );
+        assert_eq!(budget_line(&world), None);
+        let budget = world::run::Budget {
+            of: world::run::Budgeted::Heist,
+            wave: 4,
+            bombers: 0,
+            lancers: 0,
+            planned: 16,
+            laid: 6,
+            bombers_laid: 0,
+            lancers_laid: 0,
+            landings: 2,
+            garrison: 4,
+        };
+        world.run.budget = Some(budget);
+        assert_eq!(
+            budget_line(&world).as_deref(),
+            Some("• Budget: 1.5 of 4.0 waves landed")
+        );
+        world.run.budget = Some(world::run::Budget {
+            laid: 16,
+            landings: 5,
+            ..budget
+        });
+        assert_eq!(
+            budget_line(&world).as_deref(),
+            Some("• Budget spent (4.0 waves): the rest pay no XP or money")
+        );
     }
 
     /// The log keeps four lines, folds the same words and the same

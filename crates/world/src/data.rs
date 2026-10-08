@@ -453,6 +453,11 @@ pub const NEST_BUILD_STEPS: u64 = 1_200;
 /// budget is spent, then one a player a round between them.
 pub const NEST_SLICE_ROUNDS: u32 = 3;
 pub const EVAC_WAVE_STEPS: u64 = 1_500;
+/// The landings an Evacuation is sized for (October 2026,
+/// `crate::run::Budget`): about so many waves before a crew at par have
+/// their people aboard — its budget is sliced over them, and a trickle
+/// comes after.
+pub const EVAC_PAR_WAVES: u32 = 4;
 /// **Kill the Overseer** (October 2026): his health by the area the fight
 /// is in (area 0 to tier three, the player's: "scaling hp with tier
 /// areas"), his pace (the player's: "30% of a normal walk speed"), the
@@ -485,6 +490,11 @@ pub const HEIST_WAVE_GROWTH_PERCENT: u32 = 25;
 /// takes to cut (an engineer's twice as quick).
 pub const PRISONERS: u32 = 3;
 pub const CUT_SECONDS: u32 = 8;
+/// The alarm a prison break raises when the cell is cut (October 2026,
+/// `crate::run::Budget`): a wave at once, then one every so many steps
+/// of the mission clock — twenty-five seconds — while a freed prisoner
+/// alive is not yet aboard the crew's ship.
+pub const PRISON_WAVE_STEPS: u64 = 1_500;
 /// **A fuel run**: the drums in the depot, how many the reactor wants,
 /// how near its core one is put in, how soon a drum lost is stood again
 /// in the depot, and how often a wave lands until it goes critical.
@@ -510,6 +520,11 @@ pub const BOMB_CHARGES: u32 = 2;
 pub const BOMB_STEPS: u64 = 10_800;
 pub const DEFUSE_SECONDS: u32 = 8;
 pub const BOMB_WAVE_STEPS: u64 = 1_800;
+/// The landings Bomb disposal is sized for (October 2026,
+/// `crate::run::Budget`): about so many waves before a crew at par have
+/// every charge defused — its budget is sliced over them, and a trickle
+/// comes while a charge is left.
+pub const BOMB_PAR_WAVES: u32 = 3;
 /// **Hold the doors**: twenty seconds of the machines at a door unbroken
 /// break it, a wave every twenty-five seconds fixed, and the hold's
 /// length (not given by the player: three minutes, as Bomb disposal's).

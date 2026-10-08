@@ -6836,6 +6836,14 @@ impl World {
             self.settle_droids();
             // And the second set's objective, after the first wave.
             self.settle_objective(id);
+            // A fight with a mission's budget (October 2026) settles one
+            // wave, its garrison, and no bonus: everything after it is the
+            // mission's own landings, sliced off the budget.
+            if self.budgeted_here(id).is_some()
+                && let Some(it) = self.infestation_mut(id)
+            {
+                it.waves_left = 0;
+            }
         }
         let standing = self.droids_standing();
         // The mission clock (feature 103): a wave is timed from the
@@ -7671,14 +7679,30 @@ impl World {
             if standing == 0 {
                 self.clear_wrecks();
             }
-            // Seal the breaches' waves are as much smaller as breaches are
-            // welded.
+            // **A defence with a budget lands its slice** (October 2026,
+            // `budget.rs`): an even share of what is left over the
+            // landings its clock has to come, Seal the breaches' the
+            // smaller as breaches are welded — and once it is spent, the
+            // trickle while the fight is on. A plain one lands the wave.
             let full = self.landing_wave_size();
-            let n = self.breach_wave_size(id, full);
-            let n = self.guard_wave_size(id, n);
-            self.lay_defense_wave(id, n);
+            let laid = match self.run.budget.map(|b| b.of) {
+                Some(of) => {
+                    let want = if of == crate::run::Budgeted::Breaches {
+                        self.breach_wave_size(id)
+                    } else {
+                        self.budget_even(self.budget_expected(of))
+                    };
+                    let landing = self.budget_take(want);
+                    self.lay_defense_wave_as(id, &landing);
+                    landing.base + landing.bombers + landing.lancers
+                }
+                None => {
+                    self.lay_defense_wave(id, full);
+                    full
+                }
+            };
             if let Some(d) = self.defense_mut(id) {
-                d.standing = standing + n;
+                d.standing = standing + laid;
             }
             events.push(WorldEvent::DroidReinforcements { station: id });
         }

@@ -343,7 +343,10 @@ use crate::game::Game;
 /// 134: a mission's enemy budget (`world::run::Budget` on the `Run`,
 /// `world::droid::Area::budget`) and an unpaid body
 /// (`bims::droid::Droid::unpaid`, `bims::bim::Bim::unpaid`).
-pub const SAVE_VERSION: u32 = 134;
+/// 135: the missions' weights (`world::droid::MissionWeights` on the
+/// scaling), a prison break's alarm (`world::objective::Prison::next_wave`)
+/// and a salvage crate taken up once (`world::objective::Load::picked`).
+pub const SAVE_VERSION: u32 = 135;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

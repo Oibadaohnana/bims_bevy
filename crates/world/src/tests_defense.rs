@@ -1368,8 +1368,15 @@ fn the_waves_come_while_a_breach_is_open_and_the_fight_is_won_once_all_are_welde
         data::DEFENSE_DELAY_STEPS as u32 + 5,
         |w| w.droids_standing() > 0
     ));
+    // A whole landing is the budget's share for one weld a gap (October
+    // 2026): `⌈planned × 2 ÷ (breaches + 1)⌉`, the budget the wave of six
+    // times the area's.
+    let b = world.run.budget.expect("the budget opened at the landing");
+    assert_eq!(b.of, crate::run::Budgeted::Breaches);
+    assert_eq!(b.wave, 6);
+    let whole = (b.planned * 2).div_ceil(total + 1);
     let first = world.droids_standing();
-    assert_eq!(first, 6);
+    assert_eq!(first, whole.min(b.planned));
     // The next lands on the clock with the first still standing.
     let wave = |w: &World| w.defense(id).unwrap().wave;
     assert!(until(
@@ -1378,8 +1385,14 @@ fn the_waves_come_while_a_breach_is_open_and_the_fight_is_won_once_all_are_welde
         |w| wave(w) == 2
     ));
     let laid = |w: &World| w.residents.as_ref().unwrap().aboard.room.droid_count();
-    assert_eq!(laid(&world), 12, "stacked on the first, wrecks and all");
-    // One breach welded: the next wave is its share of the open ones.
+    let second = whole.min(b.planned - first);
+    assert_eq!(
+        laid(&world),
+        first + second,
+        "stacked on the first, wrecks and all"
+    );
+    // One breach welded: the next wave is its share of the open ones, or
+    // what is left of the budget.
     let one = world.entries()[0].index;
     world.weld_for_probe(one);
     world.step(&[]);
@@ -1390,11 +1403,13 @@ fn the_waves_come_while_a_breach_is_open_and_the_fight_is_won_once_all_are_welde
         data::BREACH_WAVE_STEPS as u32 + 5,
         |w| wave(w) == 3
     ));
-    assert_eq!(
-        laid(&world) - before,
-        (6 * (total - 1)).div_ceil(total),
-        "a smaller wave"
-    );
+    let left = b.planned - first - second;
+    let third = if left == 0 {
+        world.players()
+    } else {
+        (whole * (total - 1)).div_ceil(total).min(left)
+    };
+    assert_eq!(laid(&world) - before, third, "a smaller wave");
     // Every one welded: no wave comes, none burns through, and the fight is
     // won with the deck cleared.
     for e in world.entries() {
@@ -1942,12 +1957,17 @@ fn the_vault_s_doors_are_sealed_broken_by_an_unbroken_stand_and_the_commander_do
     assert!(world.lost, "the run is lost");
 }
 
+/// Hold the doors' waves (October 2026): every twenty-five seconds, each
+/// an even share of the mission's budget over the landings its clock has.
 #[test]
-fn hold_the_doors_waves_are_three_quarters_and_one_a_player_every_twenty_five_seconds() {
+fn hold_the_doors_waves_are_the_budget_s_even_share_every_twenty_five_seconds() {
     let (mut world, id) = guarded(crate::run::Mission::Doors);
     assert!(until(&mut world, 60, |w| w.droids_standing() > 0));
-    let players = world.players();
-    assert_eq!(world.droids_standing(), 4 * 3 / 4 + players);
+    let b = world.run.budget.expect("the budget opened at the landing");
+    assert_eq!(b.of, crate::run::Budgeted::Doors);
+    let expected = data::DOORS_STEPS.div_ceil(data::DOORS_WAVE_STEPS) as u32;
+    let first = b.planned.div_ceil(expected);
+    assert_eq!(world.droids_standing(), first);
     let wave = |w: &World| w.defense(id).unwrap().wave;
     let was = wave(&world);
     assert!(until(
@@ -1955,7 +1975,12 @@ fn hold_the_doors_waves_are_three_quarters_and_one_a_player_every_twenty_five_se
         data::DOORS_WAVE_STEPS as u32 + 5,
         |w| wave(w) == was + 1
     ));
-    assert!(world.droids_standing() > 4 * 3 / 4 + players, "stacked");
+    // The second lands whatever of the first still stands — the site's
+    // defenders may have downed some meanwhile — and is the even share of
+    // what the first left.
+    let second = (b.planned - first).div_ceil(expected - 1);
+    let now = world.run.budget.unwrap();
+    assert_eq!((now.laid, now.landings), (first + second, 2));
 }
 
 #[test]
@@ -2101,4 +2126,203 @@ fn the_hold_done_the_republic_s_soldiers_come_while_an_enemy_stands() {
     for who in crew..crew + came {
         assert!(world.is_reinforcement(who), "gone at the mission's end");
     }
+}
+
+// --- A defence's budget (October 2026) ---------------------------------------
+
+/// One landing of a defence, as [`land_and_wreck`] saw it: how many
+/// machines, and whether they were the trickle (every one unpaid).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct Landed {
+    pub bodies: u32,
+    pub unpaid: bool,
+}
+
+/// Step until `done` — at most `steps` steps, or fail saying so — wrecking
+/// every machine the step it lands, so each step's machines standing are
+/// one landing's alone: how many, and whether they are the trickle. A
+/// landing half paid fails. Machines only (the tests' `basic()`), so a
+/// machine's body index is past the site's own Bims.
+pub(crate) fn land_and_wreck(
+    world: &mut World,
+    steps: u32,
+    mut done: impl FnMut(&World, &[Landed]) -> bool,
+) -> Vec<Landed> {
+    let mut seen = Vec::new();
+    for _ in 0..steps {
+        world.step(&[]);
+        if let Some(residents) = world.residents.as_mut() {
+            let room = &mut residents.aboard.room;
+            let bims = room.crew_count() as usize;
+            let fresh: Vec<usize> = (0..room.droid_count() as usize)
+                .filter(|&i| room.droid(i).is_some_and(|d| !d.destroyed))
+                .collect();
+            if !fresh.is_empty() {
+                let unpaid = fresh.iter().filter(|&&i| room.is_unpaid(bims + i)).count();
+                assert!(
+                    unpaid == 0 || unpaid == fresh.len(),
+                    "a landing half paid: {unpaid} of {}",
+                    fresh.len()
+                );
+                seen.push(Landed {
+                    bodies: fresh.len() as u32,
+                    unpaid: unpaid > 0,
+                });
+                for &i in &fresh {
+                    room.strike_droid(i, bims::droid::DroidPart::Chassis, 1e6);
+                }
+                assert!(
+                    fresh
+                        .iter()
+                        .all(|&i| room.droid(i).is_some_and(|d| d.destroyed)),
+                    "a machine survived the wrecking"
+                );
+            }
+        }
+        if done(world, &seen) {
+            return seen;
+        }
+    }
+    panic!("not done in {steps} steps; landed {seen:?}");
+}
+
+/// Hold the doors and Protect the commander run their whole clock: their
+/// landings spend the budget exactly, over as many landings as the clock
+/// has, and none of them is the trickle.
+#[test]
+fn hold_the_doors_and_protect_the_commander_land_their_budget_exactly_over_their_clocks() {
+    use crate::run::{Budgeted, Mission};
+    for (mission, of) in [
+        (Mission::Doors, Budgeted::Doors),
+        (Mission::Chief, Budgeted::Chief),
+    ] {
+        let (mut world, id) = guarded(mission);
+        let over = |w: &World| {
+            w.defense(id)
+                .is_some_and(|d| d.wave > 0 && !d.more_to_come())
+        };
+        let seen = land_and_wreck(&mut world, data::DOORS_STEPS as u32 + 600, |w, _| over(w));
+        // And nothing after the clock.
+        let wave = world.defense(id).unwrap().wave;
+        for _ in 0..data::DOORS_WAVE_STEPS + 10 {
+            world.step(&[]);
+        }
+        assert_eq!(world.defense(id).unwrap().wave, wave, "{mission:?}");
+        let b = world.run.budget.expect("the budget opened");
+        assert_eq!(b.of, of, "{mission:?}");
+        let expected = world.budget_expected(of);
+        assert_eq!(seen.len() as u32, expected, "{mission:?}: {seen:?}");
+        assert!(seen.iter().all(|l| !l.unpaid), "{mission:?}: no trickle");
+        assert_eq!(
+            seen.iter().map(|l| l.bodies).sum::<u32>(),
+            b.planned,
+            "{mission:?}: the budget to the body"
+        );
+        assert_eq!((b.laid, b.landings), (b.planned, expected), "{mission:?}");
+    }
+}
+
+/// Once the budget is spent the defences whose fight runs on past their
+/// par — Seal the breaches with a breach open, Bomb disposal with a
+/// charge left, an Evacuation not over — land only the trickle: one a
+/// player, every one unpaid; and every landing before it was paid.
+#[test]
+fn a_defence_past_its_budget_lands_the_trickle_unpaid() {
+    use crate::run::{Budgeted, Mission};
+    let cases: [(fn() -> (World, u32), Budgeted); 3] = [
+        (|| breaches(6), Budgeted::Breaches),
+        (|| guarded(Mission::Bombs), Budgeted::Bombs),
+        (
+            || evacuation(data::DEFENSE_DELAY_STEPS),
+            Budgeted::Evacuation,
+        ),
+    ];
+    for (stage, of) in cases {
+        let (mut world, _) = stage();
+        let trickles = |seen: &[Landed]| seen.iter().filter(|l| l.unpaid).count();
+        let seen = land_and_wreck(&mut world, 12_000, |_, seen| trickles(seen) >= 2);
+        let b = world.run.budget.expect("the budget opened");
+        assert_eq!(b.of, of);
+        let paid: Vec<u32> = seen
+            .iter()
+            .take_while(|l| !l.unpaid)
+            .map(|l| l.bodies)
+            .collect();
+        assert_eq!(
+            paid.iter().sum::<u32>(),
+            b.planned,
+            "{of:?}: the budget spent before the trickle: {seen:?}"
+        );
+        for l in &seen[paid.len()..] {
+            assert!(l.unpaid, "{of:?}: nothing paid after the trickle: {seen:?}");
+            assert_eq!(l.bodies, world.players(), "{of:?}: one a player");
+        }
+        assert_eq!(b.laid, b.planned, "{of:?}: the trickle takes nothing");
+    }
+}
+
+/// Seal the breaches welded one a gap — every breach open at the first
+/// landing, one fewer at each after — spends its budget to the body by
+/// the time the last is welded, and nothing comes after it.
+#[test]
+fn seal_the_breaches_welded_one_a_gap_spends_its_budget_exactly() {
+    let (mut world, id) = breaches(6);
+    let (_, total) = world.breaches_open().expect("breaches");
+    let mut seen = Vec::new();
+    for k in 0..total {
+        let landed = land_and_wreck(
+            &mut world,
+            data::DEFENSE_DELAY_STEPS as u32 + data::BREACH_WAVE_STEPS as u32 + 10,
+            |_, seen| !seen.is_empty(),
+        );
+        assert_eq!(landed.len(), 1);
+        assert_eq!(world.breaches_open(), Some((total - k, total)));
+        seen.extend(landed);
+        let open = world
+            .entries()
+            .into_iter()
+            .find(|e| !e.welded)
+            .expect("a breach open");
+        world.weld_for_probe(open.index);
+        world.step(&[]);
+    }
+    assert_eq!(world.breaches_open(), Some((0, total)));
+    let b = world.run.budget.expect("the budget opened");
+    let paid: u32 = seen.iter().filter(|l| !l.unpaid).map(|l| l.bodies).sum();
+    assert_eq!(paid, b.planned, "every landing laid: {seen:?}");
+    assert_eq!(b.laid, b.planned);
+    // Every one welded: none comes.
+    let wave = world.defense(id).unwrap().wave;
+    for _ in 0..data::BREACH_WAVE_STEPS + 10 {
+        world.step(&[]);
+    }
+    assert_eq!(world.defense(id).unwrap().wave, wave);
+}
+
+/// A mission's weight multiplies its budget (`scaling.ron`'s `missions`):
+/// at a half, Seal the breaches' planned is half the area's budget of the
+/// wave, rounded.
+#[test]
+fn a_weight_of_a_half_halves_a_defence_s_budget() {
+    let planned = |weight: f32| {
+        let (mut world, _) = breaches(6);
+        let mut scaling = world.wave_scaling();
+        scaling.missions.breaches = weight;
+        world.set_wave_scaling(scaling);
+        land_and_wreck(
+            &mut world,
+            data::DEFENSE_DELAY_STEPS as u32 + 10,
+            |_, seen| !seen.is_empty(),
+        );
+        let b = world.run.budget.expect("the budget opened");
+        let budget = world.area_now().1.budget_hundredths();
+        (b, budget)
+    };
+    let (full, budget) = planned(1.0);
+    let (half, _) = planned(0.5);
+    assert_eq!(full.wave, half.wave);
+    let of = |percent: u64| ((u64::from(full.wave) * budget * percent + 5_000) / 10_000) as u32;
+    assert_eq!(full.planned, of(100));
+    assert_eq!(half.planned, of(50));
+    assert_eq!(half.planned, full.planned.div_ceil(2), "half, rounded");
 }

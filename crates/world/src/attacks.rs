@@ -28,7 +28,9 @@
 //!   sealed until [`data::CUT_SECONDS`] of hands cut it open. Out, they are
 //!   armed with a pistol each and follow the crew as any bot, and alive
 //!   they stay on; never freed, they are gone at the mission's end. The
-//!   site's own waves.
+//!   cut is **the alarm**: a wave at once and one every
+//!   [`data::PRISON_WAVE_STEPS`] while a prisoner alive is not aboard the
+//!   crew's ship — every one of them aboard, it is over for good.
 //! - **A fuel run**: [`data::FUEL_DRUMS`] drums in the depot, taken up with
 //!   the Use key — the carrier holds its fire — and put in within
 //!   [`data::REACTOR_REACH_TILES`] of the reactor's core; a carrier hit
@@ -37,16 +39,30 @@
 //!   clock until [`data::FUEL_NEEDED`] are in and the reactor goes
 //!   critical.
 //! - **A salvage sweep**: [`data::SALVAGE_CRATES`] crates in the holds,
-//!   each taken up bringing a wave at once, each a fifth bigger; carried
-//!   aboard the ship, each pays [`data::SALVAGE_PAY_PERCENT`] of an enemy's
-//!   money into the takings. The site's own waves besides, and its
-//!   bounty paid as each enemy goes down, so the crew may leave when they
-//!   like; it is cleared once every crate is home.
+//!   each taken up the first time bringing a wave at once, each a fifth
+//!   bigger (one dropped and taken again brings nothing); carried aboard
+//!   the ship, each pays [`data::SALVAGE_PAY_PERCENT`] of an enemy's money
+//!   into the takings. Its bounty is paid as each enemy goes down, so the
+//!   crew may leave when they like; it is cleared once every crate is
+//!   home.
 //!
 //! **A fight won freezes the deck**, so every one of them holds the clear
 //! until its objective is done ([`World::objective_holds`]): the Overseer
 //! down or out, every terminal taken, the reactor critical, the cell cut
-//! open, every crate home.
+//! open and every prisoner alive aboard, every crate home.
+//!
+//! **Each is one budget** (October 2026, `budget.rs`): the site settles
+//! one wave, its garrison — the budget's first slice — and every wave
+//! after it is the mission's own landing, sliced off the budget. The
+//! Overseer's, a heist's, a fuel run's and the prison's alarm's clock
+//! waves are an even share of what is left over
+//! [`data::OBJECTIVE_WAVES`] (a heist's a quarter bigger a terminal
+//! taken), landing only while fewer than a whole wave stand (the
+//! Overseer not counted); a salvage sweep's crates share what the
+//! garrison left, each by its weight, so the last crate spends the last
+//! of it. Spent, a clock brings only the trickle — one a player, unpaid.
+//! An objective that could not be laid leaves the budget at what was
+//! laid ([`World::settle_objective`]).
 //!
 //! A child of `crate::world`, as `mission.rs` is. **Nothing here draws
 //! from a stream.**
@@ -55,7 +71,7 @@ use super::*;
 use crate::objective::{
     FuelRun, Heist, Load, LoadState, Objective, Overseer, OverseerPhase, Prison, Salvage,
 };
-use crate::run::Mission;
+use crate::run::{Budgeted, Mission};
 use crate::stationgen::Feature;
 use shipdesign::Layer;
 
@@ -252,17 +268,9 @@ impl World {
         }
     }
 
-    /// Whether the site `id`'s waves come on its objective's clock (the
-    /// Overseer, a heist, a fuel run) rather than its own count.
-    pub(super) fn objective_on_a_clock(&self, id: u32) -> bool {
-        matches!(
-            self.infestation(id).and_then(|it| it.objective.as_ref()),
-            Some(Objective::Overseer(_) | Objective::Heist(_) | Objective::FuelRun(_))
-        )
-    }
-
     /// Whether the site `id`'s objective keeps it from being cleared: the
-    /// Overseer standing, a terminal left, the reactor not critical.
+    /// Overseer standing, a terminal left, the reactor not critical, the
+    /// cell shut or a prisoner alive not aboard, a crate not home.
     pub(super) fn objective_holds(&self, id: u32) -> bool {
         match self.infestation(id).and_then(|it| it.objective.as_ref()) {
             Some(Objective::Overseer(o)) => {
@@ -270,9 +278,10 @@ impl World {
             }
             Some(Objective::Heist(h)) => h.taken.iter().any(|&t| !t),
             Some(Objective::FuelRun(f)) => !f.critical,
-            // The cell cut open: a fight won freezes the deck, and nobody
-            // cuts a door on one.
-            Some(Objective::Prison(p)) => !p.open,
+            // The cell cut open and its alarm over — every prisoner alive
+            // aboard: a fight won freezes the deck, and nobody cuts a door
+            // or walks a prisoner home on one.
+            Some(Objective::Prison(p)) => !p.open || p.next_wave.is_some(),
             // Every crate home or gone up: the crew may leave before, and
             // are paid as they go (`World::pays_as_it_goes`).
             Some(Objective::Salvage(s)) => s
@@ -333,7 +342,28 @@ impl World {
 
     /// The objective laid at `id` the step the crew first dock there,
     /// after its first wave, where its mission is one of the second set.
+    /// One that could not be laid (October 2026) leaves the fight its
+    /// garrison: the budget shrinks to what was laid, priced again over
+    /// it.
     pub(super) fn settle_objective(&mut self, id: u32) {
+        self.lay_the_objective(id);
+        let failed = feature_of(self.mission_here(id)).is_some()
+            && self
+                .infestation(id)
+                .is_some_and(|it| it.objective.is_none() && !it.cleared && it.heart.is_none());
+        if !failed {
+            return;
+        }
+        let Some(b) = self.run.budget.as_mut() else {
+            return;
+        };
+        b.planned = b.laid;
+        let bodies = u64::from(b.laid + b.bombers_laid + b.lancers_laid).max(1);
+        let each = ((self.site_budget(id) + bodies / 2) / bodies).max(1);
+        self.run.xp_each = Some(each.min(u64::from(u32::MAX)) as u32);
+    }
+
+    fn lay_the_objective(&mut self, id: u32) {
         let mission = self.mission_here(id);
         if feature_of(mission).is_none() {
             return;
@@ -428,6 +458,7 @@ impl World {
                     cut: 0,
                     open: false,
                     prisoners,
+                    next_wave: None,
                 })
             }
             Mission::FuelRun => {
@@ -747,37 +778,46 @@ impl World {
             (Interaction::Take(i), mut o) => {
                 let hits = self.aboard.room.hits_taken(slot as usize);
                 let salvage = matches!(o, Objective::Salvage(_));
-                let taken = match &mut o {
+                // A crate counts the first time it is taken up (October
+                // 2026): one dropped and taken again brings nothing.
+                let (taken, fresh, crates) = match &mut o {
                     Objective::FuelRun(f) => {
                         let l = &mut f.drums[i];
                         l.state = LoadState::Carried;
                         l.carrier = Some(slot);
                         l.hits = hits;
-                        0
+                        (0, true, 0)
                     }
                     Objective::Salvage(s) => {
                         let l = &mut s.crates[i];
                         l.state = LoadState::Carried;
                         l.carrier = Some(slot);
                         l.hits = hits;
-                        s.taken += 1;
-                        s.taken
+                        let fresh = !l.picked;
+                        l.picked = true;
+                        if fresh {
+                            s.taken += 1;
+                        }
+                        (s.taken, fresh, s.crates.len() as u32)
                     }
                     _ => return Err(Refusal::NothingToUse),
                 };
                 self.set_objective(id, o);
-                events.push(WorldEvent::Objective {
-                    station: id,
-                    what: if salvage { 3 } else { 5 },
-                    n: taken,
-                    who: slot,
-                });
+                if fresh {
+                    events.push(WorldEvent::Objective {
+                        station: id,
+                        what: if salvage { 3 } else { 5 },
+                        n: taken,
+                        who: slot,
+                    });
+                }
                 // Every crate taken up brings a wave, a fifth bigger each.
-                if salvage {
+                if salvage && fresh {
                     let full = self.landing_wave_size();
                     let n =
                         (full * (100 + data::SALVAGE_WAVE_GROWTH_PERCENT * taken)).div_ceil(100);
-                    self.land_objective_wave(id, n, events);
+                    let want = self.salvage_share(taken, crates);
+                    self.land_objective_wave(id, n, want, events);
                 }
             }
             (Interaction::Drop, mut o) => {
@@ -833,9 +873,12 @@ impl World {
         (hands, work)
     }
 
-    /// A wave of `n` landing at the site's next way in, on the objective's
-    /// account: counted on the infestation and said.
-    fn land_objective_wave(&mut self, id: u32, n: u32, events: &mut Vec<WorldEvent>) {
+    /// A wave landing at the site's next way in, on the objective's
+    /// account: counted on the infestation and said. With the mission's
+    /// budget open (October 2026) it is `want` base bodies taken off it
+    /// ([`World::budget_take`]: never past what is left, the trickle once
+    /// it is spent); with none, `n` laid as any wave.
+    fn land_objective_wave(&mut self, id: u32, n: u32, want: u32, events: &mut Vec<WorldEvent>) {
         let wave = match self.infestation_mut(id) {
             Some(it) => {
                 it.wave += 1;
@@ -843,18 +886,78 @@ impl World {
             }
             None => return,
         };
-        self.lay_held_wave(id, n.max(1), wave);
+        if self.run.budget.is_some() {
+            let landing = self.budget_take(want);
+            self.lay_held_wave_as(id, wave, &landing);
+        } else {
+            self.lay_held_wave(id, n.max(1), wave);
+        }
         events.push(WorldEvent::DroidReinforcements { station: id });
     }
 
     /// A wave due on the objective's clock: lands when `due` is reached
-    /// and fewer than a wave's worth stand, `n` of it. Whether it landed.
-    fn clock_wave(&mut self, id: u32, due: u64, n: u32, events: &mut Vec<WorldEvent>) -> bool {
-        if self.run.mission_steps < due || self.droids_standing() >= n {
+    /// and fewer than `full` — a whole wave's worth, not the slice — stand
+    /// (the Overseer himself not counted), `want` of the budget or `full`
+    /// with none. Whether it landed.
+    fn clock_wave(
+        &mut self,
+        id: u32,
+        due: u64,
+        full: u32,
+        want: u32,
+        events: &mut Vec<WorldEvent>,
+    ) -> bool {
+        if self.run.mission_steps < due || self.standing_on_the_clock() >= full {
             return false;
         }
-        self.land_objective_wave(id, n, events);
+        self.land_objective_wave(id, full, want, events);
         true
+    }
+
+    /// Every enemy standing on the residents' deck but the Overseer: he is
+    /// no wave, and on a wave of one he held his own clock off for good.
+    fn standing_on_the_clock(&self) -> u32 {
+        let standing = self.droids_standing();
+        let overseer = match self.objective_here() {
+            Some((_, Objective::Overseer(o))) => o.body,
+            _ => None,
+        };
+        let Some(who) = overseer else {
+            return standing;
+        };
+        let up = self.residents.as_ref().is_some_and(|r| {
+            let room = &r.aboard.room;
+            let w = who as usize;
+            room.is_manufacturer(w) && room.is_alive(w) && !room.is_downed(w)
+        });
+        standing.saturating_sub(u32::from(up))
+    }
+
+    /// The base bodies the `k`-th crate of `n` taken up lands off the
+    /// mission's budget (October 2026): the crates share what the garrison
+    /// left, the `k`-th weighing `10 + 2k` — a fifth of a wave more each,
+    /// as the waves grew — so that by the last of them every body
+    /// of the budget has landed. What is due by the `k`-th, less what is
+    /// laid; nought with no budget.
+    fn salvage_share(&self, k: u32, n: u32) -> u32 {
+        let Some(b) = self.run.budget else {
+            return 0;
+        };
+        let weight = |k: u64| 10 * k + k * (k + 1);
+        let (k, n) = (u64::from(k.min(n)), u64::from(n.max(1)));
+        let rest = u64::from(b.planned.saturating_sub(b.garrison));
+        let due = u64::from(b.garrison) + rest * weight(k) / weight(n);
+        (due.saturating_sub(u64::from(b.laid))).min(u64::from(u32::MAX)) as u32
+    }
+
+    /// Whether a prisoner let out of the cell is alive and not yet on the
+    /// crew's ship (an Evacuation's test of aboard, `World::on_the_ship`).
+    fn prisoners_out_of_the_ship(&self, p: &Prison) -> bool {
+        let room = &self.aboard.room;
+        p.prisoners.iter().any(|&w| {
+            let w = w as usize;
+            room.is_alive(w) && !self.on_the_ship(room.bim_pos(w))
+        })
     }
 
     // --- the step ------------------------------------------------------------
@@ -964,10 +1067,11 @@ impl World {
             }
             room.set_skills(skills);
         }
-        // The waves while he stands.
+        // The waves while he stands: an even slice of the budget each.
         if matches!(o.phase, OverseerPhase::Office | OverseerPhase::Fleeing) {
             let n = self.landing_wave_size();
-            if self.clock_wave(id, o.next_wave, n, events) {
+            let want = self.budget_even(self.budget_expected(Budgeted::Overseer));
+            if self.clock_wave(id, o.next_wave, n, want, events) {
                 o.next_wave = self.run.mission_steps + data::OVERSEER_WAVE_STEPS;
             }
         }
@@ -1079,9 +1183,13 @@ impl World {
         }
         if h.taken.iter().any(|&t| !t) {
             let taken = h.taken_count();
+            let grown = 100 + data::HEIST_WAVE_GROWTH_PERCENT * taken;
             let full = self.landing_wave_size();
-            let n = (full * (100 + data::HEIST_WAVE_GROWTH_PERCENT * taken)).div_ceil(100);
-            if self.clock_wave(id, h.next_wave, n, events) {
+            let n = (full * grown).div_ceil(100);
+            // The budget's even slice, a quarter bigger a terminal taken.
+            let even = self.budget_even(self.budget_expected(Budgeted::Heist));
+            let want = (even * grown / 100).min(self.budget_left());
+            if self.clock_wave(id, h.next_wave, n, want, events) {
                 h.next_wave =
                     self.run.mission_steps + data::HEIST_WAVE_STEPS[(taken as usize).min(3)];
             }
@@ -1122,6 +1230,22 @@ impl World {
                     n: p.prisoners.len() as u32,
                     who: u32::MAX,
                 });
+                // The alarm: a wave at once.
+                p.next_wave = Some(self.run.mission_steps);
+            }
+        }
+        // The alarm's waves (October 2026), an even slice of the budget
+        // each and the trickle once it is spent, while a prisoner alive is
+        // not aboard; every one of them aboard, it is over for good.
+        if let Some(due) = p.next_wave {
+            if self.prisoners_out_of_the_ship(&p) {
+                let full = self.landing_wave_size();
+                let want = self.budget_even(self.budget_expected(Budgeted::Prison));
+                if self.clock_wave(id, due, full, want, events) {
+                    p.next_wave = Some(self.run.mission_steps + data::PRISON_WAVE_STEPS);
+                }
+            } else {
+                p.next_wave = None;
             }
         }
         self.set_objective(id, Objective::Prison(p));
@@ -1232,7 +1356,8 @@ impl World {
         }
         if !f.critical {
             let n = self.landing_wave_size();
-            if self.clock_wave(id, f.next_wave, n, events) {
+            let want = self.budget_even(self.budget_expected(Budgeted::FuelRun));
+            if self.clock_wave(id, f.next_wave, n, want, events) {
                 f.next_wave = self.run.mission_steps + data::FUEL_WAVE_STEPS;
             }
         }
@@ -1412,7 +1537,7 @@ impl World {
                     done: alive,
                     total: p.prisoners.len() as u32,
                     phase: u32::from(p.open),
-                    wave_in: None,
+                    wave_in: p.next_wave.and_then(wave_in),
                     time_left: None,
                 }
             }

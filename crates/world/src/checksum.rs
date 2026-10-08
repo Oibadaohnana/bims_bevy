@@ -1046,6 +1046,10 @@ fn eat_objective(hash: &mut Fnv, o: &crate::objective::Objective) {
         hash.eat(l.carrier.map_or(u64::MAX, u64::from));
         hash.eat(l.state as u64);
         hash.eat(u64::from(l.hits));
+        // Taken up once (October 2026): eaten only where it was.
+        if l.picked {
+            hash.eat(0x_5049_434B);
+        }
     };
     match o {
         Objective::Overseer(v) => {
@@ -1086,6 +1090,11 @@ fn eat_objective(hash: &mut Fnv, o: &crate::objective::Objective) {
             hash.eat(u64::from(p.open));
             for &w in &p.prisoners {
                 hash.eat(u64::from(w));
+            }
+            // The alarm's next wave (October 2026): eaten only where set.
+            if let Some(at) = p.next_wave {
+                hash.eat(0x_414C_524D);
+                hash.eat(at);
             }
         }
         Objective::FuelRun(f) => {

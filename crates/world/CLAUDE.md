@@ -7892,6 +7892,12 @@ and the pistol, item and soldier tests are the rule.
 > words: "for defending missions you now try to hold an area on the map
 > … Call this mission type Area defend."
 
+> **Since the budget** ("Every mission on the budget, and the weights" at
+> the end of this file) an Area defend's five landings are no longer
+> each the first wave's size: the frozen first wave times the area's
+> `budget` (and the `area_defend` weight) is shared evenly over them,
+> priced once, and none is a trickle at par.
+
 - **Which**: `World::is_area_defense(station)` — a planet's surface
   (`surface::surface_body`), and not under the tests' dial
   `set_area_defense_off_for_probe` (`World::area_defense_off`, saved, not
@@ -8122,6 +8128,14 @@ machines"); the world decides where they come.
 > flat sum an enemy; that is **gone** for every enemy a wave lays. The
 > player's words: reach the sixteenth level at the Heart, the same with
 > four players as with one, with variance from the run's choices.
+
+> **Since the budget** ("A mission's budget, and the nests on it" and
+> "Every mission on the budget, and the weights" at the end of this file)
+> `price_the_wave` and `site_waves` price a plain fight alone: every
+> mission the map shapes and an Area defend is priced once when its
+> budget opens. The bonus wave is had only at a plain fight
+> (`bonus_wave_allowed`: an attack with no Heart, or a threatened
+> defence that is no Area defend, where `mission_here` is `Plain`).
 
 `site_xp.rs` (a child of `world`) is the whole of it.
 
@@ -8370,6 +8384,11 @@ met in the pinned runs, so no pin moves.
 > machines coming in through tier one; the tiers ramping from halfway
 > through the area before; the count carried over.
 
+> **Since the budget** ("Every mission on the budget, and the weights" at
+> the end of this file) an area's `waves` is a plain fight's count
+> alone; a mission the map shapes and an Area defend bring its `budget`
+> instead, weighed by `WaveScaling::missions`.
+
 - **`droid::WaveScaling`** is `enemies_per_player`, `enemies_per_bot`
   and four `droid::Area`s — `area_0`, `tier_1_area`, `tier_2_area`,
   `tier_3_area` — each `{ days, growth_per_day, waves, bombers, lancers,
@@ -8557,6 +8576,13 @@ untouched). **`SAVE_VERSION` 123.**
 
 ## Missions the map shapes: Seal the breaches (October 2026)
 
+> **Since the budget** ("Every mission on the budget, and the weights" at
+> the end of this file) a landing is a slice of the mission's budget —
+> `⌈base × open ÷ total⌉`, `base = ⌈planned × 2 ÷ (total + 1)⌉`, so one
+> weld a gap spends it exactly — and, spent, an unpaid trickle while a
+> breach is open; the fight is priced once, and `site_waves` has no
+> breaches branch.
+
 The player's word, after the combat maps: missions shaped by the map —
 Seal the breaches first, then Sabotage, Evacuation and the nest hunt.
 `missions.rs` (a child of `world`) is the rule; `run::Mission` is the
@@ -8613,6 +8639,12 @@ pins run off the floor and do not meet one.
 
 ## Sabotage (October 2026)
 
+> **Since the budget** ("Every mission on the budget, and the weights" at
+> the end of this file) the site's waves are its garrison alone, and the
+> hold's and the escape's landings are each an even share of what it
+> left — nine landings in all, the budget laid to the body by the blast;
+> spent sooner, an unpaid trickle. Sabotage's weight is 0.9.
+
 The second mission the map shapes, the player's: plant a charge deep in
 the site, hold it ~45 s while the machines make to disarm it — **disarmed,
 the run is lost** — then get out at another airlock before it blows.
@@ -8666,6 +8698,11 @@ on the floor past area 0); the pins run off the floor.
 
 ## Evacuation (October 2026)
 
+> **Since the budget** ("Every mission on the budget, and the weights" at
+> the end of this file) each wave is an even share of the mission's
+> budget over `data::EVAC_PAR_WAVES` (4), then an unpaid trickle of one a
+> player until it is over; it is priced once, not over `site_waves`' four.
+
 The third mission the map shapes, the player's: "a flag that the
 civilians gather around and that can be dropped off. So a player can
 pick it up and still shoot but civilians follow that player. When the
@@ -8711,7 +8748,9 @@ on the floor past area 0).
 
 > **Since the budget** ("A mission's budget, and the nests on it" at the
 > end of this file) a nest builds a slice of the wave a round, not one
-> enemy, until the mission's budget is spent, and then trickles unpaid.
+> enemy, until the mission's budget is spent, and then trickles unpaid;
+> and since step two ("Every mission on the budget, and the weights") the
+> site settles one wave, its garrison, with no bonus wave.
 
 The fourth, the player's "6. is a nice idea and i want that" — nests in
 the walls that bring waves until they are destroyed. `nests.rs` (a child
@@ -8767,6 +8806,17 @@ the charge). `BIMS_FLAG=1` puts an Evacuation's flag in the player's
 hands for a look.
 
 ## The second set of attacks, on maps built for them (October 2026)
+
+> **Since the budget** ("Every mission on the budget, and the weights" at
+> the end of this file) each of the five settles one wave, its garrison,
+> and is priced once over its budget, not over `data::OBJECTIVE_WAVES`.
+> The Overseer's, the heist's and the fuel run's clock waves are slices
+> of it (the cap of a wave standing no longer counts the Overseer); a
+> prison break keeps no site waves but raises an alarm at the cut, a wave
+> every `PRISON_WAVE_STEPS` until every prisoner alive is aboard, and
+> clears only then; a salvage crate brings its wave the first time it is
+> taken up, the crates sharing what the garrison left. Neither a prison
+> nor a salvage sweep has a bonus wave.
 
 The player's words: "A1: The Overseer should walk at 30% of a normal walk
 speed and have an airlock very far away. He should have scaling hp with
@@ -8849,6 +8899,14 @@ the whole of it; `crate::objective` the states, on `Infestation::objective`
 
 ## The defences' missions: Bomb disposal, Hold the doors, Protect the commander (October 2026)
 
+> **Since the budget** ("Every mission on the budget, and the weights" at
+> the end of this file) Hold the doors' "three quarters and one a player"
+> (`guard_wave_size`) is gone: each of the three lands an even share of
+> its budget over its par landings — Bomb disposal 3, Hold the doors 8,
+> Protect the commander 5 — Bomb disposal an unpaid trickle past them
+> while a charge is left; each weighs 0.9. The Republic's soldiers keep
+> the day's wave.
+
 The player's D1, D3 and D5 — "a 3 min mission timer in which all charges
 have to be defused … if it runs out the whole station explodes losing the
 run"; the doors' "2 stages … each door taking enemies 20 seconds to break
@@ -8919,6 +8977,12 @@ than two tiles off it (an order undone), never while down. **SAVE_VERSION
 > shared over a site's waves; that is gone. The experience is still the
 > budget (the player: "keep XP per kill").
 
+> **Since the mission's budget** ("Every mission on the budget, and the
+> weights" at the end of this file) "Bomb disposal, Hold the doors and
+> Protect the commander price their experience over `OBJECTIVE_WAVES`"
+> below is gone — every mission is priced once over its budget — and a
+> body of the trickle pays no money at all.
+
 The player's words: "can the pay not just be a day progression thing
 without any wave schenanigans? With Elites paying 50% more. and everyday
 the pay rises", and of the two ways "so more enemies from the relics also
@@ -8987,8 +9051,9 @@ as before. Meant to alter play (every Evacuation); the pins meet none.
 > landing) or has a nest build one enemy a round for ever describes a
 > fight **without** a budget. The player's words: "give every mission the
 > same total … let each mission spend that total in its own way", "nest
-> fix first". This is step one: the machinery, and the nest hunt on it;
-> every other mission still lands and prices its waves as above.
+> fix first". This was step one: the machinery, and the nest hunt on it.
+> Step two ("Every mission on the budget, and the weights", next) put
+> every other mission the map shapes and an Area defend on it.
 
 `budget.rs` (a child of `world`) is the rule; its module note is the
 whole of it, `run::{Budgeted, Budget, Landing}` the types.
@@ -9042,3 +9107,172 @@ whole of it, `run::{Budgeted, Budget, Landing}` the types.
   ascension's two.
 
 Meant to alter play: every nest hunt; the pins meet none.
+
+## Every mission on the budget, and the weights (October 2026)
+
+> Step two of "A mission's budget, and the nests on it" above. Every
+> section before it that sizes a mission's waves — a share of the open
+> breaches, Hold the doors' three quarters and one a player, a salvage
+> crate's wave a fifth bigger than the last, a prison's or a salvage
+> sweep's site waves and bonus wave — or prices them over `site_waves`
+> describes what this replaced. The plan the player approved ("i like
+> all this go ahead with nest fix first"): every mission the same total,
+> each spending it in its own way, so how a mission feels stays and its
+> count evens out; past its par only a trickle; and a weight a mission
+> on top, for differences wanted on purpose.
+
+`budget.rs`' module note is still the whole rule; each fight's landing
+is in its own file (`sabotage.rs`, `attacks.rs`, `missions.rs`,
+`world.rs`' `defense_waves`).
+
+- **What is budgeted** (`World::budgeted_here`, off the laid state): a
+  defence not over — `Defense::area` (an Area defend), `breaches`,
+  `evacuation`, `guard` (Bomb disposal, Hold the doors, Protect the
+  commander); an attack neither cleared nor the Heart's —
+  `Infestation::sabotage`, `nests`, the second set's `objective`, and
+  for those five, before their objective is laid after the garrison,
+  `mission_here`. None at the Heart, under the probes' forced kinds and
+  at a plain fight (an elite's, a planet town's attack, the start at
+  home, a fight off the floor no probe forced).
+- **The weights** (`droid::MissionWeights` on `WaveScaling::missions`;
+  `scaling.ron`'s one-line `missions: (breaches: 1.0, …)`, read again
+  when saved like every dial; the setup's Scaling tab): one a budgeted
+  fight — `breaches`, `evacuation`, `bombs`, `doors`, `chief`,
+  `area_defend`, `sabotage`, `nests`, `overseer`, `heist`, `prison`,
+  `fuel_run`, `salvage` — multiplying the area's budget in `planned`
+  (`World::budget_weight_percent` → `MissionWeights::percent`: whole per
+  cent, rounded, never under nought, so two machines agree). Built in
+  (`MissionWeights::DEFAULT`) 1.0 each and **0.9 for Sabotage, Bomb
+  disposal, Hold the doors and Protect the commander** — a failure there
+  loses the run or the site. The line left out of the file is the
+  built-in weights, a weight left out of the line its own (the
+  container's `serde(default)`), never nought. Not hashed; the `planned`
+  they decide is.
+
+**Each fight's landings.** `budget_expected(of)` is every landing a crew
+at par meet, the first one too; `budget_even` slices what is left over
+those still to come; `budget_take` gives the trickle — one a player,
+no extras, unpaid — once nothing is left. An attack's first landing is
+its garrison (`settle_droids`' `budget_take(wave)`), a defence's the
+first of its slices. The clocked attacks land only while fewer than a
+whole wave stand — the full wave, a heist's a quarter bigger a terminal
+taken, not the slice (`clock_wave`) — the Overseer not counted
+(`standing_on_the_clock`: on a wave of one he held his own clock off for
+good); Sabotage and the defences stack.
+
+| fight | landings expected | each landing | spent | over when |
+| --- | --- | --- | --- | --- |
+| Sabotage | 9: the garrison, then at the plant and every `SABOTAGE_WAVE_STEPS` (15 s) of the hold and the escape | `budget_even(9)`, the last down or not | the trickle (only where fewer bodies are left than landings) | the blast (disarmed: the run lost) |
+| A nest hunt | — (its rounds slice the wave) | a round every `NEST_BUILD_STEPS` (20 s): `⌈wave ÷ (3 × nests laid)⌉` a standing nest | one a player a round, dealt round the nests | every nest down and the deck clear |
+| Kill the Overseer | 4 (`OBJECTIVE_WAVES`) | `budget_even(4)` every `OVERSEER_WAVE_STEPS` (30 s) while he is in his office or fleeing | the trickle on the clock | he is down or out |
+| A data heist | 4 | `min(left, budget_even(4) × (100 + 25 × taken) ÷ 100)` every 40/30/20/15 s by the terminals taken | the trickle | every terminal taken |
+| A fuel run | 4 | `budget_even(4)` every `FUEL_WAVE_STEPS` (30 s) | the trickle | the reactor critical |
+| A prison break | 4 | the alarm: `budget_even(4)` at the cut and every `PRISON_WAVE_STEPS` (25 s) | the trickle while a prisoner alive is not aboard | the cell open and every prisoner alive aboard |
+| A salvage sweep | 7 (`1 + crates laid`; its own slice reads them) | the k-th crate taken up the first time: `garrison + (planned − garrison) × W(k) ÷ W(n) − laid`, `W(k) = Σ_{j≤k} (10 + 2j)`, n the crates laid | — the last crate lands the last of it | every crate home or gone up (the crew may leave before) |
+| Seal the breaches | its breaches (read by its own slice) | `⌈base × open ÷ total⌉`, `base = ⌈planned × 2 ÷ (total + 1)⌉`, capped by what is left, every `BREACH_WAVE_STEPS` (30 s) | the trickle while a breach is open | every breach welded and the deck clear |
+| Evacuation | 4 (`EVAC_PAR_WAVES`) | `budget_even(4)` every `EVAC_WAVE_STEPS` (25 s) | the trickle until it is over | every one alive aboard (none alive: lost) |
+| Bomb disposal | 3 (`BOMB_PAR_WAVES`) | `budget_even(3)` every `BOMB_WAVE_STEPS` (30 s) | the trickle while a charge is left | every charge defused (the timer out: the run lost) |
+| Hold the doors | 8 (`DOORS_STEPS ÷ DOORS_WAVE_STEPS`, up) | `budget_even(8)` every 25 s of the three minutes | none at par | the hold over; then the Republic's soldiers (`landing_wave_size()`, no budget) until no enemy stands |
+| Protect the commander | 5 (`CHIEF_STEPS ÷ CHIEF_WAVE_STEPS`, up) | `budget_even(5)` every 25 s of the two minutes | none at par | the two minutes (he dead: the site falls) |
+| Area defend | 5 (`defense::area_waves`) | `budget_even(5)` on `area_gap`'s clock | none at par | the three minutes' hold |
+
+"None at par" is the clock's end: where `planned` is under the landings
+expected (a lone player early, Hold the doors' eight), `budget_even`
+still gives one a landing, so the budget is spent before the clock ends
+and the landings left are the trickle — by the rule. A defence lands its
+slice through `lay_defense_wave_as` (`Defense::standing` gets its bodies
+and extras), an attack through `lay_held_wave_as`; a plain defence lays
+the whole wave as before.
+
+- **One wave at a budgeted attack** (`droid_waves`' first-dock settle,
+  right after `settle_objective`, the `settle_*` calls in their order):
+  where `budgeted_here` answers, `waves_left = 0` — the site counts one
+  wave, its garrison, the budget's first slice; no `area.waves`, no
+  bonus. Every body after it is the mission's own landing. (Step one's
+  nest hunt still settled the area's waves and a bonus, which never
+  landed while a nest stood; the HUD read "Wave 1/3".) An area's `waves`
+  is a plain fight's alone now.
+- **Priced once; a bonus wave at a plain fight alone**: every budgeted
+  fight is priced when its budget opens (step one), so `site_waves`
+  (`site_xp.rs`) is a plain attack's or defence's own count — its
+  objective-clock, breaches, evacuation, guard and Area defend branches
+  went, and `attacks.rs`' `objective_on_a_clock` with them — and
+  `bonus_wave_allowed` (so the ready check's choice and *Overtime*'s
+  forcing) holds only where `mission_here` is `Plain`: an attack with no
+  Heart, or a threatened defence that is no Area defend. A prison break
+  and a salvage sweep lost theirs.
+- **Seal the breaches** (`missions.rs`' `breach_wave_size(station)`, no
+  `full` any more): a whole landing is `⌈planned × 2 ÷ (total + 1)⌉`, so
+  one weld a gap — every breach open, then one fewer, down to one —
+  spends the budget exactly; a landing is its share of the open ones,
+  rounded up. The slices round up, so the budget may be spent a breach
+  early, that last landing the trickle.
+- **The guard's three** (`defences.rs`): `guard_wave_size` went, and Hold
+  the doors' "three quarters and one a player" with it.
+- **The prison's alarm** (`attacks.rs`): the cut sets
+  `objective::Prison::next_wave` to that step; while it is `Some` and a
+  freed prisoner alive is not on the crew's ship
+  (`prisoners_out_of_the_ship`, through the Evacuation's `on_the_ship`)
+  a wave lands through `clock_wave` every `data::PRISON_WAVE_STEPS`;
+  every one alive aboard (or none alive), it is `None` for good — one
+  walking off the ship again does not raise it. `objective_holds` for a
+  prison is `!open || next_wave.is_some()`, so the site clears only once
+  they are aboard; `ObjectiveLook::wave_in` reads it for the HUD. No new
+  event: code 9's line says the alarm.
+- **A salvage crate counts once** (`objective::Load::picked`, set at the
+  first pick-up; `Salvage::taken` counts crates, not pick-ups): a crate
+  dropped and taken again lays nothing and says nothing (no
+  `Objective` 3) — it brought another, bigger wave before.
+  `salvage_share` is everything due by the k-th crate less what is laid,
+  so a rounding slip mends itself; with no budget a crate's wave is the
+  old one, a fifth bigger each.
+- **An objective that could not be laid** (`settle_objective`, now
+  wrapped round the old body, `lay_the_objective`): one of the five
+  with no objective after its garrison leaves `planned` at what was laid
+  and prices the mission again over that and its extras laid. No test
+  stages one.
+- **The app**: the setup's Scaling tab has a **Budget** row in the area
+  table and a **Mission weights** grid under it (`builder::mission_weights`,
+  four a row, 0 to 3), and "A mission on day 1: N enemies in all, then a
+  trickle" under the first wave's line; `wavecfg` writes and describes
+  the `missions` line. At a budgeted attack the HUD's top count is
+  "Wave n" with no total (`hud::Counter::wave`'s total an `Option`), and
+  the Droids threat's tip says how much of the budget has landed, in
+  waves, or that it is spent and the rest pay nothing
+  (`names::budget_landed`, `budget_spent`). The prison's line says to get
+  them aboard.
+- **Saved and hashed**: `Prison::next_wave` and `Load::picked` (both
+  serde default) are eaten in `world_checksum` only where set, each
+  behind its own tag, so no hash moves for them. **`SAVE_VERSION`
+  135.**
+- **Tests**: `droid::tests`'
+  `the_weights_are_one_each_and_nine_tenths_where_a_failure_costs_most`
+  and (serde) `a_weight_left_out_is_its_built_in_value`; `budget::tests`
+  (`the_budget_s_landings_expected_are_each_fight_s_par`,
+  `the_budget_s_weight_is_the_scaling_s`,
+  `a_budgeted_attack_settles_one_wave_and_a_plain_one_its_count`);
+  `tests_defense`'
+  `hold_the_doors_and_protect_the_commander_land_their_budget_exactly_over_their_clocks`,
+  `a_defence_past_its_budget_lands_the_trickle_unpaid` (Seal the
+  breaches, Bomb disposal, Evacuation),
+  `seal_the_breaches_welded_one_a_gap_spends_its_budget_exactly`,
+  `a_weight_of_a_half_halves_a_defence_s_budget`, and the Breaches and
+  Hold the doors tests re-pinned off the world's own numbers (the
+  second now `hold_the_doors_waves_are_the_budget_s_even_share_every_twenty_five_seconds`);
+  `tests_defense::land_and_wreck` (`pub(crate)`) steps a machines-only
+  world wrecking each landing as it lands, bounded, for any test that
+  counts landings; `tests_area`'
+  `an_area_defend_lands_its_budget_exactly_over_its_hold` and
+  `every_wave_of_a_mission_is_its_first_wave_s_size` re-pinned to the
+  slices; `tests_attacks`'
+  `the_clocked_attacks_spend_their_budget_and_then_trickle_unpaid`,
+  `the_overseer_does_not_hold_his_own_clock_wave_off_on_a_wave_of_one`,
+  `a_salvage_crate_taken_twice_brings_one_wave_and_the_crates_spend_the_budget`,
+  `a_prison_s_alarm_comes_on_the_cut_and_stops_once_the_prisoners_are_aboard`;
+  `tests_droid::a_sabotage_run_through_its_blast_lays_exactly_its_budget`;
+  the app's `wavecfg` tests and
+  `hud::tests::a_fight_on_a_budget_says_what_has_landed_and_then_that_it_is_spent`.
+
+Meant to alter play: every map-shaped mission and every Area defend;
+`SURVIVORS` (its town is an Area defend) and the ship's `PINNED`
+(`defense`) move — not re-pinned here.

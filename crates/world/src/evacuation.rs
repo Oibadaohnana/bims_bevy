@@ -18,7 +18,10 @@
 //!   under it on the crew's deck) is aboard for good, and posted no more.
 //! - **The waves** come on a clock, [`data::EVAC_WAVE_STEPS`] apart and
 //!   stacking, until it is over; the machines go for the crew and the
-//!   people alike.
+//!   people alike. Each is an even share of the mission's budget over
+//!   [`data::EVAC_PAR_WAVES`] (`budget.rs`), and once it is spent only a
+//!   trickle of one a player, unpaid — a slow evacuation still costs
+//!   something, and cannot snowball.
 //! - **Held** when every one still alive is aboard (one at the least):
 //!   `TownHeld`, and the bounty waiting for the clear cut to the share of
 //!   the people saved. **Failed** when none is left alive and none aboard:

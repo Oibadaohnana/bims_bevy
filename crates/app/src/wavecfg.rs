@@ -5,7 +5,8 @@
 //!   the enemies a player and a bot bring, and the four areas — area 0 and
 //!   tiers one to three — each so many days with its own growth, waves,
 //!   extras, elite, defenders and budget (the waves a mission brings in
-//!   all): the whole of how the enemies scale.
+//!   all) — and a weight on each mission's budget (`missions`): the whole
+//!   of how the enemies scale.
 //! - `rewards.ron` (or `BIMS_REWARDS`) holds a [`world::rewards::Rewards`]:
 //!   the experience and the money an enemy down is worth, what a defence
 //!   pays of it, whether the money waits for the clear, and what the
@@ -182,14 +183,28 @@ impl Tuning for WaveScaling {
                 a.budget
             )
         };
+        let m = &self.missions;
         format!(
-            "{}/player, {}/bot; area 0 {}; tier 1 {}; tier 2 {}; tier 3 {}",
+            "{}/player, {}/bot; area 0 {}; tier 1 {}; tier 2 {}; tier 3 {}; missions breaches {} evacuation {} bombs {} doors {} chief {} area defend {} sabotage {} nests {} overseer {} heist {} prison {} fuel run {} salvage {}",
             self.enemies_per_player,
             self.enemies_per_bot,
             area(&self.area_0),
             area(&self.tier_1_area),
             area(&self.tier_2_area),
-            area(&self.tier_3_area)
+            area(&self.tier_3_area),
+            m.breaches,
+            m.evacuation,
+            m.bombs,
+            m.doors,
+            m.chief,
+            m.area_defend,
+            m.sabotage,
+            m.nests,
+            m.overseer,
+            m.heist,
+            m.prison,
+            m.fuel_run,
+            m.salvage
         )
     }
 }
@@ -401,8 +416,9 @@ pub(crate) fn save_difficulty(difficulty: WaveScaling) -> Result<(), String> {
 }
 
 /// `text` with every dial's number put in: each on the line that sets it,
-/// or on a line of its own before the closing bracket when none does.
-/// `None` when there is no closing bracket.
+/// or on a line of its own before the closing bracket when none does — an
+/// area's row and the missions' weights each whole on one line, no
+/// bracket inside. `None` when there is no closing bracket.
 fn with_difficulty(text: &str, d: WaveScaling) -> Option<String> {
     // `{:?}` keeps the point, so the file reads a float back as a float.
     let area = |a: &world::droid::Area| {
@@ -419,6 +435,23 @@ fn with_difficulty(text: &str, d: WaveScaling) -> Option<String> {
             a.budget
         )
     };
+    let m = &d.missions;
+    let missions = format!(
+        "(breaches: {:?}, evacuation: {:?}, bombs: {:?}, doors: {:?}, chief: {:?}, area_defend: {:?}, sabotage: {:?}, nests: {:?}, overseer: {:?}, heist: {:?}, prison: {:?}, fuel_run: {:?}, salvage: {:?})",
+        m.breaches,
+        m.evacuation,
+        m.bombs,
+        m.doors,
+        m.chief,
+        m.area_defend,
+        m.sabotage,
+        m.nests,
+        m.overseer,
+        m.heist,
+        m.prison,
+        m.fuel_run,
+        m.salvage
+    );
     let fields = [
         ("enemies_per_player", d.enemies_per_player.to_string()),
         ("enemies_per_bot", format!("{:?}", d.enemies_per_bot)),
@@ -426,8 +459,9 @@ fn with_difficulty(text: &str, d: WaveScaling) -> Option<String> {
         ("tier_1_area", area(&d.tier_1_area)),
         ("tier_2_area", area(&d.tier_2_area)),
         ("tier_3_area", area(&d.tier_3_area)),
+        ("missions", missions),
     ];
-    let mut done = [false; 6];
+    let mut done = [false; 7];
     let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
     for line in &mut lines {
         let code = line.split("//").next().unwrap_or("");
@@ -440,9 +474,9 @@ fn with_difficulty(text: &str, d: WaveScaling) -> Option<String> {
             let Some(after) = after.trim_start().strip_prefix(':') else {
                 continue;
             };
-            // Past the number — or an area's bracketed row, on the one
-            // line — to whatever follows it: the comma, a comment,
-            // nothing.
+            // Past the number — or an area's bracketed row, or the
+            // missions' weights, on the one line — to whatever follows
+            // it: the comma, a comment, nothing.
             let number = after.trim_start();
             let rest = if number.starts_with('(') {
                 let Some(close) = number.find(')') else {
@@ -569,6 +603,21 @@ mod tests {
             tier_1_area: area(12, 0.5, 2, 3.0),
             tier_2_area: area(7, 1.0, 3, 6.0),
             tier_3_area: area(2, 0.75, 4, 7.25),
+            missions: world::droid::MissionWeights {
+                breaches: 1.25,
+                evacuation: 0.5,
+                bombs: 0.8,
+                doors: 0.7,
+                chief: 0.6,
+                area_defend: 1.5,
+                sabotage: 0.75,
+                nests: 2.0,
+                overseer: 1.1,
+                heist: 0.35,
+                prison: 1.2,
+                fuel_run: 0.95,
+                salvage: 3.0,
+            },
         };
         let text = include_str!("../../../scaling.ron");
         let new = with_difficulty(text, d).unwrap();
@@ -578,7 +627,7 @@ mod tests {
             .zip(new.lines())
             .filter(|(a, b)| a != b)
             .count();
-        assert!(changed <= 6, "{changed} lines changed");
+        assert!(changed <= 7, "{changed} lines changed");
         assert_eq!(text.lines().count(), new.lines().count());
         // A comment after the number stays, and a field left out is put in.
         let new = with_difficulty("(\n    enemies_per_bot: 1.0, // one\n)\n", d).unwrap();
@@ -621,6 +670,16 @@ mod tests {
         // But a budget left out of a row is four waves, not none, so a row
         // written before there was one still fills a mission.
         assert_eq!(s.tier_1_area.budget, world::data::BUDGET_LEFT_OUT);
+        // The missions' weights left out are the built-in ones, and a
+        // weight left out of the line its own.
+        assert_eq!(s.missions, world::droid::MissionWeights::DEFAULT);
+        let s: WaveScaling = parse("(missions: (heist: 0.5))").unwrap();
+        assert_eq!(s.missions.heist, 0.5);
+        assert_eq!(
+            s.missions.sabotage,
+            world::droid::MissionWeights::DEFAULT.sabotage
+        );
+        assert_eq!(s.missions.salvage, 1.0);
         let r: Rewards = parse("(buyback: 3)").unwrap();
         assert_eq!(r.buyback, 3);
         assert_eq!(r.enemy_money, Rewards::DEFAULT.enemy_money);

@@ -40,30 +40,26 @@ impl World {
     }
 
     /// How many waves the site at `id` has all told, the one landing
-    /// counted: an attack's and a defence's own count, and an Area
-    /// defend's as many as land in its hold ([`defense::area_waves`]).
+    /// counted: a plain attack's and a plain defence's own count. Every
+    /// fight the map shapes, and an Area defend, is priced once over its
+    /// mission's budget instead (`World::open_the_budget`), so only a
+    /// plain fight and its bonus wave are priced here — and an objective
+    /// on a clock that has no budget (the Dev tab's mission forced at an
+    /// elite), over about so many waves, or each clock wave landed would
+    /// grow the count and pay past the budget.
     fn site_waves(&self, id: u32) -> u32 {
         if let Some(it) = self.infestation(id) {
-            // The Overseer, a heist and a fuel run land waves on a clock
-            // until their objective is done (October 2026): about so many.
-            if self.objective_on_a_clock(id) {
+            use crate::objective::Objective;
+            if matches!(
+                it.objective,
+                Some(Objective::Overseer(_) | Objective::Heist(_) | Objective::FuelRun(_))
+            ) {
                 return data::OBJECTIVE_WAVES;
             }
             return it.wave.saturating_add(it.waves_left).max(1);
         }
-        match self.defense(id) {
-            Some(d) if d.area.is_some() => defense::area_waves(),
-            // Seal the breaches: a wave a breach and one more, near enough.
-            Some(d) if d.breaches.is_some() => d.breaches.map_or(1, |b| b.total + 1),
-            // An Evacuation: about four waves before its people are aboard.
-            Some(d) if d.evacuation.is_some() => 4,
-            // Bomb disposal, Hold the doors, Protect the commander: on a
-            // clock, about so many — their landed waves would otherwise
-            // grow the count as they come, and pay more than the budget.
-            Some(d) if d.guard.is_some() => data::OBJECTIVE_WAVES,
-            Some(d) => d.wave.saturating_add(d.waves_left).max(1),
-            None => 1,
-        }
+        self.defense(id)
+            .map_or(1, |d| d.wave.saturating_add(d.waves_left).max(1))
     }
 
     /// A wave of `bodies` enemies just laid at the site `id`: what each of
@@ -211,20 +207,11 @@ impl World {
         if self.run.won || self.site_cleared(id) || heart::is_heart(id) {
             return false;
         }
-        // A prison break and a salvage sweep keep the site's counted
-        // waves (October 2026), so they may have one more.
-        let attack = self.infestation(id).is_some_and(|it| it.heart.is_none())
-            && matches!(
-                self.mission_here(id),
-                crate::run::Mission::Plain
-                    | crate::run::Mission::Prison
-                    | crate::run::Mission::Salvage
-            );
-        // Not at an Area defend nor a mission the map shapes, which run
-        // on a clock rather than a count of waves.
-        let defence = self.site_threatened(id)
-            && !self.is_area_defense(id)
-            && self.mission_here(id) == crate::run::Mission::Plain;
+        // A plain fight alone: every mission the map shapes, and an Area
+        // defend, spends its budget (October 2026) and has no wave more.
+        let plain = self.mission_here(id) == crate::run::Mission::Plain;
+        let attack = plain && self.infestation(id).is_some_and(|it| it.heart.is_none());
+        let defence = plain && self.site_threatened(id) && !self.is_area_defense(id);
         attack || defence
     }
 

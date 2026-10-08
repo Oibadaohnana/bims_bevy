@@ -16,7 +16,9 @@
 //! **Seal the breaches**: the site's ways in (`entry.rs`: its airlocks
 //! but the port) are breaches the machines come in by — a wave every
 //! [`data::BREACH_WAVE_STEPS`] on the clock, stacking, at the next open
-//! one in turn, smaller the fewer are open — until the crew have welded
+//! one in turn, smaller the fewer are open, each a slice of the mission's
+//! budget (`budget.rs`: a weld a gap spends it exactly; spent, a trickle
+//! of one a player while a breach is open) — until the crew have welded
 //! every one shut ([`data::BREACH_WELD_SECONDS`] of hands on it, a second
 //! a second for each Bim welding it, two for an engineer) and destroyed
 //! what is aboard. Nothing burns through a weld there, and the machines
@@ -161,17 +163,23 @@ impl World {
         }
     }
 
-    /// A wave landing at a Seal the breaches fight, of `full` at full
-    /// strength: as much smaller as breaches are welded — its share of
-    /// the open ones, rounded up, one at the least.
-    pub(super) fn breach_wave_size(&self, station: u32, full: u32) -> u32 {
+    /// The base bodies a landing at a Seal the breaches fight asks of its
+    /// budget (October 2026, `budget.rs`): a whole landing is
+    /// `⌈planned × 2 ÷ (breaches + 1)⌉`, so one weld a gap — every breach
+    /// open, then one fewer, down to one — spends the budget exactly, and
+    /// each is that share of the open ones, rounded up, one at the least.
+    /// What is left of the budget caps it; spent, the trickle comes while
+    /// a breach is open.
+    pub(super) fn breach_wave_size(&self, station: u32) -> u32 {
+        let planned = self.run.budget.map_or(1, |b| b.planned);
         let Some(b) = self.defense(station).and_then(|d| d.breaches.as_ref()) else {
-            return full;
+            return planned;
         };
-        if b.total == 0 {
-            return full;
-        }
-        (full * b.open).div_ceil(b.total).max(1)
+        let total = b.total.max(1);
+        let base = (u64::from(planned) * 2).div_ceil(u64::from(total) + 1);
+        (base * u64::from(b.open.min(total)))
+            .div_ceil(u64::from(total))
+            .clamp(1, u64::from(u32::MAX)) as u32
     }
 
     /// Where the machines make for at a Seal the breaches fight: the weld

@@ -272,6 +272,10 @@ pub struct WaveScaling {
     pub tier_2_area: Area,
     /// Its `days` not counting the trader under the Heart or the Heart.
     pub tier_3_area: Area,
+    /// What each map-shaped mission's budget is weighed by (October 2026,
+    /// [`MissionWeights`]): a line left out of the file is the built-in
+    /// weights, a weight left out of the line its own.
+    pub missions: MissionWeights,
 }
 
 /// One area's numbers ([`WaveScaling`]).
@@ -369,6 +373,7 @@ impl WaveScaling {
         tier_1_area: data::TIER_1_AREA,
         tier_2_area: data::TIER_2_AREA,
         tier_3_area: data::TIER_3_AREA,
+        missions: MissionWeights::DEFAULT,
     };
 
     /// The default's numbers with tier two's door on run day `two` and
@@ -615,6 +620,82 @@ impl Default for WaveScaling {
     }
 }
 
+/// A weight for every fight a mission's budget is sliced over (October
+/// 2026, the player's: "a weight per mission on top … for differences
+/// wanted on purpose"): what the area's budget is multiplied by for that
+/// fight (`run::Budget::planned`). One each, a little lighter where a
+/// failure loses the run or the site — Sabotage, Bomb disposal, Hold the
+/// doors and Protect the commander nine tenths. A weight left out of
+/// `scaling.ron`'s line is its built-in value, not nought.
+#[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(default)
+)]
+pub struct MissionWeights {
+    pub breaches: f32,
+    pub evacuation: f32,
+    pub bombs: f32,
+    pub doors: f32,
+    pub chief: f32,
+    pub area_defend: f32,
+    pub sabotage: f32,
+    pub nests: f32,
+    pub overseer: f32,
+    pub heist: f32,
+    pub prison: f32,
+    pub fuel_run: f32,
+    pub salvage: f32,
+}
+
+impl MissionWeights {
+    /// The built-in weights.
+    pub const DEFAULT: MissionWeights = MissionWeights {
+        breaches: 1.0,
+        evacuation: 1.0,
+        bombs: 0.9,
+        doors: 0.9,
+        chief: 0.9,
+        area_defend: 1.0,
+        sabotage: 0.9,
+        nests: 1.0,
+        overseer: 1.0,
+        heist: 1.0,
+        prison: 1.0,
+        fuel_run: 1.0,
+        salvage: 1.0,
+    };
+
+    /// The fight `of`'s weight in whole per cent, rounded, never under
+    /// nought — so two machines agree to the enemy.
+    pub fn percent(&self, of: crate::run::Budgeted) -> u64 {
+        use crate::run::Budgeted;
+        let w = match of {
+            Budgeted::Breaches => self.breaches,
+            Budgeted::Evacuation => self.evacuation,
+            Budgeted::Bombs => self.bombs,
+            Budgeted::Doors => self.doors,
+            Budgeted::Chief => self.chief,
+            Budgeted::AreaDefend => self.area_defend,
+            Budgeted::Sabotage => self.sabotage,
+            Budgeted::Nests => self.nests,
+            Budgeted::Overseer => self.overseer,
+            Budgeted::Heist => self.heist,
+            Budgeted::Prison => self.prison,
+            Budgeted::FuelRun => self.fuel_run,
+            Budgeted::Salvage => self.salvage,
+        };
+        (f64::from(w.max(0.0)) * 100.0).round() as u64
+    }
+}
+
+impl Default for MissionWeights {
+    fn default() -> MissionWeights {
+        MissionWeights::DEFAULT
+    }
+}
+
 /// A straight line's share of `n` in whole enemies, rounded down, on run
 /// day `day`: none up to `from2`, all from `to2` — both in **half days**,
 /// twice the day, so a ramp may start halfway through an area — and
@@ -727,7 +808,62 @@ mod tests {
             tier_1_area: area(14, 1, 3),
             tier_2_area: area(9, 2, 4),
             tier_3_area: area(3, 3, 5),
+            missions: MissionWeights::DEFAULT,
         }
+    }
+
+    /// The missions' weights (October 2026): one each, nine tenths where a
+    /// failure loses the run or the site; whole per cent, rounded, never
+    /// under nought.
+    #[test]
+    fn the_weights_are_one_each_and_nine_tenths_where_a_failure_costs_most() {
+        use crate::run::Budgeted;
+        let all = [
+            Budgeted::Breaches,
+            Budgeted::Evacuation,
+            Budgeted::Bombs,
+            Budgeted::Doors,
+            Budgeted::Chief,
+            Budgeted::AreaDefend,
+            Budgeted::Sabotage,
+            Budgeted::Nests,
+            Budgeted::Overseer,
+            Budgeted::Heist,
+            Budgeted::Prison,
+            Budgeted::FuelRun,
+            Budgeted::Salvage,
+        ];
+        let w = WaveScaling::DEFAULT.missions;
+        assert_eq!(w, MissionWeights::default());
+        for of in all {
+            let lighter = matches!(
+                of,
+                Budgeted::Sabotage | Budgeted::Bombs | Budgeted::Doors | Budgeted::Chief
+            );
+            assert_eq!(w.percent(of), if lighter { 90 } else { 100 }, "{of:?}");
+        }
+        // Rounded to the per cent, and never negative.
+        let mut odd = MissionWeights::DEFAULT;
+        odd.heist = 0.555;
+        odd.salvage = -1.0;
+        odd.prison = 2.004;
+        assert_eq!(odd.percent(Budgeted::Heist), 56);
+        assert_eq!(odd.percent(Budgeted::Salvage), 0);
+        assert_eq!(odd.percent(Budgeted::Prison), 200);
+    }
+
+    /// A weights line read with one weight in it keeps the rest at their
+    /// built-in values (the derive's `serde(default)`).
+    #[cfg(feature = "serde")]
+    #[test]
+    fn a_weight_left_out_is_its_built_in_value() {
+        use serde::Deserialize;
+        use serde::de::value::{Error, MapDeserializer};
+        let line = MapDeserializer::<_, Error>::new([("heist", 0.5f32)].into_iter());
+        let w = MissionWeights::deserialize(line).unwrap();
+        assert_eq!(w.heist, 0.5);
+        assert_eq!(w.sabotage, 0.9);
+        assert_eq!(w.nests, 1.0);
     }
 
     /// A mission's budget (October 2026): three waves in area 0, four at

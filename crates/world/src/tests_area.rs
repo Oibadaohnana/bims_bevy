@@ -285,7 +285,8 @@ fn the_machines_alone_in_the_ring_take_it_and_the_run_is_lost() {
 }
 
 /// Every wave of a mission is the size of its first, whatever moves the
-/// formula after it — and the next mission works it out afresh.
+/// formula after it — the budget's slices are of it — and the next
+/// mission works it out afresh.
 #[test]
 fn every_wave_of_a_mission_is_its_first_wave_s_size() {
     let Some((mut world, _)) = an_area_defend(None) else {
@@ -303,18 +304,24 @@ fn every_wave_of_a_mission_is_its_first_wave_s_size() {
     destroy_the_wave(&mut world);
     let (came, _) = until(&mut world, 3_000, |w| w.droids_standing() > 0);
     assert!(came);
-    // The wave's size is the first's; the day moved it into the tier-two
-    // zone, whose Bombers and Lancers come on top of it (task 157).
-    let (_, area) = world.area_now();
-    let (bombers, lancers) = if world.area_now().0 > 0 {
-        (area.bombers, area.lancers)
-    } else {
-        (0, 0)
-    };
+    // **The landings are the budget's slices of the first wave** (October
+    // 2026, `budget.rs`): the budget opened on the first wave's size and
+    // the area it landed in — its extras too — and the day moved since
+    // changes neither. The second landing is the even share of what the
+    // first left over the hold's four landings to come.
+    let b = world.run.budget.expect("an Area defend has a budget");
+    assert_eq!(b.of, crate::run::Budgeted::AreaDefend);
+    assert_eq!(b.wave, first, "the budget is the first wave's");
+    let expected = crate::defense::area_waves();
+    let one = b.planned.div_ceil(expected);
+    let two = (b.planned - one).div_ceil(expected - 1);
+    let extras = |laid: u32| (b.bombers * laid / b.wave, b.lancers * laid / b.wave);
+    let (b1, l1) = extras(one);
+    let (b2, l2) = extras(one + two);
     assert_eq!(
         world.droids_standing(),
-        first + bombers + lancers,
-        "the second wave as the first"
+        two + (b2 - b1) + (l2 - l1),
+        "the second landing is its slice of the first wave's budget"
     );
     world.leave_for_probe();
     assert_eq!(world.run.wave_size, None, "worked out afresh next mission");
@@ -632,4 +639,36 @@ fn on_the_floor_an_area_defend_is_never_on_a_tier_one_row() {
             "off the floor, every town's"
         );
     }
+}
+
+/// An Area defend's hold lands its budget to the body over its five
+/// landings — the even share of what is left each time — and none of
+/// them is the trickle (October 2026, `budget.rs`).
+#[test]
+fn an_area_defend_lands_its_budget_exactly_over_its_hold() {
+    let Some((mut world, id)) = an_area_defend(Some(2)) else {
+        return;
+    };
+    let over = |w: &World| {
+        w.defense(id)
+            .is_some_and(|d| d.wave > 0 && !d.more_to_come())
+    };
+    let seen = crate::tests_defense::land_and_wreck(
+        &mut world,
+        data::AREA_HOLD_STEPS as u32 + 600,
+        |w, _| over(w),
+    );
+    let b = world.run.budget.expect("an Area defend has a budget");
+    assert_eq!(b.of, crate::run::Budgeted::AreaDefend);
+    let expected = crate::defense::area_waves();
+    assert_eq!(seen.len() as u32, expected, "{seen:?}");
+    assert!(seen.iter().all(|l| !l.unpaid), "no trickle: {seen:?}");
+    // The extras ride on the slices; area 0 has none.
+    let extras = b.bombers_laid + b.lancers_laid;
+    assert_eq!(
+        seen.iter().map(|l| l.bodies).sum::<u32>(),
+        b.planned + extras,
+        "the budget to the body: {seen:?}"
+    );
+    assert_eq!((b.laid, b.landings), (b.planned, expected));
 }

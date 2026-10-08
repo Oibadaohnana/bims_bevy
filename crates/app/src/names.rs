@@ -424,7 +424,7 @@ pub const SOMEBODY_LEFT: &str = "Somebody left.";
 /// The setup's difficulty: every dial of the wave formula the host picks
 /// for the run (`world::droid::Difficulty`, task 147), their notes, and
 /// the button that puts them back to the tuning file's (`scaling.ron`).
-pub const DIFFICULTY_NOTE: &str = "• The run is four areas, each so many days (a day a row)\n• A wave: (per player + every day's growth so far) × players, + per bot × bots\n• Area 0: Manufacturers only, pistols to full gear\n• Tier 1: machines 0% to 100% by tier 2's door\n• Tier 2 / 3: every enemy that tier from the area's first day, ramping from halfway through the area before";
+pub const DIFFICULTY_NOTE: &str = "• The run is four areas, each so many days (a day a row)\n• A wave: (per player + every day's growth so far) × players, + per bot × bots\n• Area 0: Manufacturers only, pistols to full gear\n• Tier 1: machines 0% to 100% by tier 2's door\n• Tier 2 / 3: every enemy that tier from the area's first day, ramping from halfway through the area before\n• A mission: budget × weight × a wave in all, then a trickle";
 pub const WAVE_PER_PLAYER: &str = "Enemies per player";
 pub const WAVE_PER_PLAYER_NOTE: &str = "On day 1, for each player";
 pub const WAVE_PER_BOT: &str = "Enemies per bot";
@@ -439,7 +439,8 @@ pub const AREA_DAYS_NOTE: &str =
 pub const AREA_GROWTH: &str = "Growth / day";
 pub const AREA_GROWTH_NOTE: &str = "Enemies per player more each day, carried into the next area";
 pub const AREA_WAVES: &str = "Waves";
-pub const AREA_WAVES_NOTE: &str = "A site's waves (an elite 2 at least)";
+pub const AREA_WAVES_NOTE: &str =
+    "A plain fight's waves (an elite 2 at least); a mission's are its budget";
 pub const AREA_BOMBERS: &str = "Bombers";
 pub const AREA_LANCERS: &str = "Lancers";
 pub const AREA_EXTRAS_NOTE: &str = "On top of every wave";
@@ -449,6 +450,32 @@ pub const AREA_ELITES: &str = "Elites";
 pub const AREA_ELITES_NOTE: &str = "Bombers on top of an elite's Guardian wave";
 pub const AREA_DEFENDERS: &str = "Defenders";
 pub const AREA_DEFENDERS_NOTE: &str = "Armed defenders at a defence";
+pub const AREA_BUDGET: &str = "Budget";
+pub const AREA_BUDGET_NOTE: &str = "• Waves of the day's size a mission brings in all\n• Every mission the map shapes, and an Area defend\n• × the mission's weight (below)\n• Spent: 1 a player at a time, no XP or money";
+/// The missions' weights under the table (October 2026,
+/// `world::droid::MissionWeights`): a name and a drag box each.
+pub const MISSION_WEIGHTS: &str = "Mission weights";
+pub const MISSION_WEIGHTS_NOTE: &str = "• × the area's budget, per mission\n• 0.5 = half the enemies, 2 = twice\n• Built in: 1; Sabotage, Bomb disposal, Hold the doors, Protect the commander 0.9";
+pub const AREA_DEFEND_NAME: &str = "Area defend";
+/// What a mission brings in all on day one at a weight of one, beside the
+/// first wave.
+pub fn first_mission_line(enemies: u32) -> String {
+    let e = if enemies == 1 { "enemy" } else { "enemies" };
+    format!("A mission on day 1: {enemies} {e} in all, then a trickle")
+}
+/// A fight on a budget, at the top count (October 2026): the wave on the
+/// deck with no "of how many" — the site counts one wave and the mission's
+/// own landings follow it — and, in its tooltip, how much of the budget
+/// has landed, in waves of the mission's size, or that it is spent.
+pub fn budget_wave(wave: u32) -> String {
+    format!("Wave {wave}")
+}
+pub fn budget_landed(landed: f32, all: f32) -> String {
+    format!("• Budget: {landed:.1} of {all:.1} waves landed")
+}
+pub fn budget_spent(all: f32) -> String {
+    format!("• Budget spent ({all:.1} waves): the rest pay no XP or money")
+}
 /// A cell area 0 has no dial for: it has no machines and no elite.
 pub const AREA_NONE: &str = "–";
 /// Where the areas fall on the map, for the dials as they stand.
@@ -3500,7 +3527,7 @@ pub fn objective_event(what: u32, n: u32, w: u32) -> String {
         6 => format!("The drum in {}'s arms went up!", by()),
         7 => format!("A drum in the reactor: {n} in."),
         8 => "The reactor is critical. Clear the deck.".into(),
-        9 => format!("The cell is cut open: {n} of the Republic's are out and follow the crew."),
+        9 => format!("The cell is cut open: {n} out, and the alarm is up: get them aboard."),
         10 => "The Overseer is hurt and running for his airlock!".into(),
         11 => "The Overseer got away, and the bounty with him.".into(),
         12 => "The Overseer is down.".into(),
@@ -3568,7 +3595,10 @@ pub fn objective_line(look: &world::ObjectiveLook) -> String {
         Mission::Prison if look.phase == 0 => {
             "PRISON BREAK — cut the cell open: V at its door, 8 s".into()
         }
-        Mission::Prison => format!("PRISON BREAK — {} out: keep them alive", look.done),
+        Mission::Prison => format!(
+            "PRISON BREAK — {} out: get them aboard the ship{wave}",
+            look.done
+        ),
         Mission::FuelRun if look.phase == 0 => format!(
             "FUEL RUN — {} of {} drums in the reactor · V to carry, a hit and it blows{wave}",
             look.done, look.total
@@ -3629,6 +3659,7 @@ pub fn objective_tip(mission: world::run::Mission) -> &'static str {
         }
         Mission::Prison => {
             "• Hold V at the cell door, 8 s (engineer: 4 s)
+• Cut open: the alarm, a wave every 25 s until they are aboard
 • Freed prisoners follow as armed bots
 • Alive and aboard at the end: they join the crew"
         }

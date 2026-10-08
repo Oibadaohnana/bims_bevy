@@ -8,17 +8,20 @@
 //!   the way the crew came — is no way out. Laid when the crew first dock
 //!   at a site whose mission it is ([`World::settle_sabotage`]); a site
 //!   with no airlock but the port is a plain attack.
-//! - **Plant**: the crew fight the site's waves as at any attack, but the
-//!   last of them down clears nothing. `Command::Plant` (the Use key, V)
-//!   puts the Bim's hands on the charge — the room's deploy errand of
+//! - **Plant**: the crew fight the site's garrison — its one wave, the
+//!   first slice of the mission's budget (October 2026, `budget.rs`) —
+//!   but the last of it down clears nothing. `Command::Plant` (the Use
+//!   key, V) puts the Bim's hands on the charge — the room's deploy errand of
 //!   [`PLANT_CODE`], counted by the world as a weld is
 //!   ([`World::settle_plants`]: a step a step, an engineer's two) — and at
 //!   [`data::PLANT_SECONDS`] it is planted.
 //! - **Hold** ([`data::SABOTAGE_HOLD_STEPS`], 45 s): the ship casts off
 //!   (*Back to ship* is refused, `Refusal::ShipCastOff`), a wave lands at
 //!   once and every [`data::SABOTAGE_WAVE_STEPS`] after it, the last down
-//!   or not, and every enemy makes for the charge
-//!   ([`World::sabotage_objectives`]). Each step every machine standing and
+//!   or not — each an even share of what the garrison left of the budget
+//!   over the landings the hold and the escape have, the trickle (one a
+//!   player, unpaid) once it is spent — and every enemy makes for the
+//!   charge ([`World::sabotage_objectives`]). Each step every machine standing and
 //!   every one of their people on its feet within
 //!   [`data::DISARM_REACH_TILES`] of it counts a step of disarming (three
 //!   at most): at [`data::DISARM_STEPS`] it is disarmed and **the run is
@@ -343,7 +346,9 @@ impl World {
             return;
         }
         let now = self.run.mission_steps;
-        // The waves on their clock, the last down or not.
+        // The waves on their clock, the last down or not: each an even
+        // slice of what the garrison left of the budget (October 2026),
+        // the trickle once it is spent.
         if now >= s.next_wave {
             let full = self.landing_wave_size();
             let wave = if let Some(it) = self.infestation_mut(id) {
@@ -352,7 +357,13 @@ impl World {
             } else {
                 return;
             };
-            self.lay_held_wave(id, full, wave);
+            if self.run.budget.is_some() {
+                let even = self.budget_even(self.budget_expected(run::Budgeted::Sabotage));
+                let landing = self.budget_take(even);
+                self.lay_held_wave_as(id, wave, &landing);
+            } else {
+                self.lay_held_wave(id, full, wave);
+            }
             events.push(WorldEvent::DroidReinforcements { station: id });
             if let Some(sab) = self.infestation_mut(id).and_then(|it| it.sabotage.as_mut()) {
                 sab.next_wave = now + data::SABOTAGE_WAVE_STEPS;

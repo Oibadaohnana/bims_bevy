@@ -8,7 +8,10 @@
 //!   engineer's two a step); the machines make for the charges. Every one
 //!   defused: the waves stop and the deck cleared is the site held. The
 //!   timer out with a charge left: **the station goes up, and the run
-//!   with it**. Waves every [`data::BOMB_WAVE_STEPS`], stacking.
+//!   with it**. Waves every [`data::BOMB_WAVE_STEPS`], stacking, each an
+//!   even share of the mission's budget over [`data::BOMB_PAR_WAVES`]
+//!   (`budget.rs`); spent, a trickle of one a player while a charge is
+//!   left.
 //! - **Hold the doors**: the site laid out with a vault (`Feature::Vault`):
 //!   an antechamber with two outer doors, a partition door, the core and
 //!   in it the site's **commander** — a crew bot in the commander's kit,
@@ -16,11 +19,12 @@
 //!   make for the nearer outer door, then the inner one, then him, and a
 //!   door they stand at for [`data::DOOR_BREAK_STEPS`] unbroken is broken
 //!   in (the count starts again whenever nobody of theirs is at it). Waves
-//!   every [`data::DOORS_WAVE_STEPS`] fixed, stacking, each three quarters
-//!   of the day's and one more a player, for [`data::DOORS_STEPS`]; then
-//!   the Republic's soldiers come instead, a wave's worth every as often,
-//!   at the day's tier, until nothing of the enemy stands — and the deck
-//!   clear is the site held. **The commander down is the run lost.**
+//!   every [`data::DOORS_WAVE_STEPS`] fixed, stacking, for
+//!   [`data::DOORS_STEPS`], the mission's budget shared evenly over them
+//!   (`budget.rs`); then the Republic's soldiers come instead, a wave's
+//!   worth every as often, at the day's tier, until nothing of the enemy
+//!   stands — and the deck clear is the site held. **The commander down
+//!   is the run lost.**
 //! - **Protect the commander**: the site's commander in **his room** — a
 //!   station laid out with one (`Feature::Command`: the room nearest the
 //!   port, a desk of crates across it, so the waves come in far from it), a town's watch house
@@ -28,9 +32,9 @@
 //!   doors, where he stays the whole fight and fights from (the player's:
 //!   "he will just stay for the whole fight and defend himself"), every
 //!   enemy making for him, for [`data::CHIEF_STEPS`] (two minutes); waves
-//!   every [`data::CHIEF_WAVE_STEPS`]. Downed he is revived as any of the
-//!   crew; **dead, the site falls**. A town's defence that is no Area
-//!   defend is this one.
+//!   every [`data::CHIEF_WAVE_STEPS`], the budget shared evenly over
+//!   them. Downed he is revived as any of the crew; **dead, the site
+//!   falls**. A town's defence that is no Area defend is this one.
 //!
 //! Either commander holds his post: the crew's room is told it as his
 //! objective (`say_the_commander_s_post`), which he walks back to and
@@ -277,15 +281,6 @@ impl World {
             && let Some(Guard::Doors(_) | Guard::Chief(_)) = d.guard
         {
             d.guard = None;
-        }
-    }
-
-    /// The wave a defence of these three lands, of `n` the day's: Hold the
-    /// doors' three quarters of it and one more a player.
-    pub(super) fn guard_wave_size(&self, id: u32, n: u32) -> u32 {
-        match self.defense(id).and_then(|d| d.guard.as_ref()) {
-            Some(Guard::Doors(_)) => (n * 3 / 4 + self.players()).max(1),
-            _ => n,
         }
     }
 

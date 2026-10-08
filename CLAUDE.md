@@ -79,9 +79,12 @@ desktop):
 - `scaling.ron` at the root is the whole of how the enemies scale
   (task 147, areas since October 2026: enemies per player and per bot,
   and four areas — area 0, tiers one to three — each so many days with
-  its growth, waves, extras, elite and defenders, all read off the run
+  its growth, waves (a plain fight's), extras, elite and defenders, all read off the run
   day, and its `budget` — waves of the day's size a mission brings in
-  all (`world::run::Budget`; a nest hunt so far); the floor's length
+  all (`world::run::Budget`; every mission the map shapes and an Area
+  defend, then an unpaid trickle), times that mission's weight on the
+  one-line `missions` (`world::droid::MissionWeights`, 1.0 built in,
+  0.9 for sabotage, bombs, doors and chief); the floor's length
   follows the areas; `world::droid::WaveScaling`,
   `BIMS_SCALING=file` names another) and `rewards.ron` what a fight pays and things cost (xp and
   money an enemy down, a defence's share, the buyback, combine and

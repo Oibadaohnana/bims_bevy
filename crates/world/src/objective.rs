@@ -88,6 +88,11 @@ pub struct Prison {
     pub cut: u32,
     pub open: bool,
     pub prisoners: Vec<u32>,
+    /// The alarm (October 2026): the mission step its next wave lands,
+    /// from the step the cell is cut while a freed prisoner alive is not
+    /// aboard — `None` before the cut and once they are all aboard.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub next_wave: Option<u64>,
 }
 
 /// Where a thing carried in a fuel run or a salvage sweep is.
@@ -106,8 +111,11 @@ pub enum LoadState {
 }
 
 /// A drum or a crate: where it lies in the crew's room (whole units), who
-/// carries it, where it is, and the carrier's hits when it was taken up —
-/// a hit more and a drum goes up.
+/// carries it, where it is, the carrier's hits when it was taken up — a
+/// hit more and a drum goes up — and whether it has ever been taken up:
+/// a salvage crate brings its wave the first time and never again
+/// (October 2026; it counted pick-ups, and a crate dropped and taken
+/// again brought another, bigger wave).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Load {
@@ -115,6 +123,8 @@ pub struct Load {
     pub carrier: Option<u32>,
     pub state: LoadState,
     pub hits: u32,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub picked: bool,
 }
 
 impl Load {
@@ -124,6 +134,7 @@ impl Load {
             carrier: None,
             state: LoadState::Lying,
             hits: 0,
+            picked: false,
         }
     }
 }

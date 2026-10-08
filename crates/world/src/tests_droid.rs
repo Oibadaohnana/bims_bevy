@@ -1589,6 +1589,47 @@ fn the_charge_blows_and_only_who_reached_the_way_out_gets_away() {
     assert!(!world.in_mission(), "the mission is over");
 }
 
+/// A Sabotage held to its blast lays its budget to the body (October
+/// 2026, `run::Budget`): the garrison, then a slice at every landing of
+/// the hold and the escape — eight — and no trickle.
+#[test]
+fn a_sabotage_run_through_its_blast_lays_exactly_its_budget() {
+    use crate::droid::SabotagePhase;
+    let (mut world, _station) = sabotage();
+    let budget = world.run.budget.expect("a Sabotage has its budget");
+    assert_eq!(budget.of, crate::run::Budgeted::Sabotage);
+    assert_eq!(
+        budget.laid, budget.garrison,
+        "the garrison is the first slice"
+    );
+    let expected = world.budget_expected(crate::run::Budgeted::Sabotage);
+    assert_eq!(expected, 1 + 8, "the garrison and a landing every 15 s");
+    world.plant_for_probe();
+    let mut last = budget;
+    let mut blown = false;
+    let total = data::SABOTAGE_HOLD_STEPS + data::SABOTAGE_ESCAPE_STEPS + 10;
+    for _ in 0..total {
+        wreck_them_all(&mut world);
+        world.aboard.room.patch_up_for_probe(0);
+        // The budget goes with the mission at the blast: read it before.
+        if let Some(now) = world.run.budget {
+            last = now;
+        }
+        world.step(&[]);
+        let phase = world.sabotage_look().map(|look| look.phase);
+        if phase.is_none_or(|p| p == SabotagePhase::Done) {
+            blown = true;
+            break;
+        }
+    }
+    assert!(blown, "the charge blew");
+    assert_eq!(last.landings, expected, "no trickle: {last:?}");
+    assert_eq!(
+        last.laid, last.planned,
+        "every body of the budget: {last:?}"
+    );
+}
+
 // --- A nest hunt (October 2026) -----------------------------------------------
 
 /// Every machine but the nests destroyed, where it stands.

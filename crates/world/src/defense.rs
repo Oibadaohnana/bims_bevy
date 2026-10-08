@@ -13,8 +13,12 @@
 //! What is kept here is the **schedule**, and it is [`Defense`]: which
 //! wave is on the ground, how many are still to come, and how long until
 //! the next lands. The wave count and the wave size are the droid step's
-//! own formulas ([`crate::droid`]); the room's side of the fight is
-//! `bims::game`'s machine target list and its sheltering list.
+//! own formulas ([`crate::droid`]) — and at a defence with a mission (an
+//! Area defend, Seal the breaches, an Evacuation, the guard's three) each
+//! landing is a slice of the mission's budget instead (`budget.rs`), so
+//! however its clock runs it brings the same enemies in all; the room's
+//! side of the fight is `bims::game`'s machine target list and its
+//! sheltering list.
 //!
 //! # The clock is minutes left, not a minute of the clock
 //!
@@ -194,7 +198,7 @@ pub fn area_gap(wave: u32) -> u64 {
 
 /// How many waves land in an Area defend's hold: the first as it starts,
 /// then one every [`area_gap`] while time is left — five in the three
-/// minutes. What its experience is shared over (`World::price_the_wave`).
+/// minutes. What its budget is shared over (`World::budget_expected`).
 pub fn area_waves() -> u32 {
     let mut waves = 1;
     let mut at = 0;

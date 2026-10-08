@@ -1752,12 +1752,17 @@ const DIFFICULTY_MOST: u32 = 99;
 const DIFFICULTY_DAYS_MOST: u32 = 365;
 /// How far one press of − or + moves the enemies per bot.
 const PER_BOT_STEP: f32 = 0.5;
+/// The most waves an area's budget goes to.
+const BUDGET_MOST: f32 = 20.0;
+/// The heaviest a mission's weight goes to.
+const WEIGHT_MOST: f32 = 3.0;
 
 /// The Scaling tab (task 147; the areas since October 2026): every dial
 /// of the wave formula — enemies per player and per bot, then the four
-/// areas' table — the host's to move. They show the tuning file's
-/// (`file`) until one is moved; Default puts them back to it. Under them,
-/// what the first wave comes to for the `players` here. A dial's note is
+/// areas' table, then the missions' weights on their budgets — the host's
+/// to move. They show the tuning file's (`file`) until one is moved;
+/// Default puts them back to it. Under them, what the first wave and a
+/// mission on day one come to for the `players` here. A dial's note is
 /// its name's tooltip.
 fn difficulty_rows(
     ui: &mut egui::Ui,
@@ -1828,14 +1833,27 @@ fn difficulty_rows(
         .small()
         .color(theme::MUTED),
     );
+    ui.add_space(8.0);
+    mission_weights(ui, &mut d.missions, editable);
     if editable && d != settings.difficulty.unwrap_or(file) {
         settings.difficulty = Some(d);
     }
     // The first wave as the world works it: day one's formula for the
     // players here, nobody defending.
     let first = d.size(players, 0, 1).max(1);
+    ui.add_space(6.0);
     ui.label(
         egui::RichText::new(first_wave_line(first, players))
+            .small()
+            .color(theme::ACCENT),
+    );
+    // And a mission's whole on day one at a weight of one: the first wave
+    // times day one's area's budget, in hundredths and rounded, as the
+    // world opens a budget (`World::open_the_budget`).
+    let budget = d.area_on(1).budget_hundredths();
+    let mission = ((u64::from(first) * budget + 50) / 100).clamp(1, u64::from(u32::MAX)) as u32;
+    ui.label(
+        egui::RichText::new(first_mission_line(mission))
             .small()
             .color(theme::ACCENT),
     );
@@ -1860,6 +1878,7 @@ fn area_table(ui: &mut egui::Ui, d: &mut Difficulty, editable: bool) {
         Days,
         Growth,
         Waves,
+        Budget,
         Bombers,
         Lancers,
         Guardians,
@@ -1870,6 +1889,7 @@ fn area_table(ui: &mut egui::Ui, d: &mut Difficulty, editable: bool) {
         (Dial::Days, AREA_DAYS, AREA_DAYS_NOTE),
         (Dial::Growth, AREA_GROWTH, AREA_GROWTH_NOTE),
         (Dial::Waves, AREA_WAVES, AREA_WAVES_NOTE),
+        (Dial::Budget, AREA_BUDGET, AREA_BUDGET_NOTE),
         (Dial::Bombers, AREA_BOMBERS, AREA_EXTRAS_NOTE),
         (Dial::Lancers, AREA_LANCERS, AREA_EXTRAS_NOTE),
         (Dial::Guardians, AREA_GUARDIANS, AREA_GUARDIANS_NOTE),
@@ -1920,6 +1940,15 @@ fn area_table(ui: &mut egui::Ui, d: &mut Difficulty, editable: bool) {
                             );
                         }
                         Dial::Waves => count(ui, &mut area.waves, DIFFICULTY_MOST),
+                        Dial::Budget => {
+                            ui.add_enabled(
+                                editable,
+                                egui::DragValue::new(&mut area.budget)
+                                    .range(0.0..=BUDGET_MOST)
+                                    .speed(0.05)
+                                    .max_decimals(2),
+                            );
+                        }
                         Dial::Bombers => count(ui, &mut area.bombers, DIFFICULTY_MOST),
                         Dial::Lancers => count(ui, &mut area.lancers, DIFFICULTY_MOST),
                         Dial::Guardians => count(ui, &mut area.guardians, DIFFICULTY_MOST),
@@ -1929,6 +1958,54 @@ fn area_table(ui: &mut egui::Ui, d: &mut Difficulty, editable: bool) {
                 }
                 ui.end_row();
             }
+        });
+}
+
+/// How many of the missions' weights stand in a row of their grid.
+const WEIGHTS_A_ROW: usize = 4;
+
+/// The missions' weights (October 2026, `world::droid::MissionWeights`):
+/// what each mission's budget is multiplied by, a name and a drag box
+/// each, the defences first, four to a row under the areas' table.
+fn mission_weights(ui: &mut egui::Ui, w: &mut world::droid::MissionWeights, editable: bool) {
+    use world::run::Mission;
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(MISSION_WEIGHTS).strong());
+        theme::question_mark(ui, MISSION_WEIGHTS_NOTE);
+    });
+    let weights: [(&str, &mut f32); 13] = [
+        (dev_mission_name(Mission::Breaches), &mut w.breaches),
+        (dev_mission_name(Mission::Evacuation), &mut w.evacuation),
+        (dev_mission_name(Mission::Bombs), &mut w.bombs),
+        (dev_mission_name(Mission::Doors), &mut w.doors),
+        (dev_mission_name(Mission::Chief), &mut w.chief),
+        (AREA_DEFEND_NAME, &mut w.area_defend),
+        (dev_mission_name(Mission::Sabotage), &mut w.sabotage),
+        (dev_mission_name(Mission::Nests), &mut w.nests),
+        (dev_mission_name(Mission::Overseer), &mut w.overseer),
+        (dev_mission_name(Mission::Heist), &mut w.heist),
+        (dev_mission_name(Mission::Prison), &mut w.prison),
+        (dev_mission_name(Mission::FuelRun), &mut w.fuel_run),
+        (dev_mission_name(Mission::Salvage), &mut w.salvage),
+    ];
+    egui::Grid::new("difficulty_missions")
+        .num_columns(WEIGHTS_A_ROW * 2)
+        .spacing(egui::vec2(10.0, 4.0))
+        .show(ui, |ui| {
+            for (i, (name, weight)) in weights.into_iter().enumerate() {
+                ui.label(name);
+                ui.add_enabled(
+                    editable,
+                    egui::DragValue::new(weight)
+                        .range(0.0..=WEIGHT_MOST)
+                        .speed(0.01)
+                        .max_decimals(2),
+                );
+                if (i + 1) % WEIGHTS_A_ROW == 0 {
+                    ui.end_row();
+                }
+            }
+            ui.end_row();
         });
 }
 

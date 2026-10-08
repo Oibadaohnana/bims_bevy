@@ -648,3 +648,253 @@ fn a_mission_picked_in_the_dev_tab_is_the_run_s_first_fight() {
         }
     }
 }
+
+// --- The budget (October 2026) ------------------------------------------------
+
+/// The objective's clock made due this very step, for a test that wants
+/// its landings without the wait.
+fn due_now(world: &mut World, station: u32) {
+    let o = world
+        .infested
+        .iter_mut()
+        .find(|it| it.station == station)
+        .and_then(|it| it.objective.as_mut());
+    match o {
+        Some(Objective::Overseer(o)) => o.next_wave = 0,
+        Some(Objective::Heist(h)) => h.next_wave = 0,
+        Some(Objective::FuelRun(f)) => f.next_wave = 0,
+        Some(Objective::Prison(p)) if p.next_wave.is_some() => p.next_wave = Some(0),
+        _ => {}
+    }
+}
+
+/// How many bodies the residents' room holds.
+fn bodies(world: &World) -> u32 {
+    world.residents.as_ref().unwrap().aboard.room.body_count()
+}
+
+fn landed(events: &[WorldEvent]) -> bool {
+    events
+        .iter()
+        .any(|e| matches!(e, WorldEvent::DroidReinforcements { .. }))
+}
+
+/// The clocked attacks spend their budget and then trickle, unpaid
+/// (October 2026, `run::Budget`): the garrison is the first slice, the
+/// clock's landings take the rest to the body over the par waves, and
+/// after it every landing is one a player, every body of it unpaid.
+#[test]
+fn the_clocked_attacks_spend_their_budget_and_then_trickle_unpaid() {
+    for mission in [Mission::Overseer, Mission::Heist, Mission::FuelRun] {
+        let (mut world, station) = mission_world(mission);
+        let budget = world.run.budget.expect("a clocked attack has its budget");
+        assert_eq!(budget.laid, budget.garrison, "{mission:?}: the garrison");
+        let players = world.players();
+        let mut slices: Vec<u32> = Vec::new();
+        let mut trickles = 0;
+        for _ in 0..40 {
+            if trickles == 2 {
+                break;
+            }
+            wreck_them_all(&mut world);
+            due_now(&mut world, station);
+            let (before, laid) = (bodies(&world), world.run.budget.unwrap().laid);
+            if !landed(&world.step(&[])) {
+                continue;
+            }
+            let after = bodies(&world);
+            let room = &world.residents.as_ref().unwrap().aboard.room;
+            let unpaid: Vec<bool> = (before..after)
+                .map(|i| room.is_unpaid(i as usize))
+                .collect();
+            let now = world.run.budget.unwrap();
+            if now.laid == laid {
+                assert_eq!(laid, now.planned, "{mission:?}: a trickle once spent");
+                assert_eq!(after - before, players, "{mission:?}: one a player");
+                assert!(unpaid.iter().all(|&u| u), "{mission:?}: unpaid");
+                trickles += 1;
+            } else {
+                assert_eq!(trickles, 0, "{mission:?}: nothing paid after the trickle");
+                assert!(unpaid.iter().all(|&u| !u), "{mission:?}: the budget's pay");
+                slices.push(now.laid - laid);
+            }
+        }
+        assert_eq!(
+            trickles, 2,
+            "{mission:?}: the trickle came after {slices:?}"
+        );
+        assert!(
+            slices.len() < data::OBJECTIVE_WAVES as usize,
+            "{mission:?}: the garrison and three at the most: {slices:?}"
+        );
+        assert_eq!(
+            budget.garrison + slices.iter().sum::<u32>(),
+            budget.planned,
+            "{mission:?}: the slices spend the budget to the body: {slices:?}"
+        );
+    }
+}
+
+/// The Overseer is no wave: on a wave of one, him standing does not hold
+/// his own clock's wave off (he did, for good).
+#[test]
+fn the_overseer_does_not_hold_his_own_clock_wave_off_on_a_wave_of_one() {
+    let (mut world, station) = mission_world(Mission::Overseer);
+    world.set_droid_wave_for_probe(1);
+    let mut came = false;
+    for _ in 0..5 {
+        wreck_them_all(&mut world);
+        due_now(&mut world, station);
+        if landed(&world.step(&[])) {
+            came = true;
+            break;
+        }
+    }
+    let Some(Objective::Overseer(o)) = objective(&world, station) else {
+        panic!("an Overseer");
+    };
+    assert_eq!(o.phase, OverseerPhase::Office, "he stands");
+    assert!(came, "his clock's wave landed with only him standing");
+}
+
+/// A salvage sweep counts crates, not pick-ups (October 2026): a crate
+/// dropped and taken again brings nothing, and the crates between them
+/// spend what the garrison left of the budget to the body.
+#[test]
+fn a_salvage_crate_taken_twice_brings_one_wave_and_the_crates_spend_the_budget() {
+    let (mut world, station) = mission_world(Mission::Salvage);
+    let budget = world.run.budget.expect("a salvage sweep has its budget");
+    let crates = match objective(&world, station) {
+        Some(Objective::Salvage(s)) => s.crates.len(),
+        _ => panic!("a salvage sweep"),
+    };
+    assert!(crates > 1, "crates to take: {crates}");
+    let crate_at = |world: &World, i: usize| match objective(world, station) {
+        Some(Objective::Salvage(s)) => {
+            let at = s.crates[i].at;
+            bims::math::vec2(at.0 as f32, at.1 as f32)
+        }
+        _ => panic!("a salvage sweep"),
+    };
+    // The first crate: taken, dropped, taken again — one wave.
+    world.aboard.room.stand_at(0, crate_at(&world, 0));
+    let laid = world.run.budget.unwrap().laid;
+    assert!(landed(&world.step(&[Command::Interact { slot: 0 }])));
+    let first = world.run.budget.unwrap().laid;
+    assert!(first > laid, "the first crate's wave is the budget's");
+    wreck_them_all(&mut world);
+    world.step(&[Command::Interact { slot: 0 }]);
+    assert!(!world.carries_a_load(0), "put down");
+    wreck_them_all(&mut world);
+    let again = world.step(&[Command::Interact { slot: 0 }]);
+    assert!(world.carries_a_load(0), "taken up again");
+    assert!(
+        !landed(&again),
+        "a crate taken again brings no wave: {again:?}"
+    );
+    assert_eq!(world.run.budget.unwrap().laid, first, "and takes nothing");
+    // Home with it, and every other crate taken up in turn.
+    let home = |world: &mut World, i: usize| {
+        if let Some(Objective::Salvage(s)) = world
+            .infested
+            .iter_mut()
+            .find(|it| it.station == station)
+            .and_then(|it| it.objective.as_mut())
+        {
+            s.crates[i].state = LoadState::Home;
+            s.crates[i].carrier = None;
+        }
+    };
+    home(&mut world, 0);
+    for i in 1..crates {
+        wreck_them_all(&mut world);
+        world.aboard.room.restore_health(0);
+        world.aboard.room.stand_at(0, crate_at(&world, i));
+        let events = world.step(&[Command::Interact { slot: 0 }]);
+        assert!(landed(&events), "crate {i} brings its wave");
+        home(&mut world, i);
+    }
+    let spent = world.run.budget.unwrap();
+    assert_eq!(spent.laid, budget.planned, "the crates spend the budget");
+    assert_eq!(
+        spent.landings,
+        1 + crates as u32,
+        "the garrison and a crate each"
+    );
+}
+
+/// A prison break's alarm (October 2026): the cut brings a wave at once
+/// and more on the clock while a prisoner alive is not aboard; every one
+/// of them aboard, it is over, and only then does the deck clear the site.
+#[test]
+fn a_prison_s_alarm_comes_on_the_cut_and_stops_once_the_prisoners_are_aboard() {
+    let (mut world, station) = mission_world(Mission::Prison);
+    let Some(Objective::Prison(p)) = objective(&world, station) else {
+        panic!("a prison");
+    };
+    assert_eq!(p.next_wave, None, "no alarm before the cut");
+    let at = mark_at(&world, |k| {
+        matches!(k, crate::MarkKind::CellDoor { open: false })
+    });
+    world.aboard.room.stand_at(0, at);
+    world.step(&[Command::Interact { slot: 0 }]);
+    let mut alarm = None;
+    for _ in 0..(data::CUT_SECONDS * 60 + 120) {
+        wreck_them_all(&mut world);
+        let events = world.step(&[]);
+        if events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::Objective { what: 9, .. }))
+        {
+            alarm = Some(landed(&events));
+            break;
+        }
+    }
+    assert_eq!(alarm, Some(true), "the cut, and a wave with it");
+    // The alarm's clock brings another while they are out.
+    let mut again = false;
+    for _ in 0..5 {
+        wreck_them_all(&mut world);
+        due_now(&mut world, station);
+        if landed(&world.step(&[])) {
+            again = true;
+            break;
+        }
+    }
+    assert!(again, "the alarm's next wave");
+    for _ in 0..300 {
+        wreck_them_all(&mut world);
+        world.step(&[]);
+    }
+    assert!(
+        !world.infestation(station).unwrap().cleared,
+        "not while they are out"
+    );
+    // Every one aboard: the alarm is over, and the deck clear is the
+    // site clear.
+    let gangway = world.aboard.gangway.unwrap();
+    let gangway = bims::math::vec2(gangway.x as f32, gangway.y as f32);
+    let Some(Objective::Prison(p)) = objective(&world, station) else {
+        panic!();
+    };
+    world.aboard.room.stand_at(0, gangway);
+    for &w in &p.prisoners {
+        world.aboard.room.stand_at(w as usize, gangway);
+    }
+    wreck_them_all(&mut world);
+    world.step(&[]);
+    let Some(Objective::Prison(p)) = objective(&world, station) else {
+        panic!();
+    };
+    assert_eq!(p.next_wave, None, "the alarm is over");
+    let mut cleared = false;
+    for _ in 0..600 {
+        wreck_them_all(&mut world);
+        world.step(&[]);
+        if world.infestation(station).unwrap().cleared {
+            cleared = true;
+            break;
+        }
+    }
+    assert!(cleared, "the site clears once they are aboard");
+}
