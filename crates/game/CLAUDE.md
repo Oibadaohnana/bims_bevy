@@ -1516,8 +1516,10 @@ prints the curves itself.
     stride run backwards so the legs read as stepping back. A
     commander's *fall back* is a sprint too, since it holds its fire.
     The flag is cleared for every body at the top of every
-    `tick_combat` and set again below, so nothing carries over, and it
-    is `serde(skip)` for the same reason `aim` is.
+    `tick_combat` and set again below — but the walk (`Character::update`,
+    in `tick_bim`) reads it **before** that, so the pace a step walks at
+    is the one the step before set, and it is saved ("What a save keeps"
+    at the end).
   * **The ship is the last stand.** `Game::is_aboard(p)` reads what
     `set_foreign` said — the station's box is somebody else's and the
     rest the ship's, or on a planet the ship's own box against the town
@@ -2739,8 +2741,11 @@ the deck's floor box and `DECK_MARGIN` tiles of ground
   this runs: `refresh_afield` returns at once and `plan_route` is the
   deck's grid, `nearest_free` and `path` as a walk always was, planned
   before the interrupt so the routes are the ones they were.
-- `Maps::afield` and `Game::afield_blockers` are `serde(skip)`: a load
-  rebuilds them on the first step. `Plane::chunks` and `seen` likewise;
+- `Maps::afield` and `Game::afield_blockers` are **saved** ("What a save
+  keeps" at the end): a window rebuilt on a load about where the body
+  stands now covers other ground than the one built where it stood, and
+  a far walk's next leg is cut at another edge. `Plane::chunks` and
+  `seen` are not — a function of the seed and of where the eyes stand;
   nothing of the fog is saved (task 128: there is no explored memory).
 - **The plain's picture is the light map's march, a chunk at a time**
   (feature 67, September 2026; the note before `terrain::PICTURE_PX`).
@@ -5588,3 +5593,46 @@ stands where it stood.
   is not drawn as a grenade (`barrel`).
 - `Game::set_props_for_probe` stands them in a bare room;
   `a_drum_set_off_bursts_on_everybody_and_sets_off_the_next` is the rule.
+
+## What a save keeps: a world read back steps as the one written (the resync)
+
+> Every note above that calls a field `serde(skip)` because "the world
+> says it every step" or "it is drawing only" — `Character::{was, aim,
+> falling_back, shot_charge, reload, shot_at, stunned, shield, plate,
+> reflecting}`, `Droid::{was, tethers}`, `Rhythm::blinked`, a sentry's
+> `facing`/`flash`/`owner`, `Trigger::began`, `Door::shown`,
+> `Room::guests`, `Sight::{flare, flared}`, `Combat::{reflects,
+> crit_rng, crit_chances, firing_for}`, `Game::{standing, whereabouts,
+> machine_whereabouts, target_moving, target_was, told, marked, home,
+> visitors_revivable, guest_revives, tended, revives, show_everybody,
+> step_dt}`, `Marker::by`, `Maps::afield`, `Game::afield_blockers` — is
+> the history: all of them are saved now (`serde(default)`).
+
+A guest whose checksum parts from the host's is handed the host's save
+and stands it up in place of its own world (`ship::Session::restore_as`);
+that mends nothing unless the world read back steps on **exactly** as the
+host's. "Said every step" is not enough: what a step sets *after* the
+part of the step that reads it — `falling_back`, set in `tick_combat`
+and read by the walk before it — is carried from one step to the next,
+and a world read back without it walks a step at another pace. So the
+rule is: **anything a step leaves for the next is saved**, whatever the
+note on it says about pictures; what stays `serde(skip)` is only what is
+rebuilt identically from what is saved before anything reads it — the
+draw list and `fog_from`, the window's own `viewer` and `blend`, the
+outfits and the shot colours (`Character::outfit`, `Combat::hues`: a
+load dresses the rooms, `World::dress_the_rooms`), `Combat::fx`,
+`Game::item_looks` (said before the room steps), the sight's picture
+caches (the light map, the fields, the views, `cells_version`, the
+host's) and the plain's (`Plane::{chunks, seen, eyes_at, traced, views,
+pictures}`). A new field that a step reads is saved by deriving; skip one
+only with a reason of that kind.
+
+`crates/ship/src/tests_resync.rs` is the rule: two-player fights — the
+arena, a run's mission abroad, the Heart, a town's Area defend at night,
+the plain beyond it (every body on a window) and every mission of the
+map — saved and read back every 137 steps, each copy stepped beside the
+host on the same orders for 300 and held to it by the checksum at every
+step and by the whole save's text at four of them, with the path of
+fields to the first line that differs when it parts. A
+`World::clone` is held to the host the same way (the rollback's).
+`SAVE_VERSION` 133.

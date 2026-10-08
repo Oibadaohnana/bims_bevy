@@ -794,6 +794,33 @@ a load *without* company comes up as.
 is the test: a two-player game saved on one end and `restore_as` slot 1
 on the other agree by checksum, as read back and six hundred steps on.
 
+**And mid-fight, `tests_resync.rs`** (SAVE_VERSION 133): that one is at
+the dock, where nothing fights. `play` takes a two-player fight — the
+arena (a soldier and a medic; a tank and an engineer on a dark station),
+a run's mission abroad on the floor (`abroad`: the trips proposed and
+accepted, *Ready* pressed), the Heart with ten bots, a town's Area defend
+at night, the plain beyond it with the players walked off the deck on
+windows of their own, and every mission of the map — and every `EVERY`
+(137) steps saves it, reads it back as slot 1 and clones the world,
+steps all three on the host's own orders (`orders`: the keys, the
+trigger, rolls, reloads, standing orders, every ability of the class and
+six active items, read off the host's world) for `WINDOW` (300), and
+holds each to the host by `world_checksum` every step and the copy read
+back by its whole save text at `WHOLE_AT`; the host and the copy are
+drawn alike every `DRAWS` steps, the clone never. A failure says the
+step it was read back at, how far on it parted and the path of fields to
+the first differing line of the pretty text (`parting`). What it found
+lost, and the rule it left, are `crates/game/CLAUDE.md`'s "What a save
+keeps"; the world's half was its dials (`droid_waves_forced`,
+`wave_scaling`, `rewards`, saved now) and `droids_to_post`. Two things a
+probe does that no run does, and that a load undoes, are worked round in
+the fixtures rather than changed: a town the probe lands at is no site
+its system offers, so a load trims it away (`World::settle_offered`;
+`town` sets the whole-systems dial), and the town the landing gave back
+to its people is an outpost again on a load before its defence has
+stood (`settle_outposts`; `town` takes two steps first). The suite is
+some two minutes of eight cores.
+
 **`Session::crew_names` is the one string a session carries** (feature
 60, version 9): what the players called their crew, in slot order, empty
 at a slot for the app's own name. It is nothing the rules read — the

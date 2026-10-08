@@ -369,3 +369,82 @@ fn overtime_chooses_the_bonus_wave_and_pays_it_double() {
     wreck_them_one_by_one(&mut world, 1);
     assert!(world.droid_station_cleared(station));
 }
+
+/// Every machine standing but the nests destroyed one by one beside the
+/// player, a step each — a nest hunt's [`wreck_them_one_by_one`].
+fn wreck_all_but_the_nests_beside(world: &mut World) {
+    let n = world.residents.as_ref().unwrap().aboard.room.droid_count() as usize;
+    for i in 0..n {
+        let room = &world.residents.as_ref().unwrap().aboard.room;
+        if room
+            .droid(i)
+            .is_none_or(|d| d.destroyed || d.kind == bims::droid::DroidKind::Fabricator)
+        {
+            continue;
+        }
+        let at = world
+            .body_position(LootSource::Resident(i as u32))
+            .expect("the rooms joined");
+        world.aboard.room.put_for_probe(0, at);
+        let room = &mut world.residents.as_mut().unwrap().aboard.room;
+        room.strike_droid(i, DroidPart::Chassis, 1e6);
+        world.step(&[]);
+    }
+}
+
+/// A nest hunt pays every player about its site budget whatever its nests
+/// build (October 2026, `run::Budget`): the mission is priced once, the
+/// step its budget opens, over the bodies it brings — the planned and the
+/// extras on top — and nothing reprices it as a round lands; the trickle
+/// once the budget is spent pays nothing. Until then every body a nest
+/// built paid a share of the first wave's, for as long as a nest stood.
+#[test]
+fn a_nest_hunt_pays_its_budget_whatever_the_nests_build() {
+    let (mut world, station) = held_arena(1);
+    world.set_mission_for_probe(Some(crate::run::Mission::Nests));
+    world.set_droid_waves_for_probe(1);
+    wait_for_a_wave(&mut world);
+    let budget = world.run.budget.expect("a nest hunt has its budget");
+    // The garrison's extras are the hunt's: a nest builds none.
+    let garrison = u64::from(budget.wave.min(budget.planned));
+    let wave = u64::from(budget.wave);
+    let extras = u64::from(budget.bombers) * garrison / wave + u64::from(budget.lancers) * garrison / wave;
+    let bodies = u64::from(budget.planned) + extras;
+    let site = world.site_budget(station);
+    let each = ((site + bodies / 2) / bodies).max(1) as u32;
+    assert_eq!(world.xp_per_down(), each, "priced once, over the whole");
+    assert_eq!(world.run.xp_each, Some(each));
+    // Fought to the trickle and three rounds into it, every body beside
+    // the player.
+    let mut trickled = 0;
+    let mut spent_at = None;
+    while trickled < 3 {
+        wreck_all_but_the_nests_beside(&mut world);
+        if world.budget_left() == 0 && spent_at.is_none() {
+            spent_at = Some(xp(&world, 0));
+        }
+        let built = world.infestation(station).unwrap().nests.as_ref().unwrap().built;
+        for _ in 0..(data::NEST_BUILD_STEPS + 10) {
+            world.step(&[]);
+            if world.infestation(station).unwrap().nests.as_ref().unwrap().built > built {
+                break;
+            }
+        }
+        assert_eq!(world.xp_per_down(), each, "a round reprices nothing");
+        if spent_at.is_some() {
+            trickled += 1;
+        }
+    }
+    wreck_all_but_the_nests_beside(&mut world);
+    let paid = xp(&world, 0);
+    assert_eq!(Some(paid), spent_at, "the trickle pays nothing");
+    let laid = u64::from(budget.planned)
+        + u64::from(world.run.budget.unwrap().bombers_laid)
+        + u64::from(world.run.budget.unwrap().lancers_laid);
+    assert_eq!(laid, bodies, "every body of the budget laid");
+    assert_eq!(u64::from(paid), bodies * u64::from(each), "each paid once");
+    assert!(
+        u64::from(paid).abs_diff(site) <= bodies / 2,
+        "about the site's budget: {paid} of {site}"
+    );
+}

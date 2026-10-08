@@ -1605,7 +1605,19 @@ fn wreck_all_but_the_nests(world: &mut World) {
     }
 }
 
-/// The nests stand at the front of the machines, build a machine each on
+/// How many a nest hunt's first round builds, off the world's own
+/// numbers (October 2026, `run::Budget`): `⌈wave ÷ (rounds × nests)⌉` out
+/// of every nest, never past what the garrison left of the budget.
+fn first_round(world: &World, nests: u32) -> u32 {
+    let budget = world.run.budget.expect("a nest hunt has its budget");
+    let k = budget
+        .wave
+        .div_ceil(data::NEST_SLICE_ROUNDS * nests)
+        .max(1);
+    (nests * k).min(budget.planned - budget.laid)
+}
+
+/// The nests stand at the front of the machines, build their slices on
 /// their clock and keep the site from clearing while one stands; with
 /// every nest and machine destroyed the site is cleared.
 #[test]
@@ -1668,7 +1680,9 @@ fn a_nest_hunt_s_nests_build_until_destroyed_and_then_the_site_clears() {
 /// (October 2026, the player's: "the nest should spawn the appropriate
 /// enemy type not just tier 3 … also the nest hp should scale with tier
 /// area"): on day one, area 0, the Manufacturers' people at area 0's
-/// health; in the tier-three area tier-three machines at its health.
+/// health; in the tier-three area tier-three machines at its health — a
+/// round of them its slice of the wave (`first_round`), several out of a
+/// bay.
 #[test]
 fn a_nest_builds_the_area_s_enemies_and_stands_at_its_health() {
     let nest_health = |world: &World| room!(world).droid(0).unwrap().body.max(DroidPart::Chassis);
@@ -1679,12 +1693,17 @@ fn a_nest_builds_the_area_s_enemies_and_stands_at_its_health() {
     open_the_room(&mut world);
     let (_, total) = world.nests_standing().expect("a nest hunt");
     assert_eq!(nest_health(&world), data::NEST_HEALTH[0]);
+    let round = first_round(&world, total);
     let (bims, machines) = (room!(world).crew_count(), room!(world).droid_count());
     for _ in 0..(data::NEST_BUILD_STEPS + 10) {
         world.step(&[]);
     }
     assert_eq!(room!(world).droid_count(), machines, "no machine in area 0");
-    assert_eq!(room!(world).crew_count(), bims + total, "a person a nest");
+    assert_eq!(
+        room!(world).crew_count(),
+        bims + round,
+        "a slice of the wave out of the nests, people all"
+    );
     // The tier-three area: tier-three machines.
     let (mut world, _) = held_arena();
     world.set_droid_tier_for_probe(Some(Tier::Three));
@@ -1692,14 +1711,116 @@ fn a_nest_builds_the_area_s_enemies_and_stands_at_its_health() {
     world.set_droid_waves_for_probe(1);
     open_the_room(&mut world);
     assert_eq!(nest_health(&world), data::NEST_HEALTH[3]);
+    let (_, total) = world.nests_standing().expect("a nest hunt");
+    let round = first_round(&world, total);
     wreck_all_but_the_nests(&mut world);
     let before = room!(world).droid_count() as usize;
     for _ in 0..(data::NEST_BUILD_STEPS + 10) {
         world.step(&[]);
     }
     let after = room!(world).droid_count() as usize;
-    assert_eq!(after, before + total as usize);
+    assert_eq!(after, before + round as usize);
     for i in before..after {
         assert_eq!(room!(world).droid(i).unwrap().tier, Tier::Three);
     }
+}
+
+/// A nest hunt spends its budget and then trickles, unpaid (October 2026,
+/// `run::Budget`): the garrison is the first slice, the nests' rounds take
+/// the rest to the body, and after it every round is one a player, every
+/// one of them marked unpaid — and one wrecked pays no experience and no
+/// money, where a body of the budget pays both.
+#[test]
+fn a_nest_hunt_spends_its_budget_and_then_trickles_unpaid() {
+    let (mut world, _) = held_arena();
+    world.set_class(0, class::Class::Soldier).unwrap();
+    world.set_mission_for_probe(Some(crate::run::Mission::Nests));
+    world.set_droid_waves_for_probe(1);
+    open_the_room(&mut world);
+    let (_, total) = world.nests_standing().expect("a nest hunt");
+    let budget = world.run.budget.expect("a nest hunt has its budget");
+    assert_eq!(budget.of, crate::run::Budgeted::Nests);
+    assert_eq!(budget.garrison, budget.wave.min(budget.planned));
+    assert_eq!(budget.laid, budget.garrison);
+    assert!(budget.planned > budget.garrison, "something left for the nests");
+
+    // A body of the budget pays: the garrison's first, wrecked beside the
+    // player.
+    let at_body = |world: &World, i: usize| {
+        world
+            .body_position(crate::armour::LootSource::Resident(i as u32))
+            .expect("the rooms joined")
+    };
+    let wreck_beside = |world: &mut World, i: usize| {
+        let at = at_body(world, i);
+        world.aboard.room.put_for_probe(0, at);
+        room_mut!(world).strike_droid(i, DroidPart::Chassis, 1e6);
+        world.step(&[])
+    };
+    // Nobody of the Manufacturers' on a machines' deck: a machine's droid
+    // index is its body index.
+    assert_eq!(room!(world).crew_count(), 0);
+    let first = total as usize;
+    assert!(!room!(world).is_unpaid(first), "the garrison is paid");
+    let (xp, owed) = (world.progress_of(0).xp, world.run.pending_bounty);
+    wreck_beside(&mut world, first);
+    assert_eq!(world.progress_of(0).xp, xp + world.xp_per_down());
+    assert!(world.run.pending_bounty > owed, "and its money is owed");
+    wreck_all_but_the_nests(&mut world);
+
+    // Round after round: the rest of the budget to the body.
+    let players = world.players();
+    let mut rounds = Vec::new();
+    let mut trickle = Vec::new();
+    while trickle.len() < 3 {
+        let before = room!(world).droid_count();
+        let mut built = 0;
+        for _ in 0..(data::NEST_BUILD_STEPS + 10) {
+            world.step(&[]);
+            built = room!(world).droid_count() - before;
+            if built > 0 {
+                break;
+            }
+        }
+        assert!(built > 0, "a round every {} steps", data::NEST_BUILD_STEPS);
+        let spent = world.run.budget.unwrap().laid == budget.planned;
+        let unpaid: Vec<bool> = (before..before + built)
+            .map(|i| room!(world).is_unpaid(i as usize))
+            .collect();
+        if unpaid.iter().all(|&u| u) {
+            assert!(spent, "the trickle only once the budget is spent");
+            assert_eq!(built, players, "one a player a round");
+            trickle.push(before as usize);
+        } else {
+            assert!(unpaid.iter().all(|&u| !u), "a round is the budget's or not");
+            rounds.push(built);
+        }
+        // Wrecked out of range, but for the last trickle's first.
+        if trickle.len() < 3 {
+            wreck_all_but_the_nests(&mut world);
+        }
+    }
+    assert_eq!(
+        rounds.iter().sum::<u32>(),
+        budget.planned - budget.garrison,
+        "the rounds spend exactly what the garrison left: {rounds:?}"
+    );
+    // An unpaid body wrecked beside the player pays nothing at all.
+    let last = trickle[2];
+    let (xp, owed, money) = (
+        world.progress_of(0).xp,
+        world.run.pending_bounty,
+        world.money,
+    );
+    let said = wreck_beside(&mut world, last);
+    assert!(!room!(world).is_alive(last), "it went down");
+    assert_eq!(world.progress_of(0).xp, xp, "no experience");
+    assert_eq!(world.run.pending_bounty, owed, "no money owed");
+    assert_eq!(world.money, money, "and none paid");
+    assert!(
+        !said
+            .iter()
+            .any(|e| matches!(e, WorldEvent::EnemyRewarded { .. })),
+        "and nothing floated over it"
+    );
 }

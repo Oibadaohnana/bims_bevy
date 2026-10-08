@@ -340,7 +340,10 @@ use crate::game::Game;
 /// world said between steps (standings, whereabouts, revivable visitors,
 /// the home, the mark, the revives owed), the bolts' flare, the sentries'
 /// facing; the world its probes' wave count and the tuning dials.
-pub const SAVE_VERSION: u32 = 133;
+/// 134: a mission's enemy budget (`world::run::Budget` on the `Run`,
+/// `world::droid::Area::budget`) and an unpaid body
+/// (`bims::droid::Droid::unpaid`, `bims::bim::Bim::unpaid`).
+pub const SAVE_VERSION: u32 = 134;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

@@ -293,6 +293,8 @@ impl World {
     }
 
     /// [`World::lay_defense_wave`] of one landing of a mission's budget.
+    // The defences' missions land through it once they are budgeted.
+    #[allow(dead_code)]
     pub(super) fn lay_defense_wave_as(&mut self, id: u32, landing: &run::Landing) {
         let Some(wave) = self.defense(id).map(|d| d.wave) else {
             return;

@@ -117,7 +117,9 @@ impl World {
 
     /// The even share of what is left over the landings still to come,
     /// rounded up, `expected` counting every landing of the mission, the
-    /// first one too.
+    /// first one too. (The missions on a clock slice by it; the nests do
+    /// not.)
+    #[allow(dead_code)]
     pub(crate) fn budget_even(&self, expected: u32) -> u32 {
         let Some(b) = self.run.budget else {
             return 0;

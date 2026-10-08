@@ -718,6 +718,7 @@ mod tests {
             guardians: 1,
             elites: 1,
             defenders,
+            budget: 4.0,
         };
         WaveScaling {
             enemies_per_player: 3,
@@ -727,6 +728,40 @@ mod tests {
             tier_2_area: area(9, 2, 4),
             tier_3_area: area(3, 3, 5),
         }
+    }
+
+    /// A mission's budget (October 2026): three waves in area 0, four at
+    /// tier one, five at tiers two and three — and four in a row written
+    /// without one, not the nought every other dial left out reads.
+    #[test]
+    fn the_budgets_are_three_four_five_and_five_and_four_left_out() {
+        let d = WaveScaling::DEFAULT;
+        let budgets: Vec<u64> = d.areas().iter().map(|a| a.budget_hundredths()).collect();
+        assert_eq!(budgets, [300, 400, 500, 500]);
+        assert_eq!(Area::NONE.budget_hundredths(), 400);
+        assert_eq!(Area::default().budget, data::BUDGET_LEFT_OUT);
+        assert_eq!(Area::budget_left_out(), 4.0);
+        // Never negative, and set to the hundredth.
+        let mut a = Area::NONE;
+        a.budget = -2.0;
+        assert_eq!(a.budget_hundredths(), 0);
+        a.set_budget_hundredths(437);
+        assert_eq!(a.budget_hundredths(), 437);
+    }
+
+    /// A row read without `budget` reads [`data::BUDGET_LEFT_OUT`], the
+    /// rest of what it left out nought (the file's own parse is the app's
+    /// `wavecfg` test; this is the derive's).
+    #[cfg(feature = "serde")]
+    #[test]
+    fn a_row_without_a_budget_reads_four() {
+        use serde::Deserialize;
+        use serde::de::value::{Error, MapDeserializer};
+        let row = MapDeserializer::<_, Error>::new([("growth_per_day", 0.5f32)].into_iter());
+        let area = Area::deserialize(row).unwrap();
+        assert_eq!(area.budget, data::BUDGET_LEFT_OUT);
+        assert_eq!(area.growth_per_day, 0.5);
+        assert_eq!(area.days, 0);
     }
 
     /// Rows 1-5 area 0, 6-19 tier one, 20 the door, 21-29 tier two, 30-32
