@@ -303,7 +303,7 @@ const COMMANDS: [(&str, &str); 35] = [
     ),
     (
         "nests",
-        "A nest hunt: the droids arena held by the machines, nests in its walls (ringed red) building a machine each every 20 s until they are destroyed",
+        "A nest hunt: the droids arena held by the machines, nests in its walls (ringed red) building a third of a wave every 20 s between them until the mission's budget is spent, then one a player, until they are destroyed",
     ),
     (
         "overseer",

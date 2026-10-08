@@ -48,6 +48,9 @@
 //                     wave (bots do not count; area 0 has no elite)
 //   elites          — Bombers on top of an elite's Guardian wave
 //   defenders       — the armed defenders who stand with a defended site
+//   budget          — waves of the day's size a mission brings in all (a
+//                     nest hunt so far), then a trickle of 1 a player; a
+//                     row without it reads 4, not nought
 //   the Machine Heart is always its own fight, every machine tier three
 //
 // Only player Bims count as players; bots do not.
@@ -59,12 +62,12 @@
 // The built-in values: enemies_per_player 2, enemies_per_bot 1.0, and the
 // areas 5, 14, 9 and 3 days at 0.2 a day, 1/1/2/2 waves, Bombers 0/1/2 and
 // Lancers 0/1/1 (tiers one to three), a Guardian a player from tier one,
-// an elite Bomber from tier two, 2/3/5/7 defenders.
+// an elite Bomber from tier two, 2/3/5/7 defenders, a budget of 3/4/5/5.
 (
     enemies_per_player: 1,
     enemies_per_bot: 0.5,
-    area_0: (days: 5, growth_per_day: 0.4, waves: 1, bombers: 0, lancers: 0, guardians: 0, elites: 0, defenders: 2),
-    tier_1_area: (days: 14, growth_per_day: 0.67, waves: 1, bombers: 0, lancers: 0, guardians: 1, elites: 0, defenders: 4),
-    tier_2_area: (days: 9, growth_per_day: 0.67, waves: 2, bombers: 2, lancers: 1, guardians: 1, elites: 1, defenders: 6),
-    tier_3_area: (days: 3, growth_per_day: 0.67, waves: 2, bombers: 2, lancers: 2, guardians: 1, elites: 1, defenders: 8),
+    area_0: (days: 5, growth_per_day: 0.4, waves: 1, bombers: 0, lancers: 0, guardians: 0, elites: 0, defenders: 2, budget: 3.0),
+    tier_1_area: (days: 14, growth_per_day: 0.67, waves: 1, bombers: 0, lancers: 0, guardians: 1, elites: 0, defenders: 4, budget: 4.0),
+    tier_2_area: (days: 9, growth_per_day: 0.67, waves: 2, bombers: 2, lancers: 1, guardians: 1, elites: 1, defenders: 6, budget: 5.0),
+    tier_3_area: (days: 3, growth_per_day: 0.67, waves: 2, bombers: 2, lancers: 2, guardians: 1, elites: 1, defenders: 8, budget: 5.0),
 )

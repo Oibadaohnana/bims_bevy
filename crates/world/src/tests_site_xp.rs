@@ -371,8 +371,11 @@ fn overtime_chooses_the_bonus_wave_and_pays_it_double() {
 }
 
 /// Every machine standing but the nests destroyed one by one beside the
-/// player, a step each — a nest hunt's [`wreck_them_one_by_one`].
+/// player, a step each — a nest hunt's [`wreck_them_one_by_one`] — and the
+/// player put back where it stood, out of the nests' way: left among them
+/// the crew fight there and shoot the nests down.
 fn wreck_all_but_the_nests_beside(world: &mut World) {
+    let home = world.aboard.room.bim_pos(0);
     let n = world.residents.as_ref().unwrap().aboard.room.droid_count() as usize;
     for i in 0..n {
         let room = &world.residents.as_ref().unwrap().aboard.room;
@@ -390,6 +393,7 @@ fn wreck_all_but_the_nests_beside(world: &mut World) {
         room.strike_droid(i, DroidPart::Chassis, 1e6);
         world.step(&[]);
     }
+    world.aboard.room.put_for_probe(0, home);
 }
 
 /// A nest hunt pays every player about its site budget whatever its nests
@@ -408,7 +412,8 @@ fn a_nest_hunt_pays_its_budget_whatever_the_nests_build() {
     // The garrison's extras are the hunt's: a nest builds none.
     let garrison = u64::from(budget.wave.min(budget.planned));
     let wave = u64::from(budget.wave);
-    let extras = u64::from(budget.bombers) * garrison / wave + u64::from(budget.lancers) * garrison / wave;
+    let extras =
+        u64::from(budget.bombers) * garrison / wave + u64::from(budget.lancers) * garrison / wave;
     let bodies = u64::from(budget.planned) + extras;
     let site = world.site_budget(station);
     let each = ((site + bodies / 2) / bodies).max(1) as u32;
@@ -418,15 +423,39 @@ fn a_nest_hunt_pays_its_budget_whatever_the_nests_build() {
     // the player.
     let mut trickled = 0;
     let mut spent_at = None;
-    while trickled < 3 {
+    for round in 0.. {
+        if trickled == 3 {
+            break;
+        }
+        assert!(
+            round < 40,
+            "the rounds stopped: nests {:?}, budget {:?}, xp {}",
+            world.nests_standing(),
+            world.run.budget,
+            xp(&world, 0)
+        );
         wreck_all_but_the_nests_beside(&mut world);
         if world.budget_left() == 0 && spent_at.is_none() {
             spent_at = Some(xp(&world, 0));
         }
-        let built = world.infestation(station).unwrap().nests.as_ref().unwrap().built;
+        let built = world
+            .infestation(station)
+            .unwrap()
+            .nests
+            .as_ref()
+            .unwrap()
+            .built;
         for _ in 0..(data::NEST_BUILD_STEPS + 10) {
             world.step(&[]);
-            if world.infestation(station).unwrap().nests.as_ref().unwrap().built > built {
+            if world
+                .infestation(station)
+                .unwrap()
+                .nests
+                .as_ref()
+                .unwrap()
+                .built
+                > built
+            {
                 break;
             }
         }

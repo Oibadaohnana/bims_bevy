@@ -4,7 +4,8 @@
 //!   [`world::droid::WaveScaling`] (task 147; areas since October 2026):
 //!   the enemies a player and a bot bring, and the four areas — area 0 and
 //!   tiers one to three — each so many days with its own growth, waves,
-//!   extras, elite and defenders: the whole of how the enemies scale.
+//!   extras, elite, defenders and budget (the waves a mission brings in
+//!   all): the whole of how the enemies scale.
 //! - `rewards.ron` (or `BIMS_REWARDS`) holds a [`world::rewards::Rewards`]:
 //!   the experience and the money an enemy down is worth, what a defence
 //!   pays of it, whether the money waits for the clear, and what the
@@ -169,7 +170,7 @@ impl Tuning for WaveScaling {
     fn describe(&self) -> String {
         let area = |a: &world::droid::Area| {
             format!(
-                "{} days +{}/day {} waves {}b {}l {}g {}e {}d",
+                "{} days +{}/day {} waves {}b {}l {}g {}e {}d budget {}",
                 a.days,
                 a.growth_per_day,
                 a.waves,
@@ -177,7 +178,8 @@ impl Tuning for WaveScaling {
                 a.lancers,
                 a.guardians,
                 a.elites,
-                a.defenders
+                a.defenders,
+                a.budget
             )
         };
         format!(
@@ -405,7 +407,7 @@ fn with_difficulty(text: &str, d: WaveScaling) -> Option<String> {
     // `{:?}` keeps the point, so the file reads a float back as a float.
     let area = |a: &world::droid::Area| {
         format!(
-            "(days: {}, growth_per_day: {:?}, waves: {}, bombers: {}, lancers: {}, guardians: {}, elites: {}, defenders: {})",
+            "(days: {}, growth_per_day: {:?}, waves: {}, bombers: {}, lancers: {}, guardians: {}, elites: {}, defenders: {}, budget: {:?})",
             a.days,
             a.growth_per_day,
             a.waves,
@@ -413,7 +415,8 @@ fn with_difficulty(text: &str, d: WaveScaling) -> Option<String> {
             a.lancers,
             a.guardians,
             a.elites,
-            a.defenders
+            a.defenders,
+            a.budget
         )
     };
     let fields = [
@@ -548,7 +551,7 @@ mod tests {
     /// line of the file as it was written.
     #[test]
     fn saving_the_difficulty_changes_its_numbers_and_nothing_else() {
-        let area = |days, growth_per_day, waves| world::droid::Area {
+        let area = |days, growth_per_day, waves, budget| world::droid::Area {
             days,
             growth_per_day,
             waves,
@@ -557,14 +560,15 @@ mod tests {
             guardians: 3,
             elites: 1,
             defenders: 4,
+            budget,
         };
         let d = WaveScaling {
             enemies_per_player: 4,
             enemies_per_bot: 1.5,
-            area_0: area(3, 0.25, 1),
-            tier_1_area: area(12, 0.5, 2),
-            tier_2_area: area(7, 1.0, 3),
-            tier_3_area: area(2, 0.75, 4),
+            area_0: area(3, 0.25, 1, 2.5),
+            tier_1_area: area(12, 0.5, 2, 3.0),
+            tier_2_area: area(7, 1.0, 3, 6.0),
+            tier_3_area: area(2, 0.75, 4, 7.25),
         };
         let text = include_str!("../../../scaling.ron");
         let new = with_difficulty(text, d).unwrap();
@@ -614,6 +618,9 @@ mod tests {
         assert_eq!(s.tier_1_area.days, 3);
         assert_eq!(s.tier_1_area.waves, 1);
         assert_eq!(s.tier_1_area.guardians, 0);
+        // But a budget left out of a row is four waves, not none, so a row
+        // written before there was one still fills a mission.
+        assert_eq!(s.tier_1_area.budget, world::data::BUDGET_LEFT_OUT);
         let r: Rewards = parse("(buyback: 3)").unwrap();
         assert_eq!(r.buyback, 3);
         assert_eq!(r.enemy_money, Rewards::DEFAULT.enemy_money);

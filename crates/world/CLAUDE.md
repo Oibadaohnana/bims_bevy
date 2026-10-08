@@ -8709,6 +8709,10 @@ on the floor past area 0).
 
 ## A nest hunt (October 2026)
 
+> **Since the budget** ("A mission's budget, and the nests on it" at the
+> end of this file) a nest builds a slice of the wave a round, not one
+> enemy, until the mission's budget is spent, and then trickles unpaid.
+
 The fourth, the player's "6. is a nice idea and i want that" — nests in
 the walls that bring waves until they are destroyed. `nests.rs` (a child
 of `world`) is the rule; its module note is the whole of it.
@@ -8976,3 +8980,65 @@ paid past the budget). Not a save change.
 and `a_town_s_evacuation_starts_across_the_town_and_its_wave_lands_nearer_the_ship`
 are the rule. No `SAVE_VERSION`: `Fitted::feature` gained a variant, read
 as before. Meant to alter play (every Evacuation); the pins meet none.
+
+## A mission's budget, and the nests on it (October 2026)
+
+> Every section above that prices a wave (`price_the_wave` at every
+> landing) or has a nest build one enemy a round for ever describes a
+> fight **without** a budget. The player's words: "give every mission the
+> same total … let each mission spend that total in its own way", "nest
+> fix first". This is step one: the machinery, and the nest hunt on it;
+> every other mission still lands and prices its waves as above.
+
+`budget.rs` (a child of `world`) is the rule; its module note is the
+whole of it, `run::{Budgeted, Budget, Landing}` the types.
+
+- **The dial**: `droid::Area::budget` — waves of the day's size a
+  mission brings in all, `data::AREA_0` 3, tier one 4, tiers two and
+  three 5 (`budget_hundredths`, worked in hundredths like the growth). A
+  row of `scaling.ron` written without it reads `data::BUDGET_LEFT_OUT`
+  (4), not the nought every other dial left out reads (a field-level
+  `serde(default = "Area::budget_left_out")`). Ascension five adds
+  `EXTRA_WAVES` to it as to the waves.
+- **Opened the step the wave freezes** (`World::open_the_budget`, from
+  `landing_wave_size`'s first call), where `budgeted_here` says the fight
+  slices one — read off the laid state: a nest hunt's `Nests` (step one's
+  only), never the Heart, the probes' forced kinds or an elite. `planned`
+  is `max(1, (wave × budget_hundredths × weight + 5 000) / 10 000)` base
+  bodies (the weight is a hundred per cent until step two's
+  `MissionWeights`, through `World::budget_weight_percent`); the area's
+  Bombers and Lancers are kept beside it as `wave_kinds_for` puts them on
+  (none in area 0). **The mission is priced once there**: `Run::xp_each`
+  is the site's budget over `planned` and its extras — a nest hunt's the
+  garrison's alone — and `lay_wave` prices nothing while `Run::budget` is
+  `Some`.
+- **A landing takes its slice** (`budget_take`: `want`, never past what
+  is left, the extras' cumulative share; `budget_take_plain` the same
+  bare, for a nest; `budget_even` the even share over the landings to
+  come, for the missions on a clock) and is laid through `lay_wave_as` /
+  `lay_held_wave_as` / `lay_defense_wave_as`, with exactly its extras.
+  **Spent, the trickle**: one a player a landing, no extras, every body
+  `unpaid` (`bims::droid::Droid::unpaid`, `bims::bim::Bim::unpaid`, set by
+  `Game::set_unpaid`; `Game::is_unpaid` by body index) — `visit` pays its
+  machine nothing (the kill still counts), `experience` pays it no
+  experience, no money and floats nothing over it. A room built afresh
+  re-lays the garrison (`settle_droids`), never counted.
+- **The nest hunt**: the garrison is the budget's first slice; every
+  round each standing, unstunned nest builds
+  `k = ⌈wave ÷ (data::NEST_SLICE_ROUNDS × nests laid)⌉` — a round of every
+  nest a third of a wave — taken off the budget in nest order (the last
+  nest may get fewer), several out of a bay standing a tile apart; spent,
+  one a player a round dealt round the nests, unpaid. `Nests::built` still
+  counts everything. So a nest left standing is no farm any more, and the
+  early and the late game are one rule.
+- **Saved and hashed**: `Run::budget` (serde default; eaten in
+  `world_checksum` only where `Some`, behind its own tag beside
+  `xp_each`'s), cleared in `begin_mission` and `leave_mission`. The unpaid
+  marks are saved, not hashed. **`SAVE_VERSION` 134.**
+- **Tests**: `tests_droid::a_nest_hunt_spends_its_budget_and_then_trickles_unpaid`,
+  `tests_site_xp::a_nest_hunt_pays_its_budget_whatever_the_nests_build`,
+  `a_nest_builds_the_area_s_enemies_and_stands_at_its_health` re-pinned to
+  the slice off the world's own numbers, `droid::tests`' budgets, the
+  ascension's two.
+
+Meant to alter play: every nest hunt; the pins meet none.

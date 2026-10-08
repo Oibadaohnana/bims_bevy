@@ -80,7 +80,9 @@ desktop):
   (task 147, areas since October 2026: enemies per player and per bot,
   and four areas — area 0, tiers one to three — each so many days with
   its growth, waves, extras, elite and defenders, all read off the run
-  day; the floor's length follows the areas; `world::droid::WaveScaling`,
+  day, and its `budget` — waves of the day's size a mission brings in
+  all (`world::run::Budget`; a nest hunt so far); the floor's length
+  follows the areas; `world::droid::WaveScaling`,
   `BIMS_SCALING=file` names another) and `rewards.ron` what a fight pays and things cost (xp and
   money an enemy down, a defence's share, the buyback, combine and
   shelf prices; `world::rewards::Rewards`, `BIMS_REWARDS`), both

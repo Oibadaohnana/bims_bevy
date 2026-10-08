@@ -1610,10 +1610,7 @@ fn wreck_all_but_the_nests(world: &mut World) {
 /// of every nest, never past what the garrison left of the budget.
 fn first_round(world: &World, nests: u32) -> u32 {
     let budget = world.run.budget.expect("a nest hunt has its budget");
-    let k = budget
-        .wave
-        .div_ceil(data::NEST_SLICE_ROUNDS * nests)
-        .max(1);
+    let k = budget.wave.div_ceil(data::NEST_SLICE_ROUNDS * nests).max(1);
     (nests * k).min(budget.planned - budget.laid)
 }
 
@@ -1742,7 +1739,10 @@ fn a_nest_hunt_spends_its_budget_and_then_trickles_unpaid() {
     assert_eq!(budget.of, crate::run::Budgeted::Nests);
     assert_eq!(budget.garrison, budget.wave.min(budget.planned));
     assert_eq!(budget.laid, budget.garrison);
-    assert!(budget.planned > budget.garrison, "something left for the nests");
+    assert!(
+        budget.planned > budget.garrison,
+        "something left for the nests"
+    );
 
     // A body of the budget pays: the garrison's first, wrecked beside the
     // player.

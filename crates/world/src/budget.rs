@@ -77,10 +77,10 @@ impl World {
         } else {
             (0, 0)
         };
-        let planned = ((u64::from(wave) * area.budget_hundredths() * self.budget_weight_percent(of)
-            + 5_000)
-            / 10_000)
-            .clamp(1, u64::from(u32::MAX)) as u32;
+        let planned =
+            ((u64::from(wave) * area.budget_hundredths() * self.budget_weight_percent(of) + 5_000)
+                / 10_000)
+                .clamp(1, u64::from(u32::MAX)) as u32;
         let share = |extra: u32, of: u32| u64::from(extra) * u64::from(of) / u64::from(wave);
         let extras = match of {
             // A nest builds none: the garrison's are the hunt's.

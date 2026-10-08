@@ -100,10 +100,7 @@ fn more_enemies_and_one_more_wave_are_the_scaling_s() {
     world.set_ascension(5);
     assert_eq!(world.scaling().waves(1), waves + 1);
     // And every mission's budget a wave more.
-    assert_eq!(
-        world.scaling().area_on(1).budget_hundredths(),
-        budget + 100
-    );
+    assert_eq!(world.scaling().area_on(1).budget_hundredths(), budget + 100);
     // The tuning file's own dials are untouched.
     assert_eq!(world.wave_scaling(), WaveScaling::DEFAULT);
 }

@@ -327,10 +327,7 @@ impl World {
         // budget (the probes' forced kinds) one a nest, as before.
         let (k, landing) = match self.run.budget {
             Some(budget) => {
-                let k = budget
-                    .wave
-                    .div_ceil(data::NEST_SLICE_ROUNDS * laid)
-                    .max(1);
+                let k = budget.wave.div_ceil(data::NEST_SLICE_ROUNDS * laid).max(1);
                 (k, self.budget_take_plain(standing * k))
             }
             None => (
@@ -366,6 +363,22 @@ impl World {
             let col = [0.0, 1.0, -1.0][(m % 3) as usize];
             let row = (m / 3) as f32;
             spots.push((spot + (facing * row + aside * col) * t, facing));
+        }
+        // And onto free deck they can walk off from, where a bay puts out
+        // more than one: a tile aside of a nest in a corner, or a row out
+        // of one across a corridor, is in the walls.
+        if let Some(residents) = self.residents.as_ref() {
+            let room = &residents.aboard.room;
+            for (b, _) in out_of.iter().enumerate().filter(|&(_, &m)| m > 1) {
+                let mine: Vec<usize> = (0..n)
+                    .filter(|&j| owner(j) == b)
+                    .map(|j| j as usize)
+                    .collect();
+                let wanted: Vec<bims::math::Vec2> = mine.iter().map(|&j| spots[j].0).collect();
+                for (&j, at) in mine.iter().zip(room.spread_wave(&wanted)) {
+                    spots[j].0 = at;
+                }
+            }
         }
         // The day's share over everything built so far, so a share under
         // one a round still comes out right over the fight.

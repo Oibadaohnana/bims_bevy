@@ -3674,7 +3674,7 @@ pub fn nests_line(standing: u32, total: u32) -> String {
         "NEST HUNT — every nest destroyed: clear the deck".to_string()
     } else {
         format!(
-            "NEST HUNT — {standing} of {total} nests standing · each builds a machine every 20 s"
+            "NEST HUNT — {standing} of {total} nests standing · a third of a wave every 20 s, then a trickle"
         )
     }
 }
@@ -3682,7 +3682,8 @@ pub fn nests_count(standing: u32, total: u32) -> String {
     format!("Nests {standing}/{total}")
 }
 pub const NESTS_TIP: &str = "• Nests grow in the walls: destroy them
-• Each builds a machine every 20 s
+• Every 20 s: 1/3 of a wave between them
+• Budget spent: 1 a player a round, no XP or money
 • A fuel drum stands by one of them
 • All nests and machines down: cleared";
 /// A Sabotage's line (October 2026), by its phase: the charge to plant,
