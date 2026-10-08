@@ -1022,7 +1022,6 @@ fn eat_manufacturers(hash: &mut Fnv, it: &crate::droid::Infestation) {
         hash.eat(0x_5341_424F);
         hash.eat(u64::from(s.charge.0));
         hash.eat(u64::from(s.charge.1));
-        hash.eat(u64::from(s.extraction));
         hash.eat(u64::from(s.phase.code()));
         hash.eat(u64::from(s.planted));
         hash.eat(u64::from(s.disarm));

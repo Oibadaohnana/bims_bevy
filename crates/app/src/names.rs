@@ -298,7 +298,7 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NoBonusWave => "a bonus wave is chosen in the ready check, at a fight",
         Refusal::NoWayInNear => "no way in to weld here — stand at an airlock or a gate",
         Refusal::NoChargeNear => "stand at the charge's mark",
-        Refusal::ShipCastOff => "the ship has cast off — it waits at the way out",
+        Refusal::ShipCastOff => "the ship has cast off — it is back once the charge arms",
         Refusal::NoFlagNear => "the flag is not within reach, or somebody else carries it",
         Refusal::NothingToUse => "nothing to use within reach",
         Refusal::BonusWaveHeld => "Overtime keeps the bonus wave on",
@@ -1816,7 +1816,7 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             "The charge is planted. The ship casts off: hold it until it arms.".into()
         }
         WorldEvent::SabotageStage { phase: 2, .. } => {
-            "The charge is armed. Get to the way out before it blows!".into()
+            "The charge is armed and the ship is back. Everybody aboard before it blows!".into()
         }
         WorldEvent::SabotageStage { phase: 3, .. } => "The charge blew. The ship takes off.".into(),
         WorldEvent::SabotageStage { phase: 4, .. } => "The machines disarmed the charge.".into(),
@@ -3718,27 +3718,29 @@ pub const NESTS_TIP: &str = "• Nests grow in the walls: destroy them
 • A fuel drum stands by one of them
 • All nests and machines down: cleared";
 /// A Sabotage's line (October 2026), by its phase: the charge to plant,
-/// held with the machines' disarming, the escape's clock.
+/// held with the machines' disarming, the escape's clock and the players
+/// back aboard.
 pub const SABOTAGE_PLANT: &str = "SABOTAGE — reach the charge (amber mark) and plant it: V";
 pub fn sabotage_hold(left: &str, disarmed: u32) -> String {
     format!("SABOTAGE — hold the charge {left} · disarmed {disarmed}%")
 }
-pub fn sabotage_escape(left: &str) -> String {
-    format!("SABOTAGE — get to the way out (green) · it blows in {left}")
+pub fn sabotage_escape(left: &str, aboard: u32, players: u32) -> String {
+    format!("SABOTAGE — everybody back aboard (green) · {aboard}/{players} · it blows in {left}")
 }
 pub const SABOTAGE_BLOWN: &str = "SABOTAGE — the charge blew";
 pub const SABOTAGE_TIP: &str = "• Plant the charge at the amber mark: V, 12 s, faster with two
 • Then hold it 45 s: machines at it disarm it
 • Disarmed = run lost
-• Then the ship waits at the green way out: 75 s
-• Not there when it blows = left behind";
+• Then back aboard the ship (green): 75 s
+• Every player aboard = won
+• Outside when it blows = left behind";
 /// The top count's line at a Sabotage.
 pub const SABOTAGE_COUNT_PLANT: &str = "Plant the charge · V";
 pub fn sabotage_count_hold(left: &str, disarmed: u32) -> String {
     format!("Hold {left} · disarmed {disarmed}%")
 }
-pub fn sabotage_count_escape(left: &str) -> String {
-    format!("Get out {left}")
+pub fn sabotage_count_escape(left: &str, aboard: u32, players: u32) -> String {
+    format!("Aboard {aboard}/{players} · {left}")
 }
 /// The run lost to a charge disarmed.
 pub const OVER_TITLE_SABOTAGE: &str = "The charge was disarmed";

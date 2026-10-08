@@ -271,7 +271,7 @@ fn droid_line(world: &world::World) -> Option<(String, &'static str)> {
         let words = match look.phase {
             SabotagePhase::Plant => SABOTAGE_PLANT.to_string(),
             SabotagePhase::Hold => sabotage_hold(&left, (look.disarmed * 100.0).round() as u32),
-            SabotagePhase::Escape => sabotage_escape(&left),
+            SabotagePhase::Escape => sabotage_escape(&left, look.aboard, look.players),
             _ => SABOTAGE_BLOWN.to_string(),
         };
         return Some((words, SABOTAGE_TIP));
@@ -999,7 +999,7 @@ pub fn counter(world: &world::World, flying: u32) -> Option<Counter> {
     };
     // A Sabotage's charge armed (October 2026): its waves come on a clock,
     // no "of how many".
-    let armed = world.ship_cast_off()
+    let armed = world.charge_armed()
         || world
             .objective_look()
             .is_some_and(|look| look.wave_in.is_some());
@@ -1016,7 +1016,8 @@ pub fn counter(world: &world::World, flying: u32) -> Option<Counter> {
 }
 
 /// A Sabotage's line under the top count (October 2026): the charge to
-/// plant, the hold's clock and the disarming, or the escape's clock.
+/// plant, the hold's clock and the disarming, or the escape's clock and
+/// the players aboard.
 fn sabotage_count(world: &world::World) -> Option<(String, egui::Color32)> {
     use world::droid::SabotagePhase;
     // The second set of attacks' (October 2026): done in green.
@@ -1045,7 +1046,10 @@ fn sabotage_count(world: &world::World) -> Option<(String, egui::Color32)> {
     match look.phase {
         SabotagePhase::Plant => Some((SABOTAGE_COUNT_PLANT.to_string(), theme::CAUTION)),
         SabotagePhase::Hold => Some((sabotage_count_hold(&left, disarmed), theme::BAD)),
-        SabotagePhase::Escape => Some((sabotage_count_escape(&left), theme::HEAL)),
+        SabotagePhase::Escape => Some((
+            sabotage_count_escape(&left, look.aboard, look.players),
+            theme::HEAL,
+        )),
         _ => None,
     }
 }

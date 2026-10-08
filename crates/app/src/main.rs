@@ -295,7 +295,7 @@ const COMMANDS: [(&str, &str); 35] = [
     ),
     (
         "sabotage",
-        "Sabotage: the droids arena held by the machines; plant the charge at the amber mark (V, 12 s), hold it 45 s against the machines making to disarm it, then get to the green way out before it blows",
+        "Sabotage: the droids arena held by the machines; plant the charge at the amber mark (V, 12 s), hold it 45 s against the machines making to disarm it, then get every player back aboard the ship before it blows",
     ),
     (
         "evacuation",

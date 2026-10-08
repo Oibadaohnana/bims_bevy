@@ -1737,6 +1737,8 @@ impl World {
         //    The welding, and the welds a wave burnt through, said.
         self.settle_welds(&mut events);
         self.settle_plants(&mut events);
+        //    And a Sabotage's escape won: every player back aboard.
+        self.settle_escape(&mut events);
         self.say_burns(&mut events);
 
         // 8. The run (feature 103): the bounty paid the step the site is

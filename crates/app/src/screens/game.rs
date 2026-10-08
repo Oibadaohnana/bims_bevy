@@ -935,6 +935,11 @@ fn open(
             {
                 game.world.plant_for_probe();
             }
+            if crate::dev::escape()
+                && let Some(game) = session.game.as_mut()
+            {
+                game.world.escape_for_probe();
+            }
             // Every run on the combat ship opens with everything there is
             // in the armory — every weapon and piece at every tier it is
             // made at — for trying any kit on aboard before stepping off.

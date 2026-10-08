@@ -421,18 +421,17 @@ pub const BREACH_WELD_SECONDS: u32 = 15;
 /// **Sabotage** (October 2026): seconds of hands on the charge to plant it
 /// (an engineer's count twice, two Bims together twice as fast); steps
 /// of the mission clock it must then be held (45 s) and steps the crew
-/// then have to get out (75 s); a wave every so many steps while it is
-/// armed, the last down or not (15 s); the machines' steps of disarming
-/// (one a step for each within reach, three at most) that lose the run;
-/// and how near the charge a machine disarms it and how near the way out
-/// a Bim gets away, in tiles.
+/// then have to get back aboard before it blows (75 s); a wave every so
+/// many steps while it is armed, the last down or not (15 s); the
+/// machines' steps of disarming (one a step for each within reach, three
+/// at most) that lose the run; and how near the charge a machine disarms
+/// it, in tiles.
 pub const PLANT_SECONDS: u32 = 12;
 pub const SABOTAGE_HOLD_STEPS: u64 = 2_700;
 pub const SABOTAGE_ESCAPE_STEPS: u64 = 4_500;
 pub const SABOTAGE_WAVE_STEPS: u64 = 900;
 pub const DISARM_STEPS: u32 = 480;
 pub const DISARM_REACH_TILES: f32 = 1.5;
-pub const EXTRACTION_REACH_TILES: f32 = 3.0;
 /// **Evacuation** (October 2026): how many refugees a site has past its
 /// own people; a wave every so many steps (25 s) until they are aboard,
 /// the last down or not; how near the flag a Bim picks it up, in tiles.

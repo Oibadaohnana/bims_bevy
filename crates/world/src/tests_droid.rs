@@ -1437,9 +1437,9 @@ fn stage(world: &World) -> crate::droid::SabotagePhase {
     world.sabotage_look().expect("a Sabotage").phase
 }
 
-/// The charge is laid deep in the site and the way out at another airlock;
-/// every wave down clears nothing; a Bim's hands on the charge plant it,
-/// and *Back to ship* is refused once it is armed.
+/// The charge is laid deep in the site; every wave down clears nothing; a
+/// Bim's hands on the charge plant it, and *Back to ship* is refused while
+/// it is held.
 #[test]
 fn a_sabotage_is_planted_by_hand_and_its_waves_clear_nothing() {
     use crate::droid::SabotagePhase;
@@ -1449,10 +1449,10 @@ fn a_sabotage_is_planted_by_hand_and_its_waves_clear_nothing() {
     let port = world.station(station).unwrap().port().unwrap();
     let far = |p: worldgen::math::DVec2| (p.x - port.centre.0).hypot(p.y - port.centre.1);
     assert!(
-        far(look.charge) > far(look.way_out) * 0.3,
+        far(look.charge) > 4.0 * shipdesign::TILE as f64,
         "the charge is deep in the site"
     );
-    assert!(far(look.way_out) > 1.0, "the way out is not the port");
+    assert!(far(look.port) < 1.0, "the way home is the port");
     // Every wave down: still not cleared.
     for _ in 0..600 {
         wreck_them_all(&mut world);
@@ -1533,60 +1533,134 @@ fn a_charge_disarmed_loses_the_run() {
     assert!(world.lost, "a charge disarmed costs the run");
 }
 
-/// Held to the end, the charge can no longer be disarmed and the crew run
-/// for the way out: when it blows the one there gets away and the rest
-/// are left behind, the site is cleared, and the crew go home.
+/// Where the Sabotage's player stands to be back aboard, and the charge,
+/// on the crew's deck.
+fn home_and_charge(world: &World) -> (bims::math::Vec2, bims::math::Vec2) {
+    let home = world
+        .aboard
+        .gangway
+        .map(|p| bims::math::vec2(p.x as f32, p.y as f32))
+        .expect("a gangway");
+    let charge = world
+        .aboard
+        .from_station(world.sabotage_look().unwrap().charge)
+        .map(|p| bims::math::vec2(p.x as f32, p.y as f32))
+        .unwrap();
+    (home, charge)
+}
+
+fn blown(events: &[WorldEvent]) -> bool {
+    use crate::droid::SabotagePhase;
+    events.iter().any(|e| {
+        matches!(e, WorldEvent::SabotageStage { phase, .. } if *phase == SabotagePhase::Done.code())
+    })
+}
+
+fn left_behind(events: &[WorldEvent]) -> Vec<u32> {
+    events
+        .iter()
+        .filter_map(|e| match e {
+            WorldEvent::LeftBehind { who } => Some(*who),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The player's (October 2026): "make it so you won when all players are
+/// back in the ship after successfully defending the charge". Aboard
+/// while it is held wins nothing; held to the end, the ship is back and
+/// *Back to ship* heard again; the step every player stands inside the
+/// ship the charge blows — nobody left behind, a bot kept back at the
+/// charge taken home with the rest — the site is cleared and the crew go
+/// home, long before the clock is out.
 #[test]
-fn the_charge_blows_and_only_who_reached_the_way_out_gets_away() {
+fn every_player_back_aboard_after_the_hold_wins_the_sabotage() {
     use crate::droid::SabotagePhase;
     let (mut world, station) = sabotage();
     world.plant_for_probe();
-    let look = world.sabotage_look().unwrap();
-    let t = shipdesign::TILE as f64;
-    let out = world
-        .aboard
-        .from_station(look.way_out.sub(look.way_out_out.scale(1.5 * t)))
-        .map(|p| bims::math::vec2(p.x as f32, p.y as f32))
-        .unwrap();
-    let charge = world
-        .aboard
-        .from_station(look.charge)
-        .map(|p| bims::math::vec2(p.x as f32, p.y as f32))
-        .unwrap();
+    let (home, charge) = home_and_charge(&world);
+    let t = shipdesign::TILE as f32;
+    let put = |world: &mut World, player: bims::math::Vec2| {
+        wreck_them_all(world);
+        world.aboard.room.stand_at(0, player);
+        world.aboard.room.patch_up_for_probe(0);
+        world.aboard.room.stand_at(1, charge);
+    };
+    // The hold, the player aboard nearly all of it: nothing won.
+    for _ in 0..(data::SABOTAGE_HOLD_STEPS - 10) {
+        put(&mut world, home);
+        assert!(world.inside_ship(0));
+        let events = world.step(&[]);
+        assert!(!blown(&events), "aboard while it is held wins nothing");
+    }
+    assert_eq!(stage(&world), SabotagePhase::Hold);
+    // Out for the end of it and a few steps of the escape.
+    let mut escaping = 0;
+    while escaping < 30 {
+        put(&mut world, charge + bims::math::vec2(t, 0.0));
+        world.step(&[]);
+        if stage(&world) == SabotagePhase::Escape {
+            escaping += 1;
+        }
+    }
+    assert!(world.in_mission(), "out of the ship, the escape goes on");
+    assert!(
+        !world.infestation(station).unwrap().cleared,
+        "nothing won yet"
+    );
+    // *Back to ship* is heard again: the ship is back.
+    let pressed = world.step(&[crate::world::Command::Return { slot: 0 }]);
+    assert!(
+        pressed
+            .iter()
+            .any(|e| matches!(e, WorldEvent::Returning { slot: 0 })),
+        "{pressed:?}"
+    );
+    // And the step the player is aboard, the charge blows.
+    put(&mut world, home);
+    let events = world.step(&[]);
+    assert!(blown(&events), "every player aboard: {events:?}");
+    assert!(left_behind(&events).is_empty(), "nobody left behind");
+    assert!(world.aboard.room.is_alive(0));
+    assert!(world.aboard.room.is_alive(1), "the bot comes home too");
+    assert!(world.infestation(station).unwrap().cleared);
+    assert!(!world.lost);
+    // And the crew go home, that very step.
+    assert!(!world.in_mission(), "the mission is over");
+}
+
+/// The clock out with a player still outside the ship, the charge blows
+/// anyway: whoever is aboard gets away, everybody outside is left behind
+/// — the only player here, so the run is lost.
+#[test]
+fn the_charge_blows_on_everybody_not_back_aboard() {
+    let (mut world, station) = sabotage();
+    world.plant_for_probe();
+    let (home, charge) = home_and_charge(&world);
+    let t = shipdesign::TILE as f32;
     let total = data::SABOTAGE_HOLD_STEPS + data::SABOTAGE_ESCAPE_STEPS + 10;
-    let mut blown = false;
-    let mut left_behind: Vec<u32> = Vec::new();
+    let mut behind = None;
     for _ in 0..total {
         wreck_them_all(&mut world);
-        world.aboard.room.stand_at(0, out);
+        // The player kept out at the charge, a bot aboard.
+        world
+            .aboard
+            .room
+            .stand_at(0, charge + bims::math::vec2(t, 0.0));
         world.aboard.room.patch_up_for_probe(0);
-        // A bot kept back at the charge, the rest following the player.
-        world.aboard.room.stand_at(1, charge);
+        world.aboard.room.stand_at(1, home);
         let events = world.step(&[]);
-        if events.iter().any(|e| {
-            matches!(e, WorldEvent::SabotageStage { phase, .. } if *phase == SabotagePhase::Done.code())
-        }) {
-            left_behind = events
-                .iter()
-                .filter_map(|e| match e {
-                    WorldEvent::LeftBehind { who } => Some(*who),
-                    _ => None,
-                })
-                .collect();
-            blown = true;
+        if blown(&events) {
+            behind = Some(left_behind(&events));
             break;
         }
     }
-    assert!(blown, "the charge blew");
-    assert!(!left_behind.contains(&0), "the one at the way out got away");
-    assert!(
-        left_behind.contains(&1),
-        "the one at the charge was left behind"
-    );
-    assert!(world.aboard.room.is_alive(0));
+    let behind = behind.expect("the charge blew");
+    assert!(behind.contains(&0), "the player outside was left behind");
+    assert!(!behind.contains(&1), "the bot aboard got away");
+    assert!(world.aboard.room.is_alive(1));
     assert!(world.infestation(station).unwrap().cleared);
-    // And the crew go home, that very step.
-    assert!(!world.in_mission(), "the mission is over");
+    assert!(world.lost, "every player dead loses the run");
 }
 
 /// A Sabotage held to its blast lays its budget to the body (October
@@ -1608,8 +1682,11 @@ fn a_sabotage_run_through_its_blast_lays_exactly_its_budget() {
     let mut last = budget;
     let mut blown = false;
     let total = data::SABOTAGE_HOLD_STEPS + data::SABOTAGE_ESCAPE_STEPS + 10;
+    let (_, charge) = home_and_charge(&world);
     for _ in 0..total {
         wreck_them_all(&mut world);
+        // Kept off the ship, so the escape runs its whole clock.
+        world.aboard.room.stand_at(0, charge);
         world.aboard.room.patch_up_for_probe(0);
         // The budget goes with the mission at the blast: read it before.
         if let Some(now) = world.run.budget {

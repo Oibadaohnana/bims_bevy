@@ -1279,14 +1279,14 @@ fn evacuation_flag(list: &mut DrawList, game: &Game) {
 
 const CHARGE: Color = Color::rgb(1.0, 0.72, 0.20);
 const CHARGE_ARMED: Color = Color::rgb(1.0, 0.25, 0.18);
-const WAY_OUT: Color = Color::rgb(0.45, 0.95, 0.60);
+const WAY_HOME: Color = Color::rgb(0.45, 0.95, 0.60);
 
 /// A Sabotage's marks (October 2026, `World::sabotage_look`), in the
 /// station's own frame: the charge — an amber ring and cross to plant at,
 /// the planting's arc filling round it; red once planted, with the
 /// machines' disarming as a bar under it; blinking while it counts down —
-/// and, once it is armed, the way out: a green ring a tile and a half
-/// inside the airlock with chevrons pointing out.
+/// and, once it is armed, the way home: a green ring a tile and a half
+/// inside the port with chevrons pointing out to the ship.
 fn sabotage_marks(list: &mut DrawList, game: &Game, station: u32) {
     use world::droid::SabotagePhase;
     if game.world.ship.state.alongside() != Some(station) {
@@ -1370,11 +1370,11 @@ fn sabotage_marks(list: &mut DrawList, game: &Game, station: u32) {
                 list.line(x0, y, x0 + w, y, 6.0, Color::rgba(0.0, 0.0, 0.0, 0.6));
                 list.line(x0, y, x0 + w * look.disarmed.min(1.0), y, 6.0, CHARGE_ARMED);
             }
-            // The way out.
-            let (ox, oy) = (look.way_out_out.x as f32, look.way_out_out.y as f32);
+            // The way home.
+            let (ox, oy) = (look.port_out.x as f32, look.port_out.y as f32);
             let (wx, wy) = (
-                look.way_out.x as f32 - ox * 1.5 * t,
-                look.way_out.y as f32 - oy * 1.5 * t,
+                look.port.x as f32 - ox * 1.5 * t,
+                look.port.y as f32 - oy * 1.5 * t,
             );
             ring(
                 list,
@@ -1382,7 +1382,7 @@ fn sabotage_marks(list: &mut DrawList, game: &Game, station: u32) {
                 wy,
                 t * (1.4 + 0.2 * pulse),
                 7.0,
-                WAY_OUT.glowing(1.4 + 0.6 * pulse),
+                WAY_HOME.glowing(1.4 + 0.6 * pulse),
             );
             let (ax, ay) = (-oy, ox);
             for k in 0..2 {
@@ -1390,7 +1390,7 @@ fn sabotage_marks(list: &mut DrawList, game: &Game, station: u32) {
                 let (px, py) = (wx + ox * ahead, wy + oy * ahead);
                 let (bx, by) = (px - ox * t * 0.35, py - oy * t * 0.35);
                 let wing = t * 0.45;
-                let c = WAY_OUT.glowing(1.2 + 0.6 * pulse);
+                let c = WAY_HOME.glowing(1.2 + 0.6 * pulse);
                 list.line(bx - ax * wing, by - ay * wing, px, py, 5.0, c);
                 list.line(bx + ax * wing, by + ay * wing, px, py, 5.0, c);
             }

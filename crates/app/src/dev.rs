@@ -1341,9 +1341,15 @@ pub fn flag() -> bool {
 }
 
 /// `BIMS_PLANT=1` (October 2026): a Sabotage's charge planted at once, the
-/// hold begun, for a look at it.
+/// hold begun, for a look at it; `BIMS_PLANT=escape` held to the end too,
+/// the escape begun — every player back aboard wins it.
 pub fn plant() -> bool {
     std::env::var("BIMS_PLANT").is_ok_and(|v| v.trim() == "1")
+}
+
+/// `BIMS_PLANT=escape` — see [`plant`].
+pub fn escape() -> bool {
+    std::env::var("BIMS_PLANT").is_ok_and(|v| v.trim() == "escape")
 }
 
 /// The mission every station fight is (October 2026, the missions the map

@@ -1419,8 +1419,8 @@ impl World {
             events.push(refused(slot, Refusal::PlayerOut));
             return;
         }
-        // A Sabotage's charge armed (October 2026): the ship has cast off
-        // and waits at the way out.
+        // A Sabotage's charge held (October 2026): the ship has cast off
+        // until it arms.
         if self.ship_cast_off() {
             events.push(refused(slot, Refusal::ShipCastOff));
             return;
@@ -1542,7 +1542,7 @@ impl World {
     /// still at the keyboard, alive, not out and not downed — downed too
     /// after a fight won (task 133), when a downed player is going home
     /// with the rest and has the button like them.
-    fn waited_for(&self, slot: u32) -> bool {
+    pub(super) fn waited_for(&self, slot: u32) -> bool {
         let who = slot as usize;
         slot < self.aboard.crew_count()
             && self.run.is_connected(slot)

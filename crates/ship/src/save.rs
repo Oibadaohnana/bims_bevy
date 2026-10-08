@@ -346,7 +346,9 @@ use crate::game::Game;
 /// 135: the missions' weights (`world::droid::MissionWeights` on the
 /// scaling), a prison break's alarm (`world::objective::Prison::next_wave`)
 /// and a salvage crate taken up once (`world::objective::Load::picked`).
-pub const SAVE_VERSION: u32 = 135;
+/// 136: a Sabotage's way out gone (`world::droid::Sabotage::extraction`):
+/// the crew get back aboard the ship.
+pub const SAVE_VERSION: u32 = 136;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

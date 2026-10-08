@@ -2,12 +2,9 @@
 //! fight is a charge — planted deep in the site, held, then run from.
 //!
 //! - **The charge** stands on the free deck tile farthest from the port
-//!   whose eight neighbours are free deck too ([`charge_spot`]), and the
-//!   **way out** is the airlock but the port farthest from it
-//!   ([`extraction_of`]): the escape crosses the station, and the port —
-//!   the way the crew came — is no way out. Laid when the crew first dock
-//!   at a site whose mission it is ([`World::settle_sabotage`]); a site
-//!   with no airlock but the port is a plain attack.
+//!   whose eight neighbours are free deck too ([`charge_spot`]). Laid when
+//!   the crew first dock at a site whose mission it is
+//!   ([`World::settle_sabotage`]).
 //! - **Plant**: the crew fight the site's garrison — its one wave, the
 //!   first slice of the mission's budget (October 2026, `budget.rs`) —
 //!   but the last of it down clears nothing. `Command::Plant` (the Use
@@ -27,11 +24,19 @@
 //!   at most): at [`data::DISARM_STEPS`] it is disarmed and **the run is
 //!   lost**.
 //! - **Escape** ([`data::SABOTAGE_ESCAPE_STEPS`], 75 s): the charge can no
-//!   longer be disarmed and the waves come on, looking for the crew. When
-//!   it blows, every crew member within [`data::EXTRACTION_REACH_TILES`]
-//!   of the way out gets away — downed or not — and every other is left
-//!   behind, dead; the site is cleared, every player's *Back to ship* is
-//!   pressed for them and the departure takes the rest.
+//!   longer be disarmed, the ship is back at the port (*Back to ship*
+//!   walks a player home again) and the waves come on, looking for the
+//!   crew. **Every player back aboard is the Sabotage won** (the player's,
+//!   October 2026: "make it so you won when all players are back in the
+//!   ship after successfully defending the charge" — the way out at
+//!   another airlock is gone): the moment every player the departure waits
+//!   for stands inside the ship ([`World::settle_escape`], after the
+//!   rooms), the charge blows, the site is cleared and the ship takes
+//!   everybody alive home, a bot or a player downed wherever it lies, as
+//!   after any fight won. The clock run out first, it blows anyway: every
+//!   crew member outside the ship is left behind, dead, and the site is
+//!   cleared all the same. Either way every player's *Back to ship* is
+//!   pressed for them and the departure goes that very step.
 //!
 //! The state is the `Infestation`'s (`droid::Sabotage`), saved, hashed and
 //! put back with it. A child of `crate::world`, as `mission.rs` is.
@@ -51,19 +56,22 @@ pub const PLANT_REACH: f32 = 1.75;
 /// How long the room's errand runs: longer than any planting.
 const ERRAND_MINUTES: f32 = 600.0;
 
-/// A Sabotage as the app draws it: the charge's tile middle and the way
-/// out — its doorway's middle and a unit step out — in the site's own
-/// design units, the phase, how far the planting and the disarming have
-/// got, nought to one, and the seconds the hold or the escape has left.
+/// A Sabotage as the app draws it: the charge's tile middle and the port
+/// the ship is tied up at — its doorway's middle and a unit step out —
+/// in the site's own design units, the phase, how far the planting and
+/// the disarming have got, nought to one, the seconds the hold or the
+/// escape has left, and of the players alive, how many are aboard.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SabotageLook {
     pub charge: DVec2,
-    pub way_out: DVec2,
-    pub way_out_out: DVec2,
+    pub port: DVec2,
+    pub port_out: DVec2,
     pub phase: SabotagePhase,
     pub planted: f32,
     pub disarmed: f32,
     pub seconds_left: f32,
+    pub aboard: u32,
+    pub players: u32,
 }
 
 /// The charge's tile: the free deck tile farthest from `from` whose eight
@@ -97,9 +105,10 @@ pub fn charge_spot(design: &ShipDesign, from: (f64, f64)) -> Option<(u32, u32)> 
     best.map(|(tile, _)| tile)
 }
 
-/// The way out: the airlock but the port farthest from the charge, by its
-/// index among the design's airlocks; the lower index on a tie. `None`
-/// with no airlock but the port.
+/// The way out from a tile — the Overseer's, once a Sabotage's: the
+/// airlock but the port farthest from it, by its index among the design's
+/// airlocks; the lower index on a tie. `None` with no airlock but the
+/// port.
 pub fn extraction_of(design: &ShipDesign, charge: (u32, u32)) -> Option<u32> {
     let t = shipdesign::TILE as f64;
     let (cx, cy) = ((charge.0 as f64 + 0.5) * t, (charge.1 as f64 + 0.5) * t);
@@ -123,12 +132,43 @@ impl World {
         Some((id, s))
     }
 
-    /// Whether the site alongside is a Sabotage whose charge is armed —
-    /// held or run from — when the ship has cast off and *Back to ship* is
-    /// refused.
+    /// Whether the site alongside is a Sabotage whose charge is held, when
+    /// the ship has cast off and *Back to ship* is refused. It is back at
+    /// the port for the escape.
     pub fn ship_cast_off(&self) -> bool {
         self.sabotage_here()
+            .is_some_and(|(_, s)| s.phase == SabotagePhase::Hold)
+    }
+
+    /// Whether the site alongside is a Sabotage whose charge is armed —
+    /// held or run from — when its waves come on its clock.
+    pub fn charge_armed(&self) -> bool {
+        self.sabotage_here()
             .is_some_and(|(_, s)| matches!(s.phase, SabotagePhase::Hold | SabotagePhase::Escape))
+    }
+
+    /// Whether the escape is won: every player the departure waits for —
+    /// on its feet, at the keyboard, one at the least — inside the ship.
+    fn all_aboard(&self) -> bool {
+        let waited: Vec<u32> = (0..self.players())
+            .filter(|&s| self.waited_for(s))
+            .collect();
+        !waited.is_empty() && waited.iter().all(|&s| self.inside_ship(s))
+    }
+
+    /// The players alive, at the keyboard and not out — a downed one too,
+    /// whom the win does not wait for but the count shows — and how many of
+    /// them stand inside the ship: `(aboard, players)`.
+    fn players_aboard(&self) -> (u32, u32) {
+        let players: Vec<u32> = (0..self.players().min(self.aboard.crew_count()))
+            .filter(|&s| {
+                self.run.is_connected(s)
+                    && !self.run.is_out(s)
+                    && self.aboard.room.is_alive(s as usize)
+            })
+            .collect();
+        let aboard = players.iter().filter(|&&s| self.inside_ship(s)).count() as u32;
+        (aboard, players.len() as u32)
     }
 
     /// Whether the run was lost to the charge disarmed.
@@ -141,25 +181,28 @@ impl World {
     pub fn sabotage_look(&self) -> Option<SabotageLook> {
         let (id, s) = self.sabotage_here()?;
         let station = self.station(id)?;
-        let port = *droidplan::airlocks(&station.design).get(s.extraction as usize)?;
+        let port = station.port()?;
         let t = shipdesign::TILE as f64;
         let left = match s.phase {
             SabotagePhase::Hold | SabotagePhase::Escape => s.left as f32 / 60.0,
             _ => 0.0,
         };
+        let (aboard, players) = self.players_aboard();
         Some(SabotageLook {
             charge: dvec2((s.charge.0 as f64 + 0.5) * t, (s.charge.1 as f64 + 0.5) * t),
-            way_out: dvec2(port.centre.0, port.centre.1),
-            way_out_out: dvec2(port.outward.0 as f64, port.outward.1 as f64),
+            port: dvec2(port.centre.0, port.centre.1),
+            port_out: dvec2(port.outward.0 as f64, port.outward.1 as f64),
             phase: s.phase,
             planted: s.planted as f32 / (data::PLANT_SECONDS * 60).max(1) as f32,
             disarmed: s.disarm as f32 / data::DISARM_STEPS.max(1) as f32,
             seconds_left: left,
+            aboard,
+            players,
         })
     }
 
     /// A Sabotage laid at `id` the step the crew first dock there, where
-    /// its mission is one and it has a way out but the port.
+    /// its mission is one.
     pub(super) fn settle_sabotage(&mut self, id: u32) {
         if self.mission_here(id) != Mission::Sabotage {
             return;
@@ -179,13 +222,9 @@ impl World {
         let Some(charge) = charge_spot(&station.design, port.centre) else {
             return;
         };
-        let Some(extraction) = extraction_of(&station.design, charge) else {
-            return;
-        };
         if let Some(it) = self.infestation_mut(id) {
             it.sabotage = Some(Sabotage {
                 charge,
-                extraction,
                 phase: SabotagePhase::Plant,
                 planted: 0,
                 disarm: 0,
@@ -404,35 +443,45 @@ impl World {
                 station: id,
                 phase: SabotagePhase::Escape.code(),
             }),
-            Some(SabotagePhase::Done) => self.blow_the_charge(id, events),
+            Some(SabotagePhase::Done) => {
+                // The clock run out with somebody still out: everybody
+                // outside the ship is caught in the blast.
+                for who in self.left_behind() {
+                    self.aboard.room.kill_now(who as usize);
+                    events.push(WorldEvent::LeftBehind { who });
+                }
+                self.blow_the_charge(id, events);
+            }
             _ => {}
         }
     }
 
-    /// The charge blows: every crew member within reach of the way out
-    /// gets away, every other is left behind, dead; the site is cleared
-    /// and every player's *Back to ship* pressed, so the departure takes
-    /// the crew home at the end of the step.
-    fn blow_the_charge(&mut self, id: u32, events: &mut Vec<WorldEvent>) {
-        let way_out = self.sabotage_look().and_then(|look| {
-            let inside = look
-                .way_out
-                .sub(look.way_out_out.scale(1.5 * shipdesign::TILE as f64));
-            let p = self.aboard.from_station(inside)?;
-            Some(bims::math::vec2(p.x as f32, p.y as f32))
-        });
-        let reach = data::EXTRACTION_REACH_TILES * shipdesign::TILE as f32;
-        let crew = self.aboard.room.crew_count() as usize;
-        for who in 0..crew {
-            if !self.aboard.room.is_alive(who) || self.is_reinforcement(who as u32) {
-                continue;
-            }
-            let out = way_out.is_some_and(|at| (self.aboard.room.bim_pos(who) - at).len() <= reach);
-            if !out {
-                self.aboard.room.kill_now(who);
-                events.push(WorldEvent::LeftBehind { who: who as u32 });
-            }
+    /// The escape won, after the rooms: every player the departure waits
+    /// for — one at the least — inside the ship, and the charge blows with
+    /// nobody left behind. After the rooms and before the departure check,
+    /// so a step whose last player walks aboard — *Back to ship* pressed —
+    /// clears the site before the departure sees it.
+    pub(super) fn settle_escape(&mut self, events: &mut Vec<WorldEvent>) {
+        let Some((id, s)) = self.sabotage_here() else {
+            return;
+        };
+        if s.phase != SabotagePhase::Escape || !self.aboard.is_joined() {
+            return;
         }
+        if !self.all_aboard() {
+            return;
+        }
+        if let Some(sab) = self.infestation_mut(id).and_then(|it| it.sabotage.as_mut()) {
+            sab.phase = SabotagePhase::Done;
+            sab.left = 0;
+        }
+        self.blow_the_charge(id, events);
+    }
+
+    /// The charge blows: the site is cleared and every player's *Back to
+    /// ship* pressed, so the departure takes the crew home at the end of
+    /// the step — everybody alive, as after any fight won.
+    fn blow_the_charge(&mut self, id: u32, events: &mut Vec<WorldEvent>) {
         if let Some(it) = self.infestation_mut(id) {
             it.cleared = true;
         }
@@ -476,6 +525,30 @@ impl World {
                 enemy.then(|| charge + defense::enemy_spot(body) * (shipdesign::TILE as f32 * 0.6))
             })
             .collect()
+    }
+
+    /// Plant the charge, hold it to the end and begin the escape with the
+    /// players' Bims round the charge, for a look at it.
+    pub fn escape_for_probe(&mut self) {
+        self.plant_for_probe();
+        let Some((id, s)) = self.sabotage_here() else {
+            return;
+        };
+        if let Some(sab) = self.infestation_mut(id).and_then(|it| it.sabotage.as_mut()) {
+            sab.phase = SabotagePhase::Escape;
+            sab.left = data::SABOTAGE_ESCAPE_STEPS;
+        }
+        let Some(at) = self.charge_on_deck(&s) else {
+            return;
+        };
+        let tiles = self
+            .aboard
+            .room
+            .free_tiles_near(at, 3.0 * shipdesign::TILE as f32);
+        for slot in 0..self.players().min(self.aboard.crew_count()) {
+            let spot = tiles.get(slot as usize + 1).copied().unwrap_or(at);
+            self.aboard.room.stand_still_at(slot as usize, spot);
+        }
     }
 
     /// Plant the charge outright and begin the hold, for the tests.

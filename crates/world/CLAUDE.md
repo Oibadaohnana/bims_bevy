@@ -8647,7 +8647,8 @@ pins run off the floor and do not meet one.
 
 The second mission the map shapes, the player's: plant a charge deep in
 the site, hold it ~45 s while the machines make to disarm it — **disarmed,
-the run is lost** — then get out at another airlock before it blows.
+the run is lost** — then get every player back aboard the ship before it
+blows: **that is the win** (see "Back aboard" below).
 `sabotage.rs` (a child of `world`) is the rule; its module note is the
 whole of it. In short:
 
@@ -8657,9 +8658,7 @@ whole of it. In short:
   phase, planted, disarm, left, next_wave }>` (saved, hashed where
   `Some`, put back with the infestation) is laid by `settle_sabotage` at
   the first dock: the charge on the free tile farthest from the port with
-  free deck all round (`sabotage::charge_spot`), the way out the airlock
-  but the port farthest from it (`extraction_of`). No way out: a plain
-  attack.
+  free deck all round (`sabotage::charge_spot`).
 - **The waves clear nothing**: `droid_waves` never sets `cleared` on a
   Sabotage; the blast does. No bonus wave.
 - **Plant**: `Command::Plant` (the Use key, V — `keys::Action::Use`,
@@ -8675,26 +8674,59 @@ whole of it. In short:
   `DISARM_REACH_TILES` (1.5) counts a step of disarming, three at most —
   at `DISARM_STEPS` (480) `Disarmed`, `World::lost`, the crew-down screen
   "The charge was disarmed" (`sabotage_failed`). *Back to ship* is
-  refused `Refusal::ShipCastOff` (138) from the planting to the blast
-  (`ship_cast_off`).
-- **Escape**: `SABOTAGE_ESCAPE_STEPS` (75 s), the waves on. At the blast
-  (`blow_the_charge`) every crew member (not a commander's reinforcement)
-  further than `EXTRACTION_REACH_TILES` (3) from the way out's inside —
-  1.5 tiles in — is killed (`LeftBehind`), the site cleared
-  (`DroidStationCleared`), every player's `returning` set: the departure
-  takes the crew that very step.
+  refused `Refusal::ShipCastOff` (138) while it is held (`ship_cast_off`,
+  the hold alone since "Back aboard").
+- **Escape**: `SABOTAGE_ESCAPE_STEPS` (75 s), the waves on — see "Back
+  aboard" for how it ends.
 - `WorldEvent::SabotageStage { station, phase }` (170: 1 planted, 2 the
   escape, 3 blown, 4 disarmed) and `Planting { who }` (171).
-  `World::sabotage_look()` is the app's: the charge, the way out, the
-  phase, the planting's and the disarming's shares, the clock.
+  `World::sabotage_look()` is the app's: the charge, the port, the
+  phase, the planting's and the disarming's shares, the clock, the
+  players aboard.
   `world_paint::sabotage_marks` draws them; `hud` the line and the
   count; `BIMS_MISSION=sabotage`, `BIMS_PLANT=1` stage it on `droids`.
 - `tests_droid.rs`' `a_sabotage_is_planted_by_hand_and_its_waves_clear_nothing`,
-  `a_charge_disarmed_loses_the_run`,
-  `the_charge_blows_and_only_who_reached_the_way_out_gets_away`.
+  `a_charge_disarmed_loses_the_run`.
 
 **SAVE_VERSION 125.** Meant to alter play (a third of the station attacks
 on the floor past area 0); the pins run off the floor.
+
+### Back aboard (October 2026)
+
+The player's: "for the place a charge shot round in attack make it so you
+won when all players are back in the ship after successfully defending
+the charge". **The way out at another airlock is gone**
+(`Sabotage::extraction`, `EXTRACTION_REACH_TILES`; `extraction_of` stays,
+the Overseer's), so a site with no airlock but the port is a Sabotage too.
+
+- The hold held, the ship is back at the port: *Back to ship* is heard
+  again and walks the player home; the escape's line is "everybody back
+  aboard (green) · aboard/players · it blows in", the green ring and
+  chevrons drawn inside the port (`SabotageLook::port`, `port_out`).
+- **The win**: `settle_escape`, after the rooms and before the departure
+  check (so a step whose last player walks aboard with *Back to ship*
+  pressed clears the site before the departure sees it — else it would
+  leave the site uncleared, put back): every player `waited_for` (on its
+  feet, at the keyboard; one at the least) `inside_ship` → `Done`,
+  `blow_the_charge` — the site cleared, every `returning` set — and the
+  departure goes that very step, taking everybody alive home as after any
+  fight won (`comes_home`: a bot or a downed player wherever it lies;
+  nobody left behind). Aboard during the hold wins nothing.
+- **The clock out first**: `sabotage_step` kills `left_behind()` —
+  everybody alive outside the ship but a reinforcement, downed or not —
+  then blows it; every player outside is the run lost (`check_run_lost`).
+- The count's "aboard/players" is every player alive, at the keyboard and
+  not out — a downed one too, whom the win does not wait for
+  (`players_aboard`).
+- `BIMS_PLANT=escape` stages the escape on `sabotage`, the players' Bims
+  round the charge (`World::escape_for_probe`).
+- `tests_droid.rs`' `every_player_back_aboard_after_the_hold_wins_the_sabotage`,
+  `the_charge_blows_on_everybody_not_back_aboard`; the budget's test keeps
+  its player off the ship so the escape runs its whole clock.
+
+**SAVE_VERSION 136.** Meant to alter play (a Sabotage ends when the
+players are aboard, and sites with one airlock now have one); the pins run
+off the floor.
 
 ## Evacuation (October 2026)
 
@@ -8796,7 +8828,7 @@ on the floor).
 
 **Everything used or shot is marked** (October 2026, the player's: "make
 interactable thing clearly visible in the map"): the painter draws the
-ways in, the charge, the way out, the flag, the nests and every whole
+ways in, the charge, the way home, the flag, the nests and every whole
 fuel drum (an amber hazard ring, `world_paint::prop_faces`) in glowing
 colours that read through the fog and the dark, and the app says under
 the player's own Bim what the Use key would do there — "V — take the
@@ -9162,7 +9194,7 @@ good); Sabotage and the defences stack.
 
 | fight | landings expected | each landing | spent | over when |
 | --- | --- | --- | --- | --- |
-| Sabotage | 9: the garrison, then at the plant and every `SABOTAGE_WAVE_STEPS` (15 s) of the hold and the escape | `budget_even(9)`, the last down or not | the trickle (only where fewer bodies are left than landings) | the blast (disarmed: the run lost) |
+| Sabotage | 9: the garrison, then at the plant and every `SABOTAGE_WAVE_STEPS` (15 s) of the hold and the escape | `budget_even(9)`, the last down or not | the trickle (only where fewer bodies are left than landings) | every player back aboard after the hold, or the blast (disarmed: the run lost) |
 | A nest hunt | — (its rounds slice the wave) | a round every `NEST_BUILD_STEPS` (20 s): `⌈wave ÷ (3 × nests laid)⌉` a standing nest | one a player a round, dealt round the nests | every nest down and the deck clear |
 | Kill the Overseer | 4 (`OBJECTIVE_WAVES`) | `budget_even(4)` every `OVERSEER_WAVE_STEPS` (30 s) while he is in his office or fleeing | the trickle on the clock | he is down or out |
 | A data heist | 4 | `min(left, budget_even(4) × (100 + 25 × taken) ÷ 100)` every 40/30/20/15 s by the terminals taken | the trickle | every terminal taken |

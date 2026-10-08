@@ -118,8 +118,8 @@ pub struct Nests {
     pub built: u32,
 }
 
-/// Where a Sabotage stands: the charge to plant, held, then the run for
-/// the way out.
+/// Where a Sabotage stands: the charge to plant, held, then the run back
+/// to the ship.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SabotagePhase {
@@ -128,10 +128,10 @@ pub enum SabotagePhase {
     Plant,
     /// Planted: held against the machines making to disarm it.
     Hold,
-    /// It can no longer be disarmed: the crew run for the way out before
-    /// it blows.
+    /// It can no longer be disarmed: the crew make for the ship before it
+    /// blows — every player aboard is the Sabotage won.
     Escape,
-    /// It blew, the crew out.
+    /// It blew, the crew away.
     Done,
     /// The machines disarmed it: the run is lost.
     Disarmed,
@@ -144,15 +144,13 @@ impl SabotagePhase {
 }
 
 /// A Sabotage's state (October 2026): the charge's tile of the site's
-/// design, the airlock the crew get out by (its index among the design's
-/// airlocks), the phase, and its counts in steps — the planting's work,
+/// design, the phase, and its counts in steps — the planting's work,
 /// the machines' disarming, what is left of the hold or the escape, and
 /// when the next wave lands while the charge is armed.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Sabotage {
     pub charge: (u32, u32),
-    pub extraction: u32,
     pub phase: SabotagePhase,
     pub planted: u32,
     pub disarm: u32,
