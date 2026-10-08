@@ -495,12 +495,15 @@ pub const CUT_SECONDS: u32 = 8;
 /// alive is not yet aboard the crew's ship.
 pub const PRISON_WAVE_STEPS: u64 = 1_500;
 /// **A fuel run**: the drums in the depot, how many the reactor wants,
-/// how near its core one is put in, how soon a drum lost is stood again
-/// in the depot, and how often a wave lands until it goes critical.
+/// how near its core one is put in, how soon the drums lost are stood
+/// again in the depot and how many it can stand in all (October 2026:
+/// six drums in all — too few left for the reactor and the mission is
+/// failed), and how often a wave lands until it goes critical.
 pub const FUEL_DRUMS: u32 = 4;
 pub const FUEL_NEEDED: u32 = 3;
 pub const REACTOR_REACH_TILES: f32 = 3.0;
 pub const FUEL_RESTOCK_STEPS: u64 = 1_200;
+pub const FUEL_SPARES: u32 = 2;
 pub const FUEL_WAVE_STEPS: u64 = 1_800;
 /// **A salvage sweep**: the crates, what each carried home pays (a share
 /// of an enemy's money that day, a player's worth for every player), and

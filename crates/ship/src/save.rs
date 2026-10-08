@@ -348,7 +348,8 @@ use crate::game::Game;
 /// and a salvage crate taken up once (`world::objective::Load::picked`).
 /// 136: a Sabotage's way out gone (`world::droid::Sabotage::extraction`):
 /// the crew get back aboard the ship.
-pub const SAVE_VERSION: u32 = 136;
+/// 137: a fuel run's depot stock (`world::objective::FuelRun::spares`).
+pub const SAVE_VERSION: u32 = 137;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

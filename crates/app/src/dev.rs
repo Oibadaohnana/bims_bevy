@@ -197,6 +197,14 @@ pub fn fight_won() -> bool {
     std::env::var("BIMS_FIGHT_WON").as_deref() == Ok("1")
 }
 
+/// `BIMS_MISSION_FAILED=1` (October 2026) opens a prison break, a hunt
+/// for the Overseer or a fuel run with its objective made one that can no
+/// longer be done (`Session::mission_failed_for_probe`): the *Mission
+/// failed* window up. `bims prison` is a site for it.
+pub fn mission_failed() -> bool {
+    std::env::var("BIMS_MISSION_FAILED").as_deref() == Ok("1")
+}
+
 /// `BIMS_ITEMS=blink,executioner:3,heart:2,core` gives the steered Bim
 /// those items at the start (October 2026), into its item slots in order:
 /// each an item's name in lower case with the words joined by `_`

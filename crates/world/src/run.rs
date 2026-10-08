@@ -239,6 +239,48 @@ impl Mission {
     }
 }
 
+/// Why a mission is **failed** without the run being lost (October 2026,
+/// the player's: "All missions need a lost state and a won state"): the
+/// deck frozen as after a fight won, the *Back to ship* the one thing
+/// left, and the site neither cleared nor paid for. Derived off the
+/// site's state ([`crate::World::mission_failed`]), never saved. Bomb
+/// disposal, Hold the doors, a Sabotage disarmed and an Area defend's
+/// FOB taken lose the whole run instead.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MissionFailure {
+    /// Protect the commander: he is dead, and the site falls.
+    Commander,
+    /// An Evacuation: nobody of the site's people left alive to save.
+    Evacuees,
+    /// A prison break: every prisoner dead.
+    Prisoners,
+    /// Kill the Overseer: he got out of his airlock.
+    Overseer,
+    /// A fuel run: too few drums left for the reactor.
+    Fuel,
+}
+
+impl MissionFailure {
+    pub const ALL: [MissionFailure; 5] = [
+        MissionFailure::Commander,
+        MissionFailure::Evacuees,
+        MissionFailure::Prisoners,
+        MissionFailure::Overseer,
+        MissionFailure::Fuel,
+    ];
+
+    /// The number that indexes the name tables.
+    pub fn code(self) -> u32 {
+        match self {
+            MissionFailure::Commander => 0,
+            MissionFailure::Evacuees => 1,
+            MissionFailure::Prisoners => 2,
+            MissionFailure::Overseer => 3,
+            MissionFailure::Fuel => 4,
+        }
+    }
+}
+
 /// A mission's **bonus wave** (October 2026): chosen by the crew in the
 /// ready check, before the fight starts, it is one more wave at the end
 /// of the site's own — half as big again, worth half the site's

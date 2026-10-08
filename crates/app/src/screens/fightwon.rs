@@ -7,6 +7,12 @@
 //! game's own way on — *Back to ship*, the relic reward on the map
 //! (`worldmap::relic_window`), the map and the next trip.
 //!
+//! A mission **failed** with the run going on (October 2026,
+//! `World::mission_failed`: a commander or a town's people dead, every
+//! prisoner dead, the Overseer out, the fuel run's drums too few) is the
+//! same screen with its own headline and why, and nothing flies onto the
+//! map: the deck is frozen the same way, and *Back to ship* is the way on.
+//!
 //! The tally is the screen's alone, like the heal numbers: the world keeps
 //! run totals and no per-mission ones, so the screen notes the totals and
 //! every crew member's experience the first frame of a mission, and adds up
@@ -121,15 +127,16 @@ impl FightTally {
     }
 
     /// Whether the screen is up this frame: the site of this mission
-    /// cleared of a fight there was, the run neither won nor lost (those
-    /// have their own screen), nobody being asked about leaving somebody
-    /// behind, and the player not having put it away.
+    /// cleared of a fight there was — or the mission failed — the run
+    /// neither won nor lost (those have their own screen), nobody being
+    /// asked about leaving somebody behind, and the player not having put
+    /// it away.
     pub fn showing(&self, world: &World) -> bool {
         self.mission.is_some()
             && !self.dismissed
             && world.in_mission()
             && world.run.fought
-            && world.run.cleared_here
+            && (world.run.cleared_here || world.mission_failed().is_some())
             && !world.is_won()
             && !world.lost
             && world.run.departure.is_none()
@@ -167,6 +174,8 @@ pub fn fight_won_window(
         .site
         .and_then(|id| world.defense(id))
         .is_some_and(|d| d.won);
+    // A mission failed, the run going on: its own headline and why.
+    let failed = world.mission_failed();
     // Every enemy killed: the machines destroyed and the Manufacturers'
     // people down (the site's own people dying are not counted).
     let enemies = u64::from(world.run.machines_destroyed.saturating_sub(tally.machines))
@@ -202,29 +211,34 @@ pub fn fight_won_window(
             ui.spacing_mut().item_spacing.y = 4.0;
             // The headline.
             ui.vertical_centered(|ui| {
+                let (kicker, title, colour, why) = match failed {
+                    Some(why) => (
+                        MISSION_FAILED_KICKER,
+                        MISSION_FAILED_TITLE,
+                        theme::BAD,
+                        mission_failed_line(why.code()),
+                    ),
+                    None if held => (
+                        FIGHT_WON_KICKER,
+                        FIGHT_WON_TITLE,
+                        theme::ACCENT,
+                        FIGHT_WON_HELD,
+                    ),
+                    None => (
+                        FIGHT_WON_KICKER,
+                        FIGHT_WON_TITLE,
+                        theme::ACCENT,
+                        FIGHT_WON_CLEARED,
+                    ),
+                };
                 ui.label(
-                    egui::RichText::new(FIGHT_WON_KICKER)
+                    egui::RichText::new(kicker)
                         .small()
                         .strong()
                         .color(theme::MUTED),
                 );
-                ui.label(
-                    egui::RichText::new(FIGHT_WON_TITLE)
-                        .strong()
-                        .size(28.0)
-                        .color(theme::ACCENT),
-                );
-                ui.add(
-                    egui::Label::new(
-                        egui::RichText::new(if held {
-                            FIGHT_WON_HELD
-                        } else {
-                            FIGHT_WON_CLEARED
-                        })
-                        .color(theme::MUTED),
-                    )
-                    .wrap(),
-                );
+                ui.label(egui::RichText::new(title).strong().size(28.0).color(colour));
+                ui.add(egui::Label::new(egui::RichText::new(why).color(theme::MUTED)).wrap());
             });
             ui.add_space(12.0);
             // The three tiles.
@@ -343,9 +357,13 @@ pub fn fight_won_window(
             ui.add_space(8.0);
             ui.add(
                 egui::Label::new(
-                    egui::RichText::new(FIGHT_WON_NEXT)
-                        .small()
-                        .color(theme::MUTED),
+                    egui::RichText::new(if failed.is_some() {
+                        MISSION_FAILED_NEXT
+                    } else {
+                        FIGHT_WON_NEXT
+                    })
+                    .small()
+                    .color(theme::MUTED),
                 )
                 .wrap(),
             );

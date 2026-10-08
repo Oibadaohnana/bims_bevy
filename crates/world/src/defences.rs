@@ -773,6 +773,7 @@ impl World {
                     phase: 0,
                     wave_in: None,
                     time_left: (!b.all_defused()).then(|| seconds(b.left)).flatten(),
+                    spare: None,
                 }
             }
             Guard::Doors(d) => {
@@ -802,6 +803,7 @@ impl World {
                     phase: if d.left == 0 { 3 } else { stage },
                     wave_in: None,
                     time_left: (d.left > 0).then(|| seconds(d.left)).flatten(),
+                    spare: None,
                 }
             }
             Guard::Chief(c) => {
@@ -814,6 +816,7 @@ impl World {
                     phase: u32::from(c.left == 0),
                     wave_in: None,
                     time_left: (c.left > 0).then(|| seconds(c.left)).flatten(),
+                    spare: None,
                 }
             }
         };

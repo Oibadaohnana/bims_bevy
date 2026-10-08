@@ -1021,6 +1021,9 @@ fn open(
             if crate::dev::fight_won() && !session.fight_won_for_probe() {
                 eprintln!("BIMS_FIGHT_WON: no held site to clear");
             }
+            if crate::dev::mission_failed() && !session.mission_failed_for_probe() {
+                eprintln!("BIMS_MISSION_FAILED: no prison, Overseer or fuel run here");
+            }
             // A fight staged at the dock, one machine and the steered Bim.
             if let Some(kind) = crate::dev::duel()
                 && let Some(game) = session.game.as_mut()

@@ -142,8 +142,10 @@ impl Load {
 /// **A fuel run**: the drums, where a drum lost is stood again (the
 /// depot's first spot, the crew's room), the reactor's core middle (the
 /// site's design units, whole), how many are in, whether it has gone
-/// critical, when the next wave lands and when a lost drum is stood
-/// again.
+/// critical, when the next wave lands, when the drums lost are stood
+/// again, and how many the depot has left to stand (October 2026: its
+/// stock runs out, and too few drums left for the reactor is the
+/// mission failed).
 #[derive(Clone, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FuelRun {
@@ -154,6 +156,28 @@ pub struct FuelRun {
     pub critical: bool,
     pub next_wave: u64,
     pub restock_at: Option<u64>,
+    #[cfg_attr(feature = "serde", serde(default = "fuel_spares"))]
+    pub spares: u32,
+}
+
+#[cfg(feature = "serde")]
+fn fuel_spares() -> u32 {
+    crate::data::FUEL_SPARES
+}
+
+impl FuelRun {
+    /// The drums that can still go in: in, lying, carried, and the lost
+    /// ones the depot has the stock to stand again.
+    pub fn within_reach(&self) -> u32 {
+        let count = |s: LoadState| self.drums.iter().filter(|d| d.state == s).count() as u32;
+        let standing = count(LoadState::Lying) + count(LoadState::Carried);
+        self.delivered + standing + count(LoadState::Lost).min(self.spares)
+    }
+
+    /// Whether the reactor can no longer go critical: too few drums left.
+    pub fn out_of_drums(&self) -> bool {
+        !self.critical && self.within_reach() < crate::data::FUEL_NEEDED
+    }
 }
 
 /// **A salvage sweep**: the crates, how many have been taken up (each a

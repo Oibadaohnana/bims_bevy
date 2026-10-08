@@ -7,9 +7,10 @@
 //! `crate::run`'s, public, since the app draws them.
 
 use super::*;
+use crate::objective::Guard;
 use crate::run::{
-    Departure, Fallen, Phase as RunPhase, Proposal, Site, SiteLook, SiteSnapshot, SystemLook,
-    TravelQuote,
+    Departure, Fallen, MissionFailure, Phase as RunPhase, Proposal, Site, SiteLook, SiteSnapshot,
+    SystemLook, TravelQuote,
 };
 
 impl World {
@@ -1551,8 +1552,9 @@ impl World {
             && (!self.aboard.room.is_down(who) || self.fight_over())
     }
 
-    /// Whether this mission's fight is **over and won** (task 133): there
-    /// was one (`Run::fought`) and the site is cleared. From the step
+    /// Whether this mission's fight is **over** (task 133): there was one
+    /// (`Run::fought`) and the site is cleared — or, since October 2026,
+    /// its mission is failed ([`World::mission_failed`]). From the step
     /// after, the deck is frozen — the room is not stepped, so nobody
     /// moves and nobody downed bleeds out — and *Back to ship* takes
     /// every crew member alive home from wherever it lies, without a walk
@@ -1566,7 +1568,47 @@ impl World {
                 .ship
                 .state
                 .alongside()
-                .is_some_and(|id| self.site_cleared(id))
+                .is_some_and(|id| self.site_cleared(id) || self.site_failed(id).is_some())
+    }
+
+    /// Why this mission is **failed** without the run being lost (October
+    /// 2026, [`MissionFailure`]): the site tied up at not cleared, and
+    /// its commander dead, its people all dead, every prisoner dead, the
+    /// Overseer out of his airlock or the fuel run's drums too few. The
+    /// deck is frozen as after a fight won ([`World::fight_over`]); the
+    /// crew go home with nothing for it, and a defence's site falls to the
+    /// machines behind them. `None` with the run lost: that has its own
+    /// end.
+    pub fn mission_failed(&self) -> Option<MissionFailure> {
+        if self.lost || self.run.phase != RunPhase::Mission || !self.run.fought {
+            return None;
+        }
+        self.site_failed(self.ship.state.alongside()?)
+    }
+
+    /// Why the site `id`'s mission is failed, where it is and the site is
+    /// not cleared.
+    /// The infestation first, as [`World::site_cleared`] reads it: a
+    /// defence's record outlives its fall, and a site attacked after it
+    /// has both.
+    fn site_failed(&self, id: u32) -> Option<MissionFailure> {
+        if let Some(it) = self.infestation(id) {
+            if it.cleared {
+                return None;
+            }
+            return self.objective_failure(it.objective.as_ref()?);
+        }
+        let d = self.defense(id)?;
+        if d.won || !d.lost {
+            return None;
+        }
+        if d.evacuation.is_some() {
+            return Some(MissionFailure::Evacuees);
+        }
+        match d.guard {
+            Some(Guard::Chief(_)) => Some(MissionFailure::Commander),
+            _ => None,
+        }
     }
 
     /// Whether a player it waits for counts as home for the departure:
@@ -1730,16 +1772,22 @@ impl World {
         // The relics (feature 106), while the ship is still tied up: an
         // elite's site cleared with machines in it offering its reward.
         let reward = self.relics_on_leaving(station, cleared, events);
+        // A defence lost while the crew were there (October 2026: its
+        // commander dead, its people all dead) falls as one left: put back
+        // as the mission met it, it was a site threatened again. Its fall
+        // was said when it was lost, and is not said twice.
         let falls = station
             .filter(|_| !cleared)
-            .filter(|&id| self.defense(id).is_some_and(|d| !d.over()));
+            .and_then(|id| self.defense(id).filter(|d| !d.won).map(|d| (id, d.lost)));
         // The rooms apart: the crew into the ship's own room, and the
         // station's closed with its dead counted and filed.
         self.unjoin_rooms();
         self.close_residents();
-        if let Some(id) = falls {
+        if let Some((id, said)) = falls {
             self.infest(id);
-            events.push(WorldEvent::TownFell { station: id });
+            if !said {
+                events.push(WorldEvent::TownFell { station: id });
+            }
         } else if !cleared && let Some(snapshot) = self.run.snapshot.take() {
             self.restore_site(snapshot);
         }

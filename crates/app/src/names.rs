@@ -282,7 +282,7 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::AlreadyActive => "it is already running",
         Refusal::AwaitingReady => "not yet — the mission starts when every player is ready",
         Refusal::NoReadyCheck => "the mission is already under way",
-        Refusal::FightOver => "the fight is won — press Back to ship",
+        Refusal::FightOver => "the fight is over — press Back to ship",
         Refusal::OtherSiteChosen => "the crew fought this system's other site",
         Refusal::NoSuchItem => "there is no item there to use",
         Refusal::BlinkLocked => "the Blink Drive will not go so soon after a hit",
@@ -1443,7 +1443,10 @@ pub fn tint_name(tint: bims::character::Tint) -> &'static str {
 /// The machines (feature 83): a wave landing, and the last of them
 /// destroyed.
 pub const DROID_REINFORCEMENTS: &str = "Another wave of machines has landed.";
-pub const DROID_CLEARED: &str = "The last of the machines is down.";
+/// Said once the site is cleared: the last machine down, the Heart's core
+/// out, a Sabotage's charge blown or a mission's objective done
+/// (October 2026: what still stands then stays where it is).
+pub const DROID_CLEARED: &str = "Mission complete: the site is cleared.";
 
 /// The Machine Heart (feature 108): its seal broken, its overload, its end.
 pub const HEART_EXPOSED: &str = "The last conduit is down: the core is exposed.";
@@ -2256,6 +2259,35 @@ pub const FIGHT_WON_NEXT: &str = "Everything stands still — nobody moves and n
 /// Under the tally for a player who has no button to press: out of the
 /// fight, the others take the ship home.
 pub const FIGHT_WON_WAITING: &str = "Waiting for the others to go back to the ship.";
+/// The same screen for a mission failed with the run going on (October
+/// 2026, `World::mission_failed`): the line under the title by
+/// `world::run::MissionFailure::code`.
+pub const MISSION_FAILED_KICKER: &str = "MISSION FAILED";
+pub const MISSION_FAILED_TITLE: &str = "Mission failed";
+pub const MISSION_FAILED_LINES: [&str; 5] = [
+    "The commander is dead. The site falls to the machines once the crew are gone.",
+    "Nobody of the site's people is left alive. The site falls to the machines once the crew are gone.",
+    "Every prisoner is dead. There is nobody left to get aboard.",
+    "The Overseer got out of his airlock, and the bounty went with him.",
+    "Too few fuel drums are left for the reactor to go critical.",
+];
+pub fn mission_failed_line(code: u32) -> &'static str {
+    MISSION_FAILED_LINES
+        .get(code as usize)
+        .copied()
+        .unwrap_or(MISSION_FAILED_TITLE)
+}
+pub const MISSION_FAILED_NEXT: &str = "Everything stands still until Back to ship takes everybody back, wherever they are. Nothing is paid for the site; the run goes on.";
+/// The threat line and the top count while a mission is failed.
+pub fn mission_failed_threat(code: u32) -> String {
+    format!(
+        "MISSION FAILED — {} Back to ship.",
+        mission_failed_line(code)
+    )
+}
+pub const MISSION_FAILED_COUNT: &str = "Mission failed";
+pub const MISSION_FAILED_TIP: &str =
+    "• The run goes on\n• Nothing paid for the site\n• Back to ship: everybody alive comes home";
 
 /// A player's Bim's experience from the fight, and the levels it rose.
 pub fn fight_won_xp(xp: u32, from: u8, to: u8) -> String {
@@ -2517,7 +2549,9 @@ pub fn out_line(cost: u64) -> String {
 pub const BACK_TO_SHIP: &str = "Back to ship";
 /// The same button once the fight is won and the deck frozen (task 133).
 pub const FIGHT_WON_BACK_TO_SHIP: &str = "Fight won — Back to ship";
-pub const BACK_TO_SHIP_TIP: &str = "• First press: bots go back\n• Every press: you walk back\n• Leaves when every standing player pressed and is aboard\n• Outside: left behind, dead (vote)\n• Before clear: site resets, bounty lost, XP kept\n• After a win: at once, everybody comes";
+/// And once the mission is failed with the run going on (October 2026).
+pub const MISSION_FAILED_BACK_TO_SHIP: &str = "Mission failed — Back to ship";
+pub const BACK_TO_SHIP_TIP: &str = "• First press: bots go back\n• Every press: you walk back\n• Leaves when every standing player pressed and is aboard\n• Outside: left behind, dead (vote)\n• Before clear: site resets, bounty lost, XP kept\n• After a win or a mission failed: at once, everybody comes";
 /// *Back to ship* pressed (feature 107's words for feature 103's count):
 /// the players aboard who have pressed it, of the players the ship waits
 /// for — `World::returning_count`, the departure check's own rule.
@@ -3491,7 +3525,8 @@ pub const EVACUATION_TIP: &str = "• Take up the flag: V beside it
 • V again: put it down, they hold by it
 • Everyone alive aboard the ship: held
 • Reward: the share of them saved
-• A wave every 25 s until then";
+• A wave every 25 s until then
+• Nobody left alive: mission failed, the site falls";
 /// What the Use key would do where the player's own Bim stands
 /// (October 2026), said under it: the key, then the deed.
 pub fn use_prompt(key: &str, what: &str) -> String {
@@ -3519,19 +3554,20 @@ pub fn objective_event(what: u32, n: u32, w: u32) -> String {
         }
     };
     match what {
-        1 if n == 0 => "Every terminal taken: the data is ours. Clear the deck.".into(),
+        1 if n == 0 => "Every terminal taken: the data is ours.".into(),
         1 => format!("A terminal taken: {n} left. The alarm is louder."),
         3 => format!("{} took up a crate: a wave is coming for it.", by()),
         4 => format!("A crate is aboard: {n} home."),
         5 => format!("{} took up a drum: no shooting with it.", by()),
         6 => format!("The drum in {}'s arms went up!", by()),
         7 => format!("A drum in the reactor: {n} in."),
-        8 => "The reactor is critical. Clear the deck.".into(),
+        8 => "The reactor is critical.".into(),
         9 => format!("The cell is cut open: {n} out, and the alarm is up: get them aboard."),
         10 => "The Overseer is hurt and running for his airlock!".into(),
-        11 => "The Overseer got away, and the bounty with him.".into(),
+        11 => "The Overseer got away, and the bounty with him: the mission is failed.".into(),
         12 => "The Overseer is down.".into(),
-        13 => "A fresh drum stands in the depot.".into(),
+        13 if n == 1 => "Fresh drums stand in the depot: 1 more in stock.".into(),
+        13 => format!("Fresh drums stand in the depot: {n} more in stock."),
         20 if n == 0 => "Every charge defused. Clear the deck.".into(),
         20 => format!("A charge defused: {n} left."),
         21 => "The timer ran out: the station went up.".into(),
@@ -3540,7 +3576,7 @@ pub fn objective_event(what: u32, n: u32, w: u32) -> String {
         23 => "The commander is down.".into(),
         24 => "The hold is done: the Republic's soldiers are on their way.".into(),
         25 => format!("{n} of the Republic's soldiers came aboard."),
-        26 => "The commander is dead: the site falls.".into(),
+        26 => "The commander is dead: the mission is failed, the site falls.".into(),
         27 => "The commander is safe. Clear the deck.".into(),
         _ => String::new(),
     }
@@ -3584,26 +3620,34 @@ pub fn objective_line(look: &world::ObjectiveLook) -> String {
         Mission::Overseer => match look.phase {
             0 => format!("KILL THE OVERSEER — he runs from the crew: corner him{wave}"),
             1 => format!("THE OVERSEER IS FLEEING — stop him before his airlock{wave}"),
-            2 => "The Overseer got away with the bounty: clear the deck".into(),
-            _ => "The Overseer is down: clear the deck".into(),
+            2 => "KILL THE OVERSEER — he got away with the bounty: mission failed".into(),
+            _ => "KILL THE OVERSEER — he is down: mission complete".into(),
         },
         Mission::Heist if look.done < look.total => format!(
             "DATA HEIST — {} of {} terminals · V at one, 10 s{wave}",
             look.done, look.total
         ),
-        Mission::Heist => "DATA HEIST — every terminal taken: clear the deck".into(),
+        Mission::Heist => "DATA HEIST — every terminal taken: mission complete".into(),
         Mission::Prison if look.phase == 0 => {
             "PRISON BREAK — cut the cell open: V at its door, 8 s".into()
         }
+        Mission::Prison if look.total == 0 => {
+            "PRISON BREAK — every prisoner dead: mission failed".into()
+        }
+        Mission::Prison if look.done >= look.total => {
+            "PRISON BREAK — every prisoner aboard: mission complete".into()
+        }
         Mission::Prison => format!(
-            "PRISON BREAK — {} out: get them aboard the ship{wave}",
-            look.done
-        ),
-        Mission::FuelRun if look.phase == 0 => format!(
-            "FUEL RUN — {} of {} drums in the reactor · V to carry, a hit and it blows{wave}",
+            "PRISON BREAK — {} of {} aboard: get them to the ship{wave}",
             look.done, look.total
         ),
-        Mission::FuelRun => "FUEL RUN — the reactor is critical: clear the deck".into(),
+        Mission::FuelRun if look.phase == 0 => format!(
+            "FUEL RUN — {} of {} drums in the reactor · {} spare · V to carry, a hit and it blows{wave}",
+            look.done,
+            look.total,
+            look.spare.unwrap_or(0)
+        ),
+        Mission::FuelRun => "FUEL RUN — the reactor is critical: mission complete".into(),
         Mission::Salvage => format!(
             "SALVAGE — {} of {} crates aboard · each taken brings a wave",
             look.done, look.total
@@ -3624,8 +3668,13 @@ pub fn objective_count(look: &world::ObjectiveLook) -> String {
         },
         Mission::Heist => format!("Terminals {}/{}", look.done, look.total),
         Mission::Prison if look.phase == 0 => "Cell sealed · V".into(),
-        Mission::Prison => format!("Prisoners out {}/{}", look.done, look.total),
-        Mission::FuelRun if look.phase == 0 => format!("Drums {}/{}", look.done, look.total),
+        Mission::Prison => format!("Prisoners aboard {}/{}", look.done, look.total),
+        Mission::FuelRun if look.phase == 0 => format!(
+            "Drums {}/{} · spare {}",
+            look.done,
+            look.total,
+            look.spare.unwrap_or(0)
+        ),
         Mission::FuelRun => "Reactor critical".into(),
         Mission::Salvage => format!("Salvage aboard {}/{}", look.done, look.total),
         Mission::Bombs | Mission::Doors | Mission::Chief => match look.time_left {
@@ -3650,29 +3699,33 @@ pub fn objective_tip(mission: world::run::Mission) -> &'static str {
         Mission::Overseer => {
             "• Kill him: waves keep coming while he lives
 • He walks slowly; hurt, he runs for a far airlock
-• Out of it, the bounty goes with him"
+• Down: mission complete
+• Out of his airlock: mission failed, no bounty"
         }
         Mission::Heist => {
             "• Hold V at a terminal, 10 s (engineer: 5 s)
 • Each taken: waves sooner and bigger
-• All taken and the deck clear: done"
+• All taken: mission complete"
         }
         Mission::Prison => {
             "• Hold V at the cell door, 8 s (engineer: 4 s)
 • Cut open: the alarm, a wave every 25 s until they are aboard
 • Freed prisoners follow as armed bots
-• Alive and aboard at the end: they join the crew"
+• Every one alive aboard: mission complete, they join the crew
+• Every one dead: mission failed"
         }
         Mission::FuelRun => {
             "• V takes up a drum; the carrier can't shoot
 • A hit on the carrier: the drum blows
-• Three in the reactor: it goes critical
-• A lost drum comes back in the depot"
+• Three in the reactor: it goes critical, mission complete
+• A lost drum comes back in the depot: 2 spares
+• Too few drums left: mission failed"
         }
         Mission::Salvage => {
             "• V takes up a crate; the carrier can't shoot
 • Each taken brings a bigger wave at once
 • Carried aboard the ship: paid at once
+• Every crate home: mission complete
 • Leave whenever you like"
         }
         Mission::Bombs => {
@@ -3690,7 +3743,7 @@ pub fn objective_tip(mission: world::run::Mission) -> &'static str {
             "• He holds his room the whole fight and shoots back
 • Every machine hunts him there
 • Keep him alive 2:00; downed, revive him
-• Dead: the site falls"
+• Dead: mission failed, the site falls"
         }
         _ => "",
     }
@@ -3968,6 +4021,13 @@ mod tests {
         {
             assert_eq!(CLASS_NAMES.len(), world::Class::ALL.len());
             assert_eq!(SITE_KIND_NAMES.len(), world::SiteKind::ALL.len());
+            assert_eq!(
+                MISSION_FAILED_LINES.len(),
+                world::run::MissionFailure::ALL.len()
+            );
+            for (i, why) in world::run::MissionFailure::ALL.into_iter().enumerate() {
+                assert_eq!(why.code() as usize, i, "{why:?}");
+            }
             for (i, kind) in world::SiteKind::ALL.into_iter().enumerate() {
                 assert_eq!(kind.code() as usize, i, "{kind:?}");
             }

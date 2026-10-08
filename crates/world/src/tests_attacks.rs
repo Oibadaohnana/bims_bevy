@@ -898,3 +898,386 @@ fn a_prison_s_alarm_comes_on_the_cut_and_stops_once_the_prisoners_are_aboard() {
     }
     assert!(cleared, "the site clears once they are aboard");
 }
+
+// --- every mission an end (October 2026) -------------------------------------
+//
+// The player's: "prison for example just sets the prisoners free and after
+// that nothing ever happens. All missions need a lost state and a won
+// state". The objective done is the mission won the step it is, whatever
+// still stands; one that can no longer be done is the mission failed.
+
+/// A prison break's cell cut open by crew member 0, the machines wrecked
+/// meanwhile; the prisoners.
+fn cut_the_cell(world: &mut World, station: u32) -> Vec<u32> {
+    let at = mark_at(world, |k| {
+        matches!(k, crate::MarkKind::CellDoor { open: false })
+    });
+    world.aboard.room.stand_at(0, at);
+    world.step(&[Command::Interact { slot: 0 }]);
+    for _ in 0..(data::CUT_SECONDS * 60 + 120) {
+        wreck_them_all(world);
+        if world
+            .step(&[])
+            .iter()
+            .any(|e| matches!(e, WorldEvent::Objective { what: 9, .. }))
+        {
+            let Some(Objective::Prison(p)) = objective(world, station) else {
+                panic!("a prison");
+            };
+            return p.prisoners;
+        }
+    }
+    panic!("the cell never opened");
+}
+
+/// The ship's gangway on the crew's deck.
+fn gangway(world: &World) -> bims::math::Vec2 {
+    let at = world.aboard.gangway.expect("the ship's gangway");
+    bims::math::vec2(at.x as f32, at.y as f32)
+}
+
+/// Every prisoner alive aboard is the prison break won that very step —
+/// the alarm's wave still standing, frozen where it stands — and *Back to
+/// ship* pressed with them walking aboard takes the crew home won, not
+/// from a site left uncleared.
+#[test]
+fn a_prison_break_is_won_the_step_its_prisoners_are_aboard_whatever_stands() {
+    let (mut world, station) = mission_world(Mission::Prison);
+    let prisoners = cut_the_cell(&mut world, station);
+    // The alarm's wave, at once.
+    world.step(&[]);
+    assert!(world.droids_standing() > 0, "the alarm's wave stands");
+    let look = world.objective_look().unwrap();
+    assert_eq!(
+        (look.done, look.total),
+        (0, data::PRISONERS),
+        "0 of 3 aboard"
+    );
+    let home = gangway(&world);
+    world.aboard.room.stand_at(0, home);
+    for &w in &prisoners[1..] {
+        world.aboard.room.stand_at(w as usize, home);
+    }
+    world.step(&[]);
+    assert!(!world.infestation(station).unwrap().cleared, "one is out");
+    assert_eq!(world.objective_look().unwrap().done, data::PRISONERS - 1);
+    // The last one walks aboard with *Back to ship* pressed.
+    world.aboard.room.stand_at(prisoners[0] as usize, home);
+    let events = world.step(&[Command::Return { slot: 0 }]);
+    assert!(
+        events.iter().any(
+            |e| matches!(e, WorldEvent::LeftSite { station: s, cleared: true } if *s == station)
+        ),
+        "left won: {events:?}"
+    );
+    assert!(world.infestation(station).unwrap().cleared);
+    assert!(!world.in_mission());
+    // The freed prisoners alive stay on as crew.
+    assert_eq!(world.crew_bots() as usize >= prisoners.len(), true);
+}
+
+/// The passage between the two collars on the crew's deck: inside the
+/// ship by the departure's rule ([`World::inside_ship`]), on no tile of
+/// the ship's own frame.
+fn passage(world: &World) -> bims::math::Vec2 {
+    let ship = &world.ship.design;
+    let port = shipdesign::dock::port(ship).expect("a port");
+    let (x, y) = ship.part(port.part_id).expect("the airlock").tiles()[0];
+    let tile = (x as i32 + port.outward.0, y as i32 + port.outward.1);
+    assert_eq!(
+        ship.grid().get(shipdesign::Layer::Structure, tile),
+        0,
+        "beyond the hull"
+    );
+    let t = shipdesign::TILE as f64;
+    let at = |i: i32, o: f64| (i as f64 + 0.5) * t + o;
+    bims::math::vec2(
+        at(tile.0, world.aboard.offset.x) as f32,
+        at(tile.1, world.aboard.offset.y) as f32,
+    )
+}
+
+/// A prisoner in the passage is aboard as the departure counts it: the
+/// last one stepping into it with *Back to ship* pressed is the mission
+/// won, not the ship leaving a step before the win.
+#[test]
+fn a_prisoner_in_the_passage_is_aboard_for_the_win() {
+    let (mut world, station) = mission_world(Mission::Prison);
+    let prisoners = cut_the_cell(&mut world, station);
+    let home = gangway(&world);
+    world.aboard.room.stand_at(0, home);
+    for &w in &prisoners[1..] {
+        world.aboard.room.stand_at(w as usize, home);
+    }
+    world.step(&[]);
+    let last = prisoners[0];
+    world.aboard.room.stand_at(last as usize, passage(&world));
+    assert!(world.inside_ship(last), "the passage is inside the ship");
+    let events = world.step(&[Command::Return { slot: 0 }]);
+    assert!(
+        events.iter().any(
+            |e| matches!(e, WorldEvent::LeftSite { station: s, cleared: true } if *s == station)
+        ),
+        "left won: {events:?}"
+    );
+}
+
+/// Won on the deck, *Back to ship* not pressed: the site cleared with the
+/// machines still standing, and the deck frozen on them.
+#[test]
+fn a_prison_break_won_freezes_the_deck_on_what_still_stands() {
+    let (mut world, station) = mission_world(Mission::Prison);
+    let prisoners = cut_the_cell(&mut world, station);
+    world.step(&[]);
+    let standing = world.droids_standing();
+    assert!(standing > 0);
+    let home = gangway(&world);
+    for &w in &prisoners {
+        world.aboard.room.stand_at(w as usize, home);
+    }
+    world.step(&[]);
+    assert!(world.infestation(station).unwrap().cleared);
+    assert!(world.fight_over());
+    assert_eq!(world.mission_failed(), None);
+    world.step(&[]);
+    assert_eq!(world.droids_standing(), standing, "frozen, not destroyed");
+}
+
+/// Every prisoner dead is the prison break failed: no win however clear
+/// the deck, the deck frozen, and the crew go home from a site uncleared.
+#[test]
+fn a_prison_break_is_failed_with_every_prisoner_dead() {
+    let (mut world, station) = mission_world(Mission::Prison);
+    let prisoners = cut_the_cell(&mut world, station);
+    for &w in &prisoners {
+        world.aboard.room.kill_now(w as usize);
+    }
+    wreck_them_all(&mut world);
+    world.step(&[]);
+    assert_eq!(
+        world.mission_failed(),
+        Some(crate::run::MissionFailure::Prisoners)
+    );
+    assert!(world.fight_over(), "the deck is frozen");
+    for _ in 0..120 {
+        wreck_them_all(&mut world);
+        world.step(&[]);
+    }
+    assert!(!world.infestation(station).unwrap().cleared, "never won");
+    assert!(!world.lost, "the run goes on");
+    let events = world.step(&[Command::Return { slot: 0 }]);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::LeftSite { cleared: false, .. })),
+        "{events:?}"
+    );
+}
+
+/// The Overseer out of his airlock is the mission failed (it was the site
+/// cleared once the deck was, the bounty gone).
+#[test]
+fn the_overseer_out_of_his_airlock_is_the_mission_failed() {
+    let (mut world, station) = mission_world(Mission::Overseer);
+    let Some(Objective::Overseer(mut o)) = objective(&world, station) else {
+        panic!("an Overseer");
+    };
+    o.phase = OverseerPhase::Escaped;
+    if let Some(it) = world.infested.iter_mut().find(|it| it.station == station) {
+        it.objective = Some(Objective::Overseer(o));
+    }
+    wreck_them_all(&mut world);
+    world.step(&[]);
+    assert_eq!(
+        world.mission_failed(),
+        Some(crate::run::MissionFailure::Overseer)
+    );
+    assert!(world.fight_over());
+    assert!(!world.infestation(station).unwrap().cleared);
+}
+
+/// The Overseer down is the mission won at once, his waves standing.
+#[test]
+fn the_overseer_down_is_the_mission_won() {
+    let (mut world, station) = mission_world(Mission::Overseer);
+    let Some(Objective::Overseer(o)) = objective(&world, station) else {
+        panic!("an Overseer");
+    };
+    let body = o.body.expect("he is laid") as usize;
+    world.residents.as_mut().unwrap().aboard.room.kill_now(body);
+    let events = world.step(&[]);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::Objective { what: 12, .. }))
+    );
+    assert!(world.infestation(station).unwrap().cleared);
+    assert!(world.fight_over() && world.mission_failed().is_none());
+}
+
+/// Every terminal taken is the heist won that step, the garrison still
+/// standing wherever it waits.
+#[test]
+fn a_heist_is_won_the_step_its_last_terminal_is_taken() {
+    let (mut world, station) = mission_world(Mission::Heist);
+    assert!(world.droids_standing() > 0, "the garrison");
+    if let Some(Objective::Heist(h)) = world
+        .infested
+        .iter_mut()
+        .find(|it| it.station == station)
+        .and_then(|it| it.objective.as_mut())
+    {
+        h.taken.iter_mut().for_each(|t| *t = true);
+    }
+    world.step(&[]);
+    assert!(world.infestation(station).unwrap().cleared);
+    assert!(world.droids_standing() > 0, "won with them standing");
+}
+
+/// Every crate home is the salvage sweep won.
+#[test]
+fn a_salvage_sweep_is_won_with_every_crate_home() {
+    let (mut world, station) = mission_world(Mission::Salvage);
+    if let Some(Objective::Salvage(s)) = world
+        .infested
+        .iter_mut()
+        .find(|it| it.station == station)
+        .and_then(|it| it.objective.as_mut())
+    {
+        for c in &mut s.crates {
+            c.state = LoadState::Home;
+        }
+    }
+    world.step(&[]);
+    assert!(world.infestation(station).unwrap().cleared);
+}
+
+/// The last crate carried into the ship with *Back to ship* pressed is
+/// the sweep won the step its carrier is inside — the step's own salvage
+/// pass read where the carrier stood before the rooms stepped, and the
+/// ship left before the crate was home.
+#[test]
+fn the_last_crate_carried_aboard_wins_the_sweep_the_step_it_is_inside() {
+    let (mut world, station) = mission_world(Mission::Salvage);
+    let crates = match objective(&world, station) {
+        Some(Objective::Salvage(s)) => s.crates.len() as u32,
+        _ => panic!("a salvage sweep"),
+    };
+    if let Some(Objective::Salvage(s)) = world
+        .infested
+        .iter_mut()
+        .find(|it| it.station == station)
+        .and_then(|it| it.objective.as_mut())
+    {
+        for c in &mut s.crates[1..] {
+            c.state = LoadState::Home;
+        }
+        s.home = crates - 1;
+        s.crates[0].state = LoadState::Carried;
+        s.crates[0].carrier = Some(0);
+        s.crates[0].picked = true;
+    }
+    // Two tiles out from the passage, on the station's side.
+    let ship = &world.ship.design;
+    let out = shipdesign::dock::port(ship).expect("a port").outward;
+    let t = shipdesign::TILE as f32;
+    let p = passage(&world);
+    let start = bims::math::vec2(p.x + 2.0 * t * out.0 as f32, p.y + 2.0 * t * out.1 as f32);
+    world.aboard.room.stand_at(0, start);
+    assert!(!world.inside_ship(0));
+    let mut commands = vec![Command::Return { slot: 0 }];
+    for _ in 0..600 {
+        wreck_them_all(&mut world);
+        let events = world.step(&commands);
+        commands.clear();
+        if world.in_mission() && !world.inside_ship(0) {
+            continue;
+        }
+        assert!(
+            events.iter().any(
+                |e| matches!(e, WorldEvent::LeftSite { station: s, cleared: true } if *s == station)
+            ),
+            "left won the step the carrier was inside: {events:?}"
+        );
+        return;
+    }
+    panic!("the carrier never came aboard");
+}
+
+/// The reactor critical is the fuel run won; the drums lost while the
+/// depot's clock runs all stood again (it was one, the rest never), while
+/// its stock lasts; and too few drums left for the reactor is the mission
+/// failed.
+#[test]
+fn a_fuel_run_s_lost_drums_come_back_while_the_stock_lasts_and_then_it_fails() {
+    let (mut world, station) = mission_world(Mission::FuelRun);
+    let edit = |world: &mut World, f: &dyn Fn(&mut crate::objective::FuelRun)| {
+        if let Some(Objective::FuelRun(r)) = world
+            .infested
+            .iter_mut()
+            .find(|it| it.station == station)
+            .and_then(|it| it.objective.as_mut())
+        {
+            f(r);
+        }
+    };
+    let fuel = |world: &World| match objective(world, station) {
+        Some(Objective::FuelRun(f)) => f,
+        _ => panic!("a fuel run"),
+    };
+    assert_eq!(fuel(&world).drums.len(), data::FUEL_DRUMS as usize);
+    // Two lost on one clock: both stood again.
+    let now = world.run.mission_steps;
+    edit(&mut world, &|f| {
+        f.drums[0].state = LoadState::Lost;
+        f.drums[1].state = LoadState::Lost;
+        f.restock_at = Some(now + 1);
+    });
+    for _ in 0..3 {
+        wreck_them_all(&mut world);
+        world.step(&[]);
+    }
+    let f = fuel(&world);
+    let lying = f
+        .drums
+        .iter()
+        .filter(|d| d.state == LoadState::Lying)
+        .count();
+    assert_eq!(lying, data::FUEL_DRUMS as usize, "both stood again");
+    assert_eq!(f.spares, data::FUEL_SPARES - 2);
+    assert_eq!(world.mission_failed(), None);
+    // The stock spent, two more lost: two left of the three wanted.
+    edit(&mut world, &|f| {
+        f.drums[2].state = LoadState::Lost;
+        f.drums[3].state = LoadState::Lost;
+    });
+    wreck_them_all(&mut world);
+    world.step(&[]);
+    assert_eq!(
+        world.mission_failed(),
+        Some(crate::run::MissionFailure::Fuel)
+    );
+    assert!(world.fight_over());
+    assert!(!world.infestation(station).unwrap().cleared);
+}
+
+/// The reactor critical is the fuel run won at once.
+#[test]
+fn a_fuel_run_is_won_the_step_the_reactor_goes_critical() {
+    let (mut world, station) = mission_world(Mission::FuelRun);
+    if let Some(Objective::FuelRun(f)) = world
+        .infested
+        .iter_mut()
+        .find(|it| it.station == station)
+        .and_then(|it| it.objective.as_mut())
+    {
+        f.delivered = data::FUEL_NEEDED;
+    }
+    let events = world.step(&[]);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::Objective { what: 8, .. }))
+    );
+    assert!(world.infestation(station).unwrap().cleared);
+}

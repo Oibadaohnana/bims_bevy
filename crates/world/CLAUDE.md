@@ -8839,6 +8839,12 @@ hands for a look.
 
 ## The second set of attacks, on maps built for them (October 2026)
 
+> **Since "Every mission an end"** (at the end of this file) the
+> objective done is the mission won at once, whatever still stands, and
+> "The clear" below — the deck holding the clear until it is done — is
+> the history; the Overseer out, every prisoner dead and a fuel run's
+> drums too few are the mission failed.
+
 > **Since the budget** ("Every mission on the budget, and the weights" at
 > the end of this file) each of the five settles one wave, its garrison,
 > and is priced once over its budget, not over `data::OBJECTIVE_WAVES`.
@@ -9311,3 +9317,95 @@ the whole wave as before.
 Meant to alter play: every map-shaped mission and every Area defend;
 `SURVIVORS` (its town is an Area defend) and the ship's `PINNED`
 (`defense`) move — not re-pinned here.
+
+## Every mission an end: won, failed, or the run lost (October 2026)
+
+> "The second set of attacks" above holds a site's clear until its
+> objective is done and the deck is clear; "Protect the commander" and
+> "Evacuation" lose the site and then nothing happens until the crew walk
+> home, and the site is put back threatened as they leave. All of that
+> moved. The player's words: "make a thourough check whether all missions
+> have an ending, prison for example just sets the prisoners free and
+> after that nothing ever happens. All missions need a lost state and a
+> won state!"
+
+- **The objective done is the mission won**: `World::settle_objective_won`
+  (`attacks.rs`), in stage 7 right after `settle_escape` and before the
+  departure check, clears the site (`cleared`, `next_wave` off,
+  `bonus_wave_fought`, `DroidStationCleared`) the step
+  `objective_won` holds — the Overseer down, every terminal taken, the
+  reactor critical, the cell open with every prisoner alive (one at the
+  least) aboard the crew's ship, no crate lying or carried. **Aboard is
+  the departure's own rule** (`World::inside_ship`: the ship's frame or
+  the passage between the collars) for a prisoner and a crate alike, and
+  a salvage sweep's crates are brought home again here, after the rooms
+  stepped — or the ship left the step the last prisoner or the last
+  crate's carrier stepped into the passage, a step before the win. What still
+  stands stays where it is, unpaid; the deck is frozen from the next step
+  (`fight_over`). So the step the last prisoner walks aboard with *Back to
+  ship* pressed is the mission won, not a site left uncleared. Before it a
+  prison's (and every objective's) clear waited for the deck, and the
+  garrison laid not seeking (wave one never is) never came — nothing
+  happened.
+- **A mission failed, the run going on** (`run::MissionFailure`, codes
+  0–4: `Commander`, `Evacuees`, `Prisoners`, `Overseer`, `Fuel`; derived,
+  never saved): `World::mission_failed()` — in a mission with a fight,
+  the run not lost — reads the site: a defence lost but not won whose
+  guard is Protect the commander or which is an Evacuation, or an
+  infestation not cleared whose `objective_failure` says so (the Overseer
+  `Escaped`, every prisoner dead, `FuelRun::out_of_drums`). `fight_over()`
+  is true for it too, so the deck freezes exactly as after a fight won —
+  nobody moves, *Back to ship* takes everybody alive home — and the site
+  is left uncleared: an attack's put back off its snapshot, a defence
+  **falls** (`leave_mission`'s `falls` is now any defence not won, where
+  it was one not over, so a lost one fell back to "threatened"; its
+  `TownFell` was said when it was lost and is not said again).
+  `site_failed` reads the infestation first, as `site_cleared` does,
+  since a fallen defence's record outlives it.
+- **Still the run lost**: Bomb disposal's timer, Hold the doors' vault
+  commander down, a Sabotage disarmed, an Area defend's FOB taken, and the
+  whole crew down — as before.
+- **A heist and a salvage sweep** cannot fail but with the crew; a plain
+  attack, a nest hunt, Seal the breaches and a plain defence are won as
+  before and lost only by leaving or by the crew.
+- **The fuel run's stock**: `FuelRun::spares` (saved, serde default
+  `data::FUEL_SPARES`, 2; hashed) — the restock stands **every** drum lost
+  since the clock started again (it was one, and a second lost meanwhile
+  was never stood again — a run that could never finish) while the stock
+  lasts, saying `Objective` 13 with the stock left. `within_reach` (in,
+  lying, carried, and the lost ones the stock covers) under
+  `FUEL_NEEDED` is `out_of_drums`; the step stops its clock waves then.
+- **The prison's look** counts the prisoners alive aboard of those alive
+  (`prisoners_aboard`); it counted the alive and never moved on.
+  `ObjectiveLook::spare` is the fuel depot's stock.
+- **The app**: the fight-won window is the same modal with "Mission
+  failed" and why (`names::MISSION_FAILED_LINES` by code), no money
+  flying onto the map; the button reads *Mission failed — Back to ship*;
+  the threat line and the top count say so in red; the objective lines
+  say "mission complete" where they said "clear the deck", the prison
+  "n of m aboard", the fuel run its spares. `DROID_CLEARED`, the log's
+  line for any clear, is "Mission complete: the site is cleared." — the
+  machines may still stand.
+
+**Not done** (the audit's other findings): the heist has no clock to
+fail on; a Sabotage's win skips the fight-won window; *Back to ship*
+during Bomb disposal, Hold the doors or an Area defend leaves the site
+without losing the run; Hold the doors loses on the commander downed,
+Protect the commander on him dead; a stuck or unreachable machine at a
+plain attack or a nest hunt can still hold a clear; an Evacuation with an
+evacuee that cannot be reached has no clock, and its departure does not
+wait for the evacuees (a flag carrier pressing *Back to ship* ahead of
+them leaves the site to fall).
+
+`tests_attacks.rs`' "every mission an end" section (the prison won the
+step the last walks aboard or into the passage, won with machines
+standing, the last crate carried in winning the step it is inside, failed with every
+prisoner dead; the Overseer down and out; the heist; the salvage; the
+fuel run's stock and its failure, and its win) and `tests_defense.rs`'
+commander and evacuation tests (`mission_failed`, `fight_over`, the site
+fallen on leaving, its fall said once) are the rule. `BIMS_MISSION_FAILED=1`
+(`World::fail_the_mission_for_probe`) makes a prison break's, an
+Overseer's or a fuel run's objective one that can no longer be done, for
+a look at the window (`bims prison`). **`SAVE_VERSION` 137.** Meant to alter
+play at every mission the map shapes with an objective, Protect the
+commander and Evacuation.

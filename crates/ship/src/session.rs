@@ -602,6 +602,17 @@ impl Session {
         game.world.clear_the_site_for_probe(20_000)
     }
 
+    /// `BIMS_MISSION_FAILED=1`: the objective here — a prison break's,
+    /// the Overseer's, a fuel run's — made one that can no longer be done,
+    /// the deck frozen on it: the *Mission failed* window up. `false`
+    /// where there is none of those.
+    pub fn mission_failed_for_probe(&mut self) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        game.world.fail_the_mission_for_probe(600)
+    }
+
     /// `BIMS_REWARD=1` (feature 106): the site's machines wrecked wave by
     /// wave until it is cleared, and the ship off it — the reward screen
     /// up, offering its relics. `false` where there was nothing to clear.

@@ -18,7 +18,7 @@
 //!   not. Under
 //!   [`data::OVERSEER_FLEES_UNDER`] of his health he walks for the airlock
 //!   farthest from his office, and out of it he is gone with the site's
-//!   bounty. Down, the waves stop and the deck is cleared as any.
+//!   bounty: the mission failed. Down, it is won.
 //! - **A data heist**: [`data::HEIST_TERMINALS`] terminals, one a server
 //!   room, each [`data::HACK_SECONDS`] of hands (the Use key; an
 //!   engineer's two a second). Waves on a clock, sooner and bigger with
@@ -30,14 +30,16 @@
 //!   they stay on; never freed, they are gone at the mission's end. The
 //!   cut is **the alarm**: a wave at once and one every
 //!   [`data::PRISON_WAVE_STEPS`] while a prisoner alive is not aboard the
-//!   crew's ship — every one of them aboard, it is over for good.
+//!   crew's ship — every one of them aboard, it is over for good, and the
+//!   mission won. Every prisoner dead is the mission failed.
 //! - **A fuel run**: [`data::FUEL_DRUMS`] drums in the depot, taken up with
 //!   the Use key — the carrier holds its fire — and put in within
 //!   [`data::REACTOR_REACH_TILES`] of the reactor's core; a carrier hit
-//!   goes up with the drum (the drums' own burst). A drum lost is stood
-//!   again in the depot after [`data::FUEL_RESTOCK_STEPS`]. Waves on a
-//!   clock until [`data::FUEL_NEEDED`] are in and the reactor goes
-//!   critical.
+//!   goes up with the drum (the drums' own burst). The drums lost are
+//!   stood again in the depot after [`data::FUEL_RESTOCK_STEPS`], while its
+//!   stock of [`data::FUEL_SPARES`] lasts; too few left for the reactor is
+//!   the mission failed. Waves on a clock until [`data::FUEL_NEEDED`] are
+//!   in and the reactor goes critical.
 //! - **A salvage sweep**: [`data::SALVAGE_CRATES`] crates in the holds,
 //!   each taken up the first time bringing a wave at once, each a fifth
 //!   bigger (one dropped and taken again brings nothing); carried aboard
@@ -46,10 +48,19 @@
 //!   crew may leave when they like; it is cleared once every crate is
 //!   home.
 //!
-//! **A fight won freezes the deck**, so every one of them holds the clear
-//! until its objective is done ([`World::objective_holds`]): the Overseer
-//! down or out, every terminal taken, the reactor critical, the cell cut
-//! open and every prisoner alive aboard, every crate home.
+//! **The objective done is the mission won** (October 2026, the player's:
+//! "All missions need a lost state and a won state"): the Overseer down,
+//! every terminal taken, the reactor critical, the cell cut open and every
+//! prisoner alive aboard, every crate home. [`World::settle_objective_won`]
+//! clears the site the step it is done, before the departure check,
+//! whatever still stands; the deck is frozen from the next step
+//! ([`World::fight_over`]). The clear waited on the deck before, and a
+//! garrison that never came looking held it for ever. **One that can no
+//! longer be done is the mission failed** ([`World::objective_failure`],
+//! `World::mission_failed`): the Overseer out, every prisoner dead, the
+//! fuel run's drums too few. The deck is frozen the same way, and the crew
+//! go home with nothing for the site. A heist and a salvage sweep fail
+//! only with the crew.
 //!
 //! **Each is one budget** (October 2026, `budget.rs`): the site settles
 //! one wave, its garrison — the budget's first slice — and every wave
@@ -71,7 +82,7 @@ use super::*;
 use crate::objective::{
     FuelRun, Heist, Load, LoadState, Objective, Overseer, OverseerPhase, Prison, Salvage,
 };
-use crate::run::{Budgeted, Mission};
+use crate::run::{Budgeted, Mission, MissionFailure};
 use crate::stationgen::Feature;
 use shipdesign::Layer;
 
@@ -152,6 +163,8 @@ pub struct ObjectiveLook {
     /// The seconds the mission's own timer has left: Bomb disposal's, the
     /// doors' hold, the commander's two minutes.
     pub time_left: Option<f32>,
+    /// The drums a fuel run's depot can still stand again (October 2026).
+    pub spare: Option<u32>,
 }
 
 /// The map a mission of the second set wants.
@@ -268,28 +281,90 @@ impl World {
         }
     }
 
-    /// Whether the site `id`'s objective keeps it from being cleared: the
-    /// Overseer standing, a terminal left, the reactor not critical, the
-    /// cell shut or a prisoner alive not aboard, a crate not home.
+    /// Whether the site `id`'s objective keeps it from being cleared by
+    /// its deck alone: there is one, and it is not done. **The objective
+    /// done is the mission won** (October 2026, the player's: "All
+    /// missions need a lost state and a won state" — a prison break's
+    /// prisoners aboard was followed by nothing, the clear waiting on a
+    /// garrison that never came looking): [`World::settle_objective_won`]
+    /// clears the site the step it is done, whatever still stands. One
+    /// failed holds for good: the deck is frozen on it
+    /// ([`World::mission_failed`]).
     pub(super) fn objective_holds(&self, id: u32) -> bool {
-        match self.infestation(id).and_then(|it| it.objective.as_ref()) {
-            Some(Objective::Overseer(o)) => {
-                matches!(o.phase, OverseerPhase::Office | OverseerPhase::Fleeing)
+        self.infestation(id)
+            .and_then(|it| it.objective.as_ref())
+            .is_some_and(|o| !self.objective_won(o))
+    }
+
+    /// Whether an objective is done: the Overseer down, every terminal
+    /// taken, the cell cut open and every prisoner alive — one at the
+    /// least — aboard the crew's ship, the reactor critical, every crate
+    /// home.
+    fn objective_won(&self, o: &Objective) -> bool {
+        match o {
+            Objective::Overseer(o) => o.phase == OverseerPhase::Down,
+            Objective::Heist(h) => h.taken.iter().all(|&t| t),
+            Objective::FuelRun(f) => f.critical,
+            Objective::Prison(p) => {
+                p.open && self.prisoners_alive(p) > 0 && !self.prisoners_out_of_the_ship(p)
             }
-            Some(Objective::Heist(h)) => h.taken.iter().any(|&t| !t),
-            Some(Objective::FuelRun(f)) => !f.critical,
-            // The cell cut open and its alarm over — every prisoner alive
-            // aboard: a fight won freezes the deck, and nobody cuts a door
-            // or walks a prisoner home on one.
-            Some(Objective::Prison(p)) => !p.open || p.next_wave.is_some(),
-            // Every crate home or gone up: the crew may leave before, and
-            // are paid as they go (`World::pays_as_it_goes`).
-            Some(Objective::Salvage(s)) => s
+            Objective::Salvage(s) => !s
                 .crates
                 .iter()
                 .any(|c| matches!(c.state, LoadState::Lying | LoadState::Carried)),
-            _ => false,
         }
+    }
+
+    /// Why an objective can no longer be done, where it cannot: the
+    /// Overseer out of his airlock, every prisoner dead, too few drums
+    /// left for the reactor. A heist and a salvage sweep cannot fail but
+    /// with the crew.
+    pub(super) fn objective_failure(&self, o: &Objective) -> Option<MissionFailure> {
+        match o {
+            Objective::Overseer(o) if o.phase == OverseerPhase::Escaped => {
+                Some(MissionFailure::Overseer)
+            }
+            Objective::Prison(p) if self.prisoners_alive(p) == 0 => Some(MissionFailure::Prisoners),
+            Objective::FuelRun(f) if f.out_of_drums() => Some(MissionFailure::Fuel),
+            _ => None,
+        }
+    }
+
+    /// The objective done, after the rooms: the site cleared the step it
+    /// is — before the departure check, so the step a prison break's last
+    /// prisoner walks aboard with the crew's *Back to ship* pressed is the
+    /// mission won and not a site left uncleared. What still stands
+    /// stays where it is, unpaid; the deck is frozen from the next step.
+    pub(super) fn settle_objective_won(&mut self, events: &mut Vec<WorldEvent>) {
+        let Some((id, mut o)) = self.objective_here() else {
+            return;
+        };
+        if !self.aboard.is_joined() || !self.in_mission() {
+            return;
+        }
+        if self.lost || self.infestation(id).is_none_or(|it| it.cleared) {
+            return;
+        }
+        // A crate carried into the ship this step is home before the
+        // departure looks: the step's own pass read where its carrier stood
+        // before the rooms stepped, and the last crate carried in with *Back
+        // to ship* pressed left the site uncleared.
+        if let Objective::Salvage(salvage) = o {
+            self.salvage_step(id, salvage, events);
+            let Some((_, now)) = self.objective_here() else {
+                return;
+            };
+            o = now;
+        }
+        if !self.objective_won(&o) {
+            return;
+        }
+        if let Some(it) = self.infestation_mut(id) {
+            it.cleared = true;
+            it.next_wave = None;
+        }
+        self.bonus_wave_fought();
+        events.push(WorldEvent::DroidStationCleared { station: id });
     }
 
     /// Whether the site alongside pays its bounty as each enemy goes down
@@ -499,6 +574,7 @@ impl World {
                     critical: false,
                     next_wave: now + data::FUEL_WAVE_STEPS,
                     restock_at: None,
+                    spares: data::FUEL_SPARES,
                 })
             }
             Mission::Salvage => {
@@ -954,10 +1030,32 @@ impl World {
     /// crew's ship (an Evacuation's test of aboard, `World::on_the_ship`).
     fn prisoners_out_of_the_ship(&self, p: &Prison) -> bool {
         let room = &self.aboard.room;
-        p.prisoners.iter().any(|&w| {
-            let w = w as usize;
-            room.is_alive(w) && !self.on_the_ship(room.bim_pos(w))
-        })
+        p.prisoners
+            .iter()
+            .any(|&w| room.is_alive(w as usize) && !self.inside_ship(w))
+    }
+
+    /// How many of the prisoners are alive, and how many of those stand
+    /// on the crew's ship.
+    fn prisoners_alive(&self, p: &Prison) -> u32 {
+        self.prisoners_aboard(p).1
+    }
+
+    /// `(aboard, alive)`: the prisoners alive inside the crew's ship, of
+    /// the prisoners alive — aboard by the departure's own rule
+    /// ([`World::inside_ship`], the passage too), or the ship could leave
+    /// the step the last steps into the passage, a step before the mission
+    /// counted it won.
+    fn prisoners_aboard(&self, p: &Prison) -> (u32, u32) {
+        let room = &self.aboard.room;
+        let alive: Vec<u32> = p
+            .prisoners
+            .iter()
+            .copied()
+            .filter(|&w| room.is_alive(w as usize))
+            .collect();
+        let aboard = alive.iter().filter(|&&w| self.inside_ship(w)).count() as u32;
+        (aboard, alive.len() as u32)
     }
 
     // --- the step ------------------------------------------------------------
@@ -1339,20 +1437,38 @@ impl World {
                 who: u32::MAX,
             });
         }
-        // A drum lost stood again in the depot.
+        // The drums lost stood again in the depot, every one lost since the
+        // clock started — it was one, and a second lost meanwhile was
+        // never stood again (October 2026) — while its stock lasts.
         if let Some(due) = f.restock_at
             && now >= due
         {
             f.restock_at = None;
+            let mut stood = 0;
             if !f.critical {
-                f.drums.push(Load::lying(f.depot));
+                for d in f.drums.iter_mut() {
+                    if d.state != LoadState::Lost || f.spares == 0 {
+                        continue;
+                    }
+                    *d = Load::lying(f.depot);
+                    f.spares -= 1;
+                    stood += 1;
+                }
+            }
+            if stood > 0 {
                 events.push(WorldEvent::Objective {
                     station: id,
                     what: 13,
-                    n: 0,
+                    n: f.spares,
                     who: u32::MAX,
                 });
             }
+        }
+        if f.out_of_drums() {
+            // Too few left for the reactor: the mission is failed, and
+            // nothing more comes for it (`World::mission_failed`).
+            self.set_objective(id, Objective::FuelRun(f));
+            return;
         }
         if !f.critical {
             let n = self.landing_wave_size();
@@ -1382,7 +1498,8 @@ impl World {
                 c.carrier = None;
                 continue;
             }
-            if self.on_the_ship(at) {
+            // Aboard by the departure's own rule (the passage too).
+            if self.inside_ship(who) {
                 c.state = LoadState::Home;
                 c.carrier = None;
                 s.home += 1;
@@ -1491,6 +1608,7 @@ impl World {
                     phase: o.phase.code(),
                     wave_in: alive.then(|| wave_in(o.next_wave)).flatten(),
                     time_left: None,
+                    spare: None,
                 }
             }
             Objective::Heist(h) => {
@@ -1510,6 +1628,7 @@ impl World {
                     phase: 0,
                     wave_in: left.then(|| wave_in(h.next_wave)).flatten(),
                     time_left: None,
+                    spare: None,
                 }
             }
             Objective::Prison(p) => {
@@ -1526,19 +1645,18 @@ impl World {
                         progress: (p.cut as f32 / (data::CUT_SECONDS * 60) as f32).min(1.0),
                     });
                 }
-                let alive = p
-                    .prisoners
-                    .iter()
-                    .filter(|&&w| self.aboard.room.is_alive(w as usize))
-                    .count() as u32;
+                // Of the prisoners alive, how many are aboard (October
+                // 2026: it said how many were alive, and never moved on).
+                let (aboard, alive) = self.prisoners_aboard(&p);
                 ObjectiveLook {
                     mission: Mission::Prison,
                     marks,
-                    done: alive,
-                    total: p.prisoners.len() as u32,
+                    done: aboard,
+                    total: alive,
                     phase: u32::from(p.open),
                     wave_in: p.next_wave.and_then(wave_in),
                     time_left: None,
+                    spare: None,
                 }
             }
             Objective::FuelRun(f) => {
@@ -1570,6 +1688,7 @@ impl World {
                     phase: u32::from(f.critical),
                     wave_in: (!f.critical).then(|| wave_in(f.next_wave)).flatten(),
                     time_left: None,
+                    spare: Some(f.spares),
                 }
             }
             Objective::Salvage(s) => {
@@ -1594,6 +1713,7 @@ impl World {
                     phase: 0,
                     wave_in: None,
                     time_left: None,
+                    spare: None,
                 }
             }
         };
@@ -1618,5 +1738,45 @@ impl World {
                 room.strike(body as usize, now - want, false);
             }
         }
+    }
+
+    /// `BIMS_MISSION_FAILED=1` (October 2026): the world stepped until its
+    /// objective is laid, then that objective made one that can no longer
+    /// be done — every prisoner dead, the Overseer out of his airlock, the
+    /// fuel run's drums all gone up and the depot empty — and a step for it
+    /// to take hold: the mission failed, for a look. False where there is
+    /// none of the three within `steps`.
+    pub fn fail_the_mission_for_probe(&mut self, steps: u32) -> bool {
+        for _ in 0..steps {
+            if self.objective_here().is_some() {
+                break;
+            }
+            self.step(&[]);
+        }
+        let Some((id, o)) = self.objective_here() else {
+            return false;
+        };
+        match o {
+            Objective::Prison(p) => {
+                for &w in &p.prisoners {
+                    self.aboard.room.kill_now(w as usize);
+                }
+            }
+            Objective::Overseer(mut o) => {
+                o.phase = OverseerPhase::Escaped;
+                self.set_objective(id, Objective::Overseer(o));
+            }
+            Objective::FuelRun(mut f) => {
+                f.spares = 0;
+                for d in f.drums.iter_mut() {
+                    d.state = LoadState::Lost;
+                    d.carrier = None;
+                }
+                self.set_objective(id, Objective::FuelRun(f));
+            }
+            _ => return false,
+        }
+        self.step(&[]);
+        self.mission_failed().is_some()
     }
 }

@@ -946,8 +946,13 @@ pub fn back_to_ship(
                         }
                     } else {
                         // A fight won says so on the button: the deck is
-                        // frozen and the press is all that is left (task 133).
-                        let label = if world.fight_over() {
+                        // frozen and the press is all that is left (task 133),
+                        // and so does a mission failed (October 2026).
+                        let label = if world.mission_failed().is_some() {
+                            egui::RichText::new(MISSION_FAILED_BACK_TO_SHIP)
+                                .strong()
+                                .color(theme::BAD)
+                        } else if world.fight_over() {
                             egui::RichText::new(FIGHT_WON_BACK_TO_SHIP)
                                 .strong()
                                 .color(theme::ACCENT)

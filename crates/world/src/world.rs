@@ -1739,6 +1739,9 @@ impl World {
         self.settle_plants(&mut events);
         //    And a Sabotage's escape won: every player back aboard.
         self.settle_escape(&mut events);
+        //    And an attack's objective done: the mission won (October
+        //    2026), before the departure check as the escape is.
+        self.settle_objective_won(&mut events);
         self.say_burns(&mut events);
 
         // 8. The run (feature 103): the bounty paid the step the site is

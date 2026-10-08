@@ -130,6 +130,11 @@ pub fn threats(world: &world::World, local: u32) -> Vec<Threat> {
 /// down — the mission clock's countdown to the next. A town under attack
 /// says the same three things. `None` where nobody holds the place.
 fn droid_line(world: &world::World) -> Option<(String, &'static str)> {
+    // A mission failed with the run going on (October 2026): why, and
+    // the way home, in place of whatever the mission said.
+    if let Some(why) = world.mission_failed() {
+        return Some((mission_failed_threat(why.code()), MISSION_FAILED_TIP));
+    }
     // An Area defend (October 2026): the wave, and the hold's time left.
     if let Some(defending) = world.defense_here()
         && let Some(area) = defending.area.as_ref()
@@ -852,6 +857,17 @@ pub fn counter(world: &world::World, flying: u32) -> Option<Counter> {
     let up = |n: u32| Some((n.to_string(), theme::BAD));
     let counting = |due: f64| Some((crate::format::countdown(due), theme::CAUTION));
     let down = || Some(("0".to_string(), theme::MUTED));
+    // A mission failed (October 2026): the deck frozen, so what stands
+    // and the word, in red.
+    if world.mission_failed().is_some() {
+        return Some(Counter {
+            big: if standing > 0 { up(standing) } else { down() },
+            wave: None,
+            core: None,
+            area: None,
+            objective: Some((MISSION_FAILED_COUNT.to_string(), theme::BAD)),
+        });
+    }
     // An Area defend (October 2026): the waves never run out while the
     // hold's time runs, so no "of how many" — the time left instead, and
     // the FOB's bar.
@@ -1023,8 +1039,10 @@ fn sabotage_count(world: &world::World) -> Option<(String, egui::Color32)> {
     // The second set of attacks' (October 2026): done in green.
     if let Some(look) = world.objective_look() {
         let done = match look.mission {
-            world::run::Mission::Overseer => look.phase >= 2,
-            world::run::Mission::Prison => look.phase == 1,
+            world::run::Mission::Overseer => look.phase == 3,
+            world::run::Mission::Prison => {
+                look.phase == 1 && look.total > 0 && look.done >= look.total
+            }
             world::run::Mission::FuelRun => look.phase == 1,
             _ => look.done >= look.total,
         };

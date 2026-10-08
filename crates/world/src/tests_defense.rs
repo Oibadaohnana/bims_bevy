@@ -1627,6 +1627,12 @@ fn a_dropped_flag_holds_them_there_and_none_left_alive_loses_the_site() {
             .any(|e| matches!(e, WorldEvent::TownFell { station } if *station == id))
     );
     assert!(world.defense(id).unwrap().lost);
+    // The mission failed (October 2026), and the deck frozen on it.
+    assert_eq!(
+        world.mission_failed(),
+        Some(crate::run::MissionFailure::Evacuees)
+    );
+    assert!(world.fight_over());
 }
 
 /// An Evacuation's own map (October 2026, the player's: "spawn right next
@@ -1992,9 +1998,14 @@ fn the_commander_dead_loses_the_site_and_not_the_run() {
     };
     world.aboard.room.kill_now(c.vip as usize);
     let mut fell = false;
+    let mut said = 0;
     for _ in 0..3 {
-        if world
-            .step(&[])
+        let events = world.step(&[]);
+        said += events
+            .iter()
+            .filter(|e| matches!(e, WorldEvent::TownFell { .. }))
+            .count();
+        if events
             .iter()
             .any(|e| matches!(e, WorldEvent::Objective { what: 26, .. }))
         {
@@ -2005,6 +2016,28 @@ fn the_commander_dead_loses_the_site_and_not_the_run() {
     assert!(fell);
     assert!(world.defense(id).unwrap().lost, "the site falls");
     assert!(!world.lost, "the run goes on");
+    // The mission failed (October 2026): the deck frozen, *Back to ship*
+    // the one thing left — and the site the machines' as the crew go, not
+    // put back threatened as the mission met it.
+    assert_eq!(
+        world.mission_failed(),
+        Some(crate::run::MissionFailure::Commander)
+    );
+    assert!(world.fight_over());
+    let events = world.step(&[Command::Return { slot: 0 }, Command::Return { slot: 1 }]);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::LeftSite { cleared: false, .. })),
+        "{events:?}"
+    );
+    said += events
+        .iter()
+        .filter(|e| matches!(e, WorldEvent::TownFell { .. }))
+        .count();
+    assert_eq!(said, 1, "the fall said once, when he died");
+    assert!(world.is_droid_held(id), "fallen to the machines");
+    assert!(!world.site_threatened(id));
 }
 
 /// The design tile crew member `who` stands on.
@@ -2053,7 +2086,11 @@ fn the_commander_holds_his_room_the_whole_fight() {
         fought |= world.droids_standing() > 0;
         if step > 120 && step % 30 == 0 {
             let at = tile_of(&world, c.vip);
-            assert!(in_room(at, c.room), "step {step}: {at:?} out of {:?}", c.room);
+            assert!(
+                in_room(at, c.room),
+                "step {step}: {at:?} out of {:?}",
+                c.room
+            );
         }
     }
     assert!(fought, "the waves came");
@@ -2070,17 +2107,27 @@ fn the_commander_holds_his_room_the_whole_fight() {
     let tile = shipdesign::TILE as f32;
     let off = |w: &World| (w.aboard.room.bim_pos(vip) - post).len();
     let far = world.aboard.room.bim_pos(0);
-    assert!((far - post).len() > 4.0 * tile, "crew member 0 is off in the deck");
+    assert!(
+        (far - post).len() > 4.0 * tile,
+        "crew member 0 is off in the deck"
+    );
     world.aboard.room.post_at(vip, far);
     let mut most: f32 = 0.0;
     for _ in 0..600 {
         world.aboard.room.patch_up_for_probe(vip);
         world.step(&[]);
         most = most.max(off(&world));
-        assert!(in_room(tile_of(&world, c.vip), c.room), "never out of his room");
+        assert!(
+            in_room(tile_of(&world, c.vip), c.room),
+            "never out of his room"
+        );
     }
     assert!(most > 1.5 * tile, "the order moved him: {most}");
-    assert!(off(&world) <= 1.5 * tile, "back at his post: {}", off(&world));
+    assert!(
+        off(&world) <= 1.5 * tile,
+        "back at his post: {}",
+        off(&world)
+    );
 }
 
 /// And in a town his room is the watch house by the pad.

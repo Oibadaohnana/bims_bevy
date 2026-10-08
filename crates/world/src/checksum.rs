@@ -1109,6 +1109,7 @@ fn eat_objective(hash: &mut Fnv, o: &crate::objective::Objective) {
             hash.eat(u64::from(f.critical));
             hash.eat(f.next_wave);
             hash.eat(f.restock_at.unwrap_or(u64::MAX));
+            hash.eat(u64::from(f.spares));
         }
         Objective::Salvage(v) => {
             hash.eat(0x_5341_4C56);
