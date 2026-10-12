@@ -8805,7 +8805,8 @@ of `world`) is the rule; its module note is the whole of it.
   `droids_standing` never counts them; one destroyed before is laid a
   wreck. `nests_step` reads which are destroyed off the room (said as
   `WorldEvent::NestDestroyed { station, left }`, 174) and every
-  `NEST_BUILD_STEPS` (20 s) every standing one builds one enemy
+  `NEST_BUILD_STEPS` (20 s; the first `NEST_FIRST_BUILD_STEPS`, 40 s) the
+  standing ones build a round (a slice of the budget, below)
   (`World::nest_build`), looking for the crew — **what the area calls
   for** (the player's: "the nest should spawn the appropriate enemy type
   not just tier 3"): the day's share of machines (`machines_of`) over
@@ -9127,10 +9128,14 @@ whole of it, `run::{Budgeted, Budget, Landing}` the types.
   experience, no money and floats nothing over it. A room built afresh
   re-lays the garrison (`settle_droids`), never counted.
 - **The nest hunt**: the garrison is the budget's first slice; every
-  round each standing, unstunned nest builds
-  `k = ⌈wave ÷ (data::NEST_SLICE_ROUNDS × nests laid)⌉` — a round of every
-  nest a third of a wave — taken off the budget in nest order (the last
-  nest may get fewer), several out of a bay standing a tile apart; spent,
+  round the standing, unstunned nests build
+  `⌈wave × standing ÷ (data::NEST_SLICE_ROUNDS × nests laid)⌉` between
+  them — a third of a wave with every nest up, rounded up once for the
+  round (until the player found the hunt "way to hard" it was
+  `⌈wave ÷ (3 × nests)⌉` a nest, half a wave and more a round on a small
+  wave) — taken off the budget and dealt round their bays in nest order,
+  several out of a bay standing a tile apart; the first round
+  `NEST_FIRST_BUILD_STEPS` (40 s) after the dock, the garrison's time; spent,
   one a player a round dealt round the nests, unpaid. `Nests::built` still
   counts everything. So a nest left standing is no farm any more, and the
   early and the late game are one rule.
@@ -9201,7 +9206,7 @@ good); Sabotage and the defences stack.
 | fight | landings expected | each landing | spent | over when |
 | --- | --- | --- | --- | --- |
 | Sabotage | 9: the garrison, then at the plant and every `SABOTAGE_WAVE_STEPS` (15 s) of the hold and the escape | `budget_even(9)`, the last down or not | the trickle (only where fewer bodies are left than landings) | every player back aboard after the hold, or the blast (disarmed: the run lost) |
-| A nest hunt | — (its rounds slice the wave) | a round every `NEST_BUILD_STEPS` (20 s): `⌈wave ÷ (3 × nests laid)⌉` a standing nest | one a player a round, dealt round the nests | every nest down and the deck clear |
+| A nest hunt | — (its rounds slice the wave) | the first round 40 s after the dock (`NEST_FIRST_BUILD_STEPS`), then one every `NEST_BUILD_STEPS` (20 s): `⌈wave × standing ÷ (3 × nests laid)⌉` between the standing nests | one a player a round, dealt round the nests | every nest down and the deck clear |
 | Kill the Overseer | 4 (`OBJECTIVE_WAVES`) | `budget_even(4)` every `OVERSEER_WAVE_STEPS` (30 s) while he is in his office or fleeing | the trickle on the clock | he is down or out |
 | A data heist | 4 | `min(left, budget_even(4) × (100 + 25 × taken) ÷ 100)` every 40/30/20/15 s by the terminals taken | the trickle | every terminal taken |
 | A fuel run | 4 | `budget_even(4)` every `FUEL_WAVE_STEPS` (30 s) | the trickle | the reactor critical |

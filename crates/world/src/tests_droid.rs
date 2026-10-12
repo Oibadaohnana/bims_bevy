@@ -1723,13 +1723,21 @@ fn wreck_all_but_the_nests(world: &mut World) {
     }
 }
 
-/// How many a nest hunt's first round builds, off the world's own
-/// numbers (October 2026, `run::Budget`): `⌈wave ÷ (rounds × nests)⌉` out
-/// of every nest, never past what the garrison left of the budget.
-fn first_round(world: &World, nests: u32) -> u32 {
+/// How many a nest hunt's round builds with `standing` of its `nests`
+/// up, off the world's own numbers (October 2026, `run::Budget`):
+/// `⌈wave × standing ÷ (rounds × nests)⌉` between them, rounded up once
+/// for the round, never past what is left of the budget.
+fn nest_round(world: &World, standing: u32, nests: u32) -> u32 {
     let budget = world.run.budget.expect("a nest hunt has its budget");
-    let k = budget.wave.div_ceil(data::NEST_SLICE_ROUNDS * nests).max(1);
-    (nests * k).min(budget.planned - budget.laid)
+    let round = (budget.wave * standing)
+        .div_ceil(data::NEST_SLICE_ROUNDS * nests)
+        .max(1);
+    round.min(budget.planned - budget.laid)
+}
+
+/// The first round, every nest standing: a third of a wave.
+fn first_round(world: &World, nests: u32) -> u32 {
+    nest_round(world, nests, nests)
 }
 
 /// The nests stand at the front of the machines, build their slices on
@@ -1755,15 +1763,22 @@ fn a_nest_hunt_s_nests_build_until_destroyed_and_then_the_site_clears() {
             "nest {i} first"
         );
     }
-    // The site's wave down, the nests build on.
+    // The site's wave down, the nests build on — the first round not
+    // before `NEST_FIRST_BUILD_STEPS`, the garrison's time.
     wreck_all_but_the_nests(&mut world);
     let before = room!(world).droid_count();
+    let round = first_round(&world, total);
     for _ in 0..(data::NEST_BUILD_STEPS + 10) {
         world.step(&[]);
     }
-    assert!(
-        room!(world).droid_count() >= before + total,
-        "every nest built: {} after {before}",
+    assert_eq!(room!(world).droid_count(), before, "nothing built yet");
+    for _ in data::NEST_BUILD_STEPS + 10..data::NEST_FIRST_BUILD_STEPS + 10 {
+        world.step(&[]);
+    }
+    assert_eq!(
+        room!(world).droid_count(),
+        before + round,
+        "a round of the nests: {} after {before}",
         room!(world).droid_count()
     );
     assert!(
@@ -1810,7 +1825,7 @@ fn a_nest_builds_the_area_s_enemies_and_stands_at_its_health() {
     assert_eq!(nest_health(&world), data::NEST_HEALTH[0]);
     let round = first_round(&world, total);
     let (bims, machines) = (room!(world).crew_count(), room!(world).droid_count());
-    for _ in 0..(data::NEST_BUILD_STEPS + 10) {
+    for _ in 0..(data::NEST_FIRST_BUILD_STEPS + 10) {
         world.step(&[]);
     }
     assert_eq!(room!(world).droid_count(), machines, "no machine in area 0");
@@ -1830,13 +1845,55 @@ fn a_nest_builds_the_area_s_enemies_and_stands_at_its_health() {
     let round = first_round(&world, total);
     wreck_all_but_the_nests(&mut world);
     let before = room!(world).droid_count() as usize;
-    for _ in 0..(data::NEST_BUILD_STEPS + 10) {
+    for _ in 0..(data::NEST_FIRST_BUILD_STEPS + 10) {
         world.step(&[]);
     }
     let after = room!(world).droid_count() as usize;
     assert_eq!(after, before + round as usize);
     for i in before..after {
         assert_eq!(room!(world).droid(i).unwrap().tier, Tier::Three);
+    }
+}
+
+/// A round is a third of a wave between every nest laid, rounded up once
+/// for the round (the player's: "the nest mission is way to hard"; it was
+/// rounded up a nest, half a wave and more a round on a small wave), and
+/// with a nest down the standing ones' share of it, out of their bays.
+#[test]
+fn a_nest_round_is_a_third_of_a_wave_shared_by_the_standing_nests() {
+    let (mut world, _) = held_arena();
+    world.set_mission_for_probe(Some(crate::run::Mission::Nests));
+    world.set_droid_waves_for_probe(1);
+    open_the_room(&mut world);
+    let (_, total) = world.nests_standing().expect("a nest hunt");
+    let wave = world.run.budget.expect("a nest hunt has its budget").wave;
+    assert_eq!(
+        first_round(&world, total),
+        wave.div_ceil(3).min(world.budget_left())
+    );
+    // One nest down before the first round: two thirds of the round.
+    room_mut!(world).strike_droid(0, DroidPart::Chassis, 1e6);
+    wreck_all_but_the_nests(&mut world);
+    world.step(&[]);
+    assert_eq!(world.nests_standing(), Some((total - 1, total)));
+    let round = nest_round(&world, total - 1, total);
+    assert!(round < first_round(&world, total) || round == 1);
+    let before = room!(world).droid_count() as usize;
+    for _ in 0..(data::NEST_FIRST_BUILD_STEPS + 10) {
+        world.step(&[]);
+        if room!(world).droid_count() as usize > before {
+            break;
+        }
+    }
+    let after = room!(world).droid_count() as usize;
+    assert_eq!(after, before + round as usize, "the standing nests' share");
+    // Every one of them out of a standing nest's bay, the step it was
+    // built: nearer one of them than the one destroyed.
+    for i in before..after {
+        let at = room!(world).droid(i).unwrap().pos;
+        let near = |n: usize| (room!(world).droid(n).unwrap().pos - at).len();
+        let standing = (1..total as usize).map(near).fold(f32::MAX, f32::min);
+        assert!(standing < near(0), "body {i} out of a standing bay");
     }
 }
 
@@ -1893,7 +1950,7 @@ fn a_nest_hunt_spends_its_budget_and_then_trickles_unpaid() {
     while trickle.len() < 3 {
         let before = room!(world).droid_count();
         let mut built = 0;
-        for _ in 0..(data::NEST_BUILD_STEPS + 10) {
+        for _ in 0..(data::NEST_FIRST_BUILD_STEPS + 10) {
             world.step(&[]);
             built = room!(world).droid_count() - before;
             if built > 0 {

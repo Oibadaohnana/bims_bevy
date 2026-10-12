@@ -445,7 +445,7 @@ fn a_nest_hunt_pays_its_budget_whatever_the_nests_build() {
             .as_ref()
             .unwrap()
             .built;
-        for _ in 0..(data::NEST_BUILD_STEPS + 10) {
+        for _ in 0..(data::NEST_FIRST_BUILD_STEPS + 10) {
             world.step(&[]);
             if world
                 .infestation(station)

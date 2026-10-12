@@ -440,15 +440,20 @@ pub const EVACUEES: u32 = 6;
 /// player and how many more a player past it, at most; what each takes
 /// by the area the fight is in — area 0, tiers one to three (October
 /// 2026, the player's: "the nest hp should scale with tier area"; it was
-/// 400 everywhere); and how often every standing nest builds (20 s).
+/// 400 everywhere); how long after the dock the nests' first round
+/// comes (40 s: the garrison about dealt with first; it was the 20 s of
+/// the rest until the player found the hunt "way to hard"), and how
+/// often the standing nests build after it (20 s).
 pub const NESTS: u32 = 3;
 pub const NESTS_PER_PLAYER: u32 = 1;
 pub const NESTS_MOST: u32 = 5;
 pub const NEST_HEALTH: [f32; 4] = [180.0, 260.0, 360.0, 480.0];
+pub const NEST_FIRST_BUILD_STEPS: u64 = 2_400;
 pub const NEST_BUILD_STEPS: u64 = 1_200;
 /// How many rounds of every nest a wave is sliced into (October 2026,
-/// `crate::run::Budget`): a round of every nest is a third of a wave, so
-/// a nest builds `⌈wave ÷ (3 × nests)⌉` a round until the mission's
+/// `crate::run::Budget`): a round with every nest standing is a third of
+/// a wave, `⌈wave × standing ÷ (3 × nests)⌉` between the standing nests
+/// (rounded up once for the round, not once a nest), until the mission's
 /// budget is spent, then one a player a round between them.
 pub const NEST_SLICE_ROUNDS: u32 = 3;
 pub const EVAC_WAVE_STEPS: u64 = 1_500;

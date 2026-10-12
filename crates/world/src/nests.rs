@@ -16,12 +16,17 @@
 //! - **They build the mission's budget, a slice a round** (October 2026,
 //!   [`crate::run::Budget`]; the player's: "each build is a slice of the
 //!   wave … and the nests trickle once the total is spent"). The site's
-//!   garrison is the budget's first landing; then every
-//!   [`data::NEST_BUILD_STEPS`] each standing, unstunned nest puts `k`
-//!   enemies out of its bay — `k = ⌈wave ÷ (`[`data::NEST_SLICE_ROUNDS`]` ×
-//!   nests laid)⌉`, a round of every nest a third of a wave — the round
-//!   taken off the budget in nest order until it is spent
-//!   ([`World::nest_build`]). Spent, the nests **trickle**: one a player a
+//!   garrison is the budget's first landing; then, the first round
+//!   [`data::NEST_FIRST_BUILD_STEPS`] after the dock (40 s, the garrison
+//!   about dealt with first) and every [`data::NEST_BUILD_STEPS`] after it,
+//!   the standing, unstunned nests put out a round between them —
+//!   `⌈wave × standing ÷ (`[`data::NEST_SLICE_ROUNDS`]` × nests laid)⌉`, a
+//!   third of a wave with every nest standing, less as they fall, dealt
+//!   round their bays — taken off the budget until it is spent
+//!   ([`World::nest_build`]; the player's: "the nest mission is way to
+//!   hard": it was `⌈wave ÷ (3 × nests)⌉` a nest, rounded up a nest, half a
+//!   wave and more a round on the small waves, the first round at 20 s).
+//!   Spent, the nests **trickle**: one a player a
 //!   round between them, every body marked unpaid, so a nest left standing
 //!   pays nothing more. A nest builds no Bombers or Lancers: the
 //!   garrison's are the hunt's. What comes out is what the area calls for
@@ -180,7 +185,7 @@ impl World {
                 down: vec![false; spots.len()],
                 facing: spots.iter().map(|s| s.1).collect(),
                 spots: spots.iter().map(|s| s.0).collect(),
-                next_build: now + data::NEST_BUILD_STEPS,
+                next_build: now + data::NEST_FIRST_BUILD_STEPS,
                 built: 0,
             });
         }
@@ -321,35 +326,30 @@ impl World {
         if standing == 0 {
             return 0;
         }
-        // The round's slice of the mission's budget (October 2026): `k` a
-        // nest, a round of every nest laid a third of a wave — or, the
-        // budget spent, the trickle, one a player round the nests. With no
-        // budget (the probes' forced kinds) one a nest, as before.
-        let (k, landing) = match self.run.budget {
+        // The round's slice of the mission's budget (October 2026): a third
+        // of a wave with every nest laid standing, the standing nests' share
+        // of it with some down — rounded up once for the round, not once a
+        // nest, or three nests on a wave of six built half of it a round —
+        // or, the budget spent, the trickle, one a player round the nests.
+        // With no budget (the probes' forced kinds) one a nest, as before.
+        let landing = match self.run.budget {
             Some(budget) => {
-                let k = budget.wave.div_ceil(data::NEST_SLICE_ROUNDS * laid).max(1);
-                (k, self.budget_take_plain(standing * k))
+                let round = (budget.wave * standing)
+                    .div_ceil(data::NEST_SLICE_ROUNDS * laid)
+                    .max(1);
+                self.budget_take_plain(round)
             }
-            None => (
-                1,
-                run::Landing {
-                    base: standing,
-                    bombers: 0,
-                    lancers: 0,
-                    unpaid: false,
-                },
-            ),
+            None => run::Landing {
+                base: standing,
+                bombers: 0,
+                lancers: 0,
+                unpaid: false,
+            },
         };
         let n = landing.base;
-        // Which bay each body comes out of: `k` a nest in nest order until
-        // the slice is spent, or the trickle dealt round them.
-        let owner = |j: u32| -> usize {
-            if landing.unpaid {
-                (j % standing) as usize
-            } else {
-                ((j / k).min(standing - 1)) as usize
-            }
-        };
+        // Which bay each body comes out of: dealt round the standing nests
+        // in their order.
+        let owner = |j: u32| -> usize { (j % standing) as usize };
         // Where each stands: its bay, and a tile aside or a row out for
         // every one before it out of the same bay — never two on a tile.
         let t = shipdesign::TILE as f32;
