@@ -1609,9 +1609,8 @@ fn airlocks(
                         })
                     })
                 };
-                let into_room = inward(&|x, y| {
-                    raster.room(x, y) && !keep_out.iter().any(|b| b.contains(x, y))
-                });
+                let into_room =
+                    inward(&|x, y| raster.room(x, y) && !keep_out.iter().any(|b| b.contains(x, y)));
                 let into_corridor = inward(&|x, y| raster.corridor(x, y));
                 // Never on the array or beside it, never on the west
                 // skin by the port.

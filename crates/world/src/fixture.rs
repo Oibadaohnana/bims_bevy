@@ -237,7 +237,16 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// six item slots, the floor's 32 rows). Their shares were not taken
 /// apart. Measured on 8e53f94 (the tree's tests only besides). Was
 /// `0x_6996_9850_bcab_0e80`.
-pub const REFERENCE_CHECKSUM: u64 = 0x_6b64_4af0_7709_4b89;
+/// And re-pinned on 12 October 2026 (the test-all sweep): the week since
+/// 5 October landed changes each meant to alter play — the combat maps (combat
+/// rooms, crates, drums, windows, welded ways in), the missions the
+/// map shapes and the second set of attacks and defences, the four areas,
+/// the ascensions, the Heart's one hall and its link waves, the Overseer's
+/// runs, the bolts a third slower, the mission's budget and its weights,
+/// every mission an end, Sabotage's way home and the nest hunt eased.
+/// Their shares were not taken apart. Measured on d39264d. Was
+/// `0x_6b64_4af0_7709_4b89`.
+pub const REFERENCE_CHECKSUM: u64 = 0x_13a1_a541_4a60_d048;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.

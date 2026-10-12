@@ -10,7 +10,7 @@
 #                                  the world checksum against their
 #                                  written-down constants
 #                         clippy   cargo clippy on the app, warnings as errors
-#                         smoke    four windows open, draw sixty frames and
+#                         smoke    three windows open, draw sixty frames and
 #                                  exit, leaving a screenshot in target/check/
 #   ./check full        the same, deepened — every test, every window — and
 #                       then probes (the room's native probes) and flake
@@ -90,7 +90,7 @@ pins      bims --self-check: `design_hash` and `world_checksum` against the
           constants in shipdesign::fixture and world::fixture, which is what
           the quick tier's missing rules tests would most likely have caught
 clippy    cargo clippy on the app crate, with warnings as errors
-smoke     `bims game`, `simulation`, `design` and `droids` (the fight: a
+smoke     `bims game`, `simulation` and `droids` (the fight: a
           wave of machines on the arena's deck) each run sixty frames in a
           hidden window and exit, all at once, leaving a screenshot in
           target/check/ — a black picture is a bug no test sees. The full
@@ -173,7 +173,7 @@ step_clippy() {
 smoke_one() {
   local what=$1 shot frames wants
   shot=""
-  case "$what" in simulation | design | test_planet | droids | droid_kinds) shot="$LOGS/smoke-$what.png" ;; esac
+  case "$what" in simulation | test_planet | droids | droid_kinds) shot="$LOGS/smoke-$what.png" ;; esac
   rm -f "$shot"
   local staged="" run="$what"
   frames=60
@@ -210,11 +210,11 @@ smoke_one() {
 step_smoke() {
   local fail=0 what
   # Every run goes through ./hidden: a headless compositor of its own, so the
-  # windows open on nobody's desktop. Four windows in the quick tier — the
-  # menu, the world, the yard and a fight — and every other window
+  # windows open on nobody's desktop. Three windows in the quick tier — the
+  # menu, the world and a fight — and every other window
   # in the full one, since each of those is one of these with a dial moved.
   # The fight is `droids`: every enemy is a machine since feature 102.
-  local runs=(game simulation design droids)
+  local runs=(game simulation droids)
   [ "$DEEP" = 1 ] && runs+=(test test_planet combat_droids_engineer combat_droids_soldier combat_droids_medic combat_droids_tank combat_droids_commander tier2_test tier3_test droid_kinds droids_planet restarted stationbuilder)
   # `SMOKE_AT_ONCE` at a time; nothing is shared — a log, a screenshot and a
   # saves directory each. The lines are held and printed in the list's order

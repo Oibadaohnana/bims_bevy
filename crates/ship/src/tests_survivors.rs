@@ -293,18 +293,34 @@ fn commands() -> Vec<(&'static str, u64)> {
 /// `0x_c168_244e_1787_ab60`, `0x_01a1_86b4_7407_4d8a`,
 /// `0x_0cab_dd44_d055_bfbc`, `0x_c017_e76c_f9c7_9af2` and
 /// `0x_390f_0810_a0f4_7aae`.
+///
+/// **All eleven re-pinned on 12 October 2026 (the test-all sweep)**: the
+/// week since the last pin landed changes each meant to alter play —
+/// the combat maps (combat rooms, crates, drums, windows, welded ways in),
+/// the missions the map shapes and the second set of attacks and defences,
+/// the four areas, the ascensions, the Heart's one hall, the Overseer's
+/// runs, the bolts a third slower, the mission's budget and its weights,
+/// every mission an end, Sabotage's way home and the nest hunt eased. Their
+/// shares were not taken apart.
+/// Measured on d39264d. `PINNED_BEFORE_112` (ignored) was not taken
+/// again. They were, in order, `0x_e867_573e_a12d_3d05`,
+/// `0x_0b72_33b1_7fd3_4e05`, `0x_3336_1e37_52ae_b23b`,
+/// `0x_6932_ad10_13c2_eaa0`, `0x_2d23_c271_06d2_fba7`,
+/// `0x_5804_2103_2c7c_8e36`, `0x_d424_7a18_c2d7_c680`,
+/// `0x_5b63_62f9_a9b6_20aa`, `0x_6897_fcf7_5afd_a91c`,
+/// `0x_d142_ba9a_729e_79d2` and `0x_6830_8839_2ff5_40ce`.
 const PINNED: [(&str, u64); 11] = [
-    ("simulation", 0x_e867_573e_a12d_3d05),
-    ("game", 0x_0b72_33b1_7fd3_4e05),
-    ("droids", 0x_3336_1e37_52ae_b23b),
-    ("tier2_test", 0x_6932_ad10_13c2_eaa0),
-    ("combat_droids_medic", 0x_2d23_c271_06d2_fba7),
-    ("test", 0x_5804_2103_2c7c_8e36),
-    ("test_planet", 0x_d424_7a18_c2d7_c680),
-    ("droids_planet", 0x_5b63_62f9_a9b6_20aa),
-    ("defense", 0x_6897_fcf7_5afd_a91c),
-    ("crisis", 0x_d142_ba9a_729e_79d2),
-    ("jammer", 0x_6830_8839_2ff5_40ce),
+    ("simulation", 0x_3802_ec20_8b41_f65c),
+    ("game", 0x_08c9_db29_c4a7_deeb),
+    ("droids", 0x_1c1e_4b91_828c_6721),
+    ("tier2_test", 0x_7be1_0f52_34a9_c15a),
+    ("combat_droids_medic", 0x_0f03_c6cb_2320_d08e),
+    ("test", 0x_250a_2f95_fb62_d312),
+    ("test_planet", 0x_78ab_1665_897e_63d0),
+    ("droids_planet", 0x_f7ec_b091_5bf5_7f16),
+    ("defense", 0x_90ea_658b_f4b0_c6b7),
+    ("crisis", 0x_1974_34cc_3759_4ac6),
+    ("jammer", 0x_9f70_6942_995b_07f1),
 ];
 
 /// **Every command plays as it did**: each session the app builds, read
@@ -421,11 +437,18 @@ fn pictures() -> Vec<(&'static str, u64)> {
 /// `simulation_deck` moved alone for the first mission's eased waves
 /// (`PINNED`'s last note): a machine fewer on the deck. It was
 /// `0x_dbcf_396c_2e7e_20a2`.
+///
+/// **All four re-pinned on 12 October 2026 (the test-all sweep)** for the
+/// changes `PINNED`'s last note names — the designer's two pictures too,
+/// since the combat maps' new parts and the painters moved with them.
+/// Measured on d39264d. They were `0x_9b08_8f44_06ad_4414`,
+/// `0x_157a_1c34_2e97_18e0`, `0x_68e5_dd88_f023_77e4` and
+/// `0x_df15_3380_ad75_d243`.
 const PICTURES: [(&str, u64); 4] = [
-    ("designer_playtest", 0x_9b08_8f44_06ad_4414),
-    ("designer_combat", 0x_157a_1c34_2e97_18e0),
-    ("simulation_deck", 0x_68e5_dd88_f023_77e4),
-    ("droids_deck", 0x_df15_3380_ad75_d243),
+    ("designer_playtest", 0x_180b_0ccb_e163_6d72),
+    ("designer_combat", 0x_f263_e5e7_9289_d436),
+    ("simulation_deck", 0x_17fb_ec17_be7d_38fa),
+    ("droids_deck", 0x_e2de_cb97_a9df_26eb),
 ];
 
 #[test]

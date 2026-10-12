@@ -841,10 +841,8 @@ fn command_post(design: &ShipDesign, room: [u32; 4], from: DVec2) -> Option<(u32
     let [x0, y0, x1, y1] = room;
     let on_ring = |(x, y): (u32, u32)| {
         let (x, y) = (x as i64, y as i64);
-        let inside_ring = x >= x0 as i64 - 1
-            && x <= x1 as i64 + 1
-            && y >= y0 as i64 - 1
-            && y <= y1 as i64 + 1;
+        let inside_ring =
+            x >= x0 as i64 - 1 && x <= x1 as i64 + 1 && y >= y0 as i64 - 1 && y <= y1 as i64 + 1;
         let inside = x >= x0 as i64 && x <= x1 as i64 && y >= y0 as i64 && y <= y1 as i64;
         inside_ring && !inside
     };

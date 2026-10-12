@@ -499,6 +499,10 @@ fn a_stun_shot_charges_two_seconds_then_hurts_and_stuns_what_it_hits() {
         (world.aboard.room.bim_pos(0) - here).len() < 1.0,
         "stood still"
     );
+    // The gun goes before the shot does: a rifle bolt let off as the brace
+    // ends flies a third slower since the bolts' pace (`balance::BOLT_PACE`)
+    // and lands in the step the shot bursts in.
+    disarm(&mut world, 0);
     // Fired: twenty-two and a half on the machine at the first rank, and a stun of
     // three seconds, less the flight's few steps of it worn off.
     let (took, stunned) = machine_shot(&mut world);

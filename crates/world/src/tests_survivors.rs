@@ -236,7 +236,17 @@ const TILE: f32 = shipdesign::TILE as f32;
 /// round the gangway, the movement's speed, the levels' experience, the
 /// Lancer's rail, the six item slots, …). Their shares were not taken
 /// apart. Measured on 8e53f94. Was `0x_d3b2_ad2d_e4a7_a78e`.
-const SURVIVORS: u64 = 0x_c5e7_bbd0_5882_f314;
+/// **And re-pinned on 12 October 2026 (the test-all sweep)**: the week
+/// since 5 October landed changes each meant to alter play — the
+/// combat maps (combat rooms, crates, drums, windows, welded ways in), the
+/// missions the map shapes and the second set of attacks and defences, the
+/// four areas, the ascensions, the Heart's one hall and its link waves, the
+/// Overseer's runs, the bolts a third slower, the mission's budget and its
+/// weights, every mission an end, Sabotage's way home and the nest hunt
+/// eased.
+/// Their shares were not taken apart. Measured on d39264d. Was
+/// `0x_c5e7_bbd0_5882_f314`.
+const SURVIVORS: u64 = 0x_ecc8_dea0_fa13_7c41;
 
 /// A gun in every hand, the kinds dealt round, as the fight's probes arm
 /// a crew — the five there were when the reading was taken: the minigun

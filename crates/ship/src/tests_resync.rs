@@ -789,9 +789,14 @@ fn play(name: &str, mut host: Session, how: How, steps: u64) -> Fought {
 
 /// A fight that was one: machines went down and so did the crew.
 fn a_fight(name: &str, fought: &Fought) {
+    a_fight_of(name, fought, 4);
+}
+
+/// [`a_fight`] with `least` machines down.
+fn a_fight_of(name: &str, fought: &Fought, least: u32) {
     eprintln!("{name}: {fought:?}");
     assert!(
-        fought.machines_down >= 4,
+        fought.machines_down >= least,
         "{name}: machines went down: {fought:?}"
     );
 }
@@ -863,7 +868,10 @@ fn an_engineer_and_a_medic_holding_a_town_read_back_step_as_the_host_s() {
     let classes = [Class::Engineer, Class::Medic];
     let host = town(classes);
     let fought = play("a town", host, How::fight(classes), 2_400);
-    a_fight("a town", &fought);
+    // A town's defence is an Area defend, its waves the budget's even
+    // slices (the mission's budget, October 2026): the forty seconds
+    // played meet the first landing alone, three machines.
+    a_fight_of("a town", &fought, 3);
 }
 
 /// Every mission's fight, a while of it, saved and read back as the rest.

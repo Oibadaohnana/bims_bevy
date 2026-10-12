@@ -273,7 +273,12 @@ pub enum WorldEvent {
     /// (`n` of them), 26 the commander dead, 27 the commander kept alive
     /// his two minutes — and `who` the crew member it was,
     /// `u32::MAX` for nobody.
-    Objective { station: u32, what: u32, n: u32, who: u32 },
+    Objective {
+        station: u32,
+        what: u32,
+        n: u32,
+        who: u32,
+    },
     /// The host said that player has left the game.
     PlayerGone { slot: u32 },
     /// Relics are on offer to the crew (feature 106): `count` of them, off
