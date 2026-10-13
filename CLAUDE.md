@@ -84,7 +84,7 @@ desktop):
   all (`world::run::Budget`; every mission the map shapes and an Area
   defend, then an unpaid trickle), times that mission's weight on the
   one-line `missions` (`world::droid::MissionWeights`, 1.0 built in,
-  0.9 for sabotage, bombs, doors and chief); the floor's length
+  0.9 for sabotage, bombs, doors and chief, 0.8 for breaches); the floor's length
   follows the areas; `world::droid::WaveScaling`,
   `BIMS_SCALING=file` names another) and `rewards.ron` what a fight pays and things cost (xp and
   money an enemy down, a defence's share, the buyback, combine and

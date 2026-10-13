@@ -7686,8 +7686,8 @@ impl World {
             }
             // **A defence with a budget lands its slice** (October 2026,
             // `budget.rs`): an even share of what is left over the
-            // landings its clock has to come, Seal the breaches' the
-            // smaller as breaches are welded — and once it is spent, the
+            // landings its clock has to come, Seal the breaches' a
+            // breach's even share — and once it is spent, the
             // trickle while the fight is on. A plain one lands the wave.
             let full = self.landing_wave_size();
             let laid = match self.run.budget.map(|b| b.of) {

@@ -1353,7 +1353,7 @@ fn breaches_after(waves_of: u32, delay: u64) -> (World, u32) {
 }
 
 /// The waves come on a clock while a breach is open, stacking on those
-/// still standing; each is the smaller for every breach welded; with
+/// still standing; each the same even share of the budget; with
 /// every one welded none comes, and the fight is won once what is aboard
 /// is destroyed.
 #[test]
@@ -1368,13 +1368,13 @@ fn the_waves_come_while_a_breach_is_open_and_the_fight_is_won_once_all_are_welde
         data::DEFENSE_DELAY_STEPS as u32 + 5,
         |w| w.droids_standing() > 0
     ));
-    // A whole landing is the budget's share for one weld a gap (October
-    // 2026): `⌈planned × 2 ÷ (breaches + 1)⌉`, the budget the wave of six
-    // times the area's.
+    // A landing is the budget's even share for one weld a gap (October
+    // 2026): `⌈planned ÷ breaches⌉`, the budget the wave of six times the
+    // area's and the mission's weight.
     let b = world.run.budget.expect("the budget opened at the landing");
     assert_eq!(b.of, crate::run::Budgeted::Breaches);
     assert_eq!(b.wave, 6);
-    let whole = (b.planned * 2).div_ceil(total + 1);
+    let whole = b.planned.div_ceil(total);
     let first = world.droids_standing();
     assert_eq!(first, whole.min(b.planned));
     // The next lands on the clock with the first still standing.
@@ -1391,8 +1391,8 @@ fn the_waves_come_while_a_breach_is_open_and_the_fight_is_won_once_all_are_welde
         first + second,
         "stacked on the first, wrecks and all"
     );
-    // One breach welded: the next wave is its share of the open ones, or
-    // what is left of the budget.
+    // One breach welded: the next wave is the same share, or what is left
+    // of the budget.
     let one = world.entries()[0].index;
     world.weld_for_probe(one);
     world.step(&[]);
@@ -1407,9 +1407,9 @@ fn the_waves_come_while_a_breach_is_open_and_the_fight_is_won_once_all_are_welde
     let third = if left == 0 {
         world.players()
     } else {
-        (whole * (total - 1)).div_ceil(total).min(left)
+        whole.min(left)
     };
-    assert_eq!(laid(&world) - before, third, "a smaller wave");
+    assert_eq!(laid(&world) - before, third, "the same share");
     // Every one welded: no wave comes, none burns through, and the fight is
     // won with the deck cleared.
     for e in world.entries() {

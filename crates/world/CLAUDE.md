@@ -8578,8 +8578,8 @@ untouched). **`SAVE_VERSION` 123.**
 
 > **Since the budget** ("Every mission on the budget, and the weights" at
 > the end of this file) a landing is a slice of the mission's budget —
-> `⌈base × open ÷ total⌉`, `base = ⌈planned × 2 ÷ (total + 1)⌉`, so one
-> weld a gap spends it exactly — and, spent, an unpaid trickle while a
+> `⌈planned ÷ total⌉` however many are open (even since 2026-10-13), so
+> one weld a gap spends it exactly — and, spent, an unpaid trickle while a
 > breach is open; the fight is priced once, and `site_waves` has no
 > breaches branch.
 
@@ -8607,8 +8607,8 @@ type (`Plain`, `Breaches`; saved nowhere, derived).
   port (`entry.rs`'s `ways_in`). Its waves are **on a clock** like an Area
   defend's — `data::BREACH_WAVE_STEPS` (30 s) apart, stacking — while a
   breach is open (`Defense::more_to_come` is `open > 0`), each laid at
-  the next open breach in turn and **as much smaller** as breaches are
-  welded (`breach_wave_size`: its share of the open ones, rounded up).
+  the next open breach in turn, **each the same size**
+  (`breach_wave_size`: the budget's even share, see the budget below).
   `count_the_breaches` says the count every step. Nothing burns through
   (`burn_through` returns at once there). Every breach welded and the
   last machine counted down: won, as any defence. The machines make for
@@ -9178,7 +9178,7 @@ is in its own file (`sabotage.rs`, `attacks.rs`, `missions.rs`,
   at a plain fight (an elite's, a planet town's attack, the start at
   home, a fight off the floor no probe forced).
 - **The weights** (`droid::MissionWeights` on `WaveScaling::missions`;
-  `scaling.ron`'s one-line `missions: (breaches: 1.0, …)`, read again
+  `scaling.ron`'s one-line `missions: (breaches: 0.8, …)`, read again
   when saved like every dial; the setup's Scaling tab): one a budgeted
   fight — `breaches`, `evacuation`, `bombs`, `doors`, `chief`,
   `area_defend`, `sabotage`, `nests`, `overseer`, `heist`, `prison`,
@@ -9212,7 +9212,7 @@ good); Sabotage and the defences stack.
 | A fuel run | 4 | `budget_even(4)` every `FUEL_WAVE_STEPS` (30 s) | the trickle | the reactor critical |
 | A prison break | 4 | the alarm: `budget_even(4)` at the cut and every `PRISON_WAVE_STEPS` (25 s) | the trickle while a prisoner alive is not aboard | the cell open and every prisoner alive aboard |
 | A salvage sweep | 7 (`1 + crates laid`; its own slice reads them) | the k-th crate taken up the first time: `garrison + (planned − garrison) × W(k) ÷ W(n) − laid`, `W(k) = Σ_{j≤k} (10 + 2j)`, n the crates laid | — the last crate lands the last of it | every crate home or gone up (the crew may leave before) |
-| Seal the breaches | its breaches (read by its own slice) | `⌈base × open ÷ total⌉`, `base = ⌈planned × 2 ÷ (total + 1)⌉`, capped by what is left, every `BREACH_WAVE_STEPS` (30 s) | the trickle while a breach is open | every breach welded and the deck clear |
+| Seal the breaches | its breaches (read by its own slice) | `⌈planned ÷ total⌉`, capped by what is left, every `BREACH_WAVE_STEPS` (30 s) | the trickle while a breach is open | every breach welded and the deck clear |
 | Evacuation | 4 (`EVAC_PAR_WAVES`) | `budget_even(4)` every `EVAC_WAVE_STEPS` (25 s) | the trickle until it is over | every one alive aboard (none alive: lost) |
 | Bomb disposal | 3 (`BOMB_PAR_WAVES`) | `budget_even(3)` every `BOMB_WAVE_STEPS` (30 s) | the trickle while a charge is left | every charge defused (the timer out: the run lost) |
 | Hold the doors | 8 (`DOORS_STEPS ÷ DOORS_WAVE_STEPS`, up) | `budget_even(8)` every 25 s of the three minutes | none at par | the hold over; then the Republic's soldiers (`landing_wave_size()`, no budget) until no enemy stands |
@@ -9248,11 +9248,14 @@ the whole wave as before.
   Heart, or a threatened defence that is no Area defend. A prison break
   and a salvage sweep lost theirs.
 - **Seal the breaches** (`missions.rs`' `breach_wave_size(station)`, no
-  `full` any more): a whole landing is `⌈planned × 2 ÷ (total + 1)⌉`, so
-  one weld a gap — every breach open, then one fewer, down to one —
-  spends the budget exactly; a landing is its share of the open ones,
-  rounded up. The slices round up, so the budget may be spent a breach
-  early, that last landing the trickle.
+  `full` any more): a landing is `⌈planned ÷ total⌉` whatever is open,
+  so one weld a gap spends the budget exactly; welded faster, the rest
+  never comes. The slices round up, so the last may be smaller. Until
+  2026-10-13 a whole landing was `⌈planned × 2 ÷ (total + 1)⌉` and each
+  its share of the open ones — half the budget first at three breaches,
+  11 of 21 in the player's fight (wave 7 with two bots and two
+  defenders); the player's: "spread landings evenly and also make the
+  mission weight 0.8".
 - **The guard's three** (`defences.rs`): `guard_wave_size` went, and Hold
   the doors' "three quarters and one a player" with it.
 - **The prison's alarm** (`attacks.rs`): the cut sets

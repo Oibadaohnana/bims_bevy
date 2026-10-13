@@ -623,7 +623,9 @@ impl Default for WaveScaling {
 /// wanted on purpose"): what the area's budget is multiplied by for that
 /// fight (`run::Budget::planned`). One each, a little lighter where a
 /// failure loses the run or the site — Sabotage, Bomb disposal, Hold the
-/// doors and Protect the commander nine tenths. A weight left out of
+/// doors and Protect the commander nine tenths — and Seal the breaches
+/// eight tenths (the player's, October 2026: its crew's bots and the
+/// site's defenders all bring enemies). A weight left out of
 /// `scaling.ron`'s line is its built-in value, not nought.
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(
@@ -650,7 +652,7 @@ pub struct MissionWeights {
 impl MissionWeights {
     /// The built-in weights.
     pub const DEFAULT: MissionWeights = MissionWeights {
-        breaches: 1.0,
+        breaches: 0.8,
         evacuation: 1.0,
         bombs: 0.9,
         doors: 0.9,
@@ -814,7 +816,7 @@ mod tests {
     /// failure loses the run or the site; whole per cent, rounded, never
     /// under nought.
     #[test]
-    fn the_weights_are_one_each_and_nine_tenths_where_a_failure_costs_most() {
+    fn the_weights_are_one_each_nine_tenths_where_a_failure_costs_most_and_breaches_eight() {
         use crate::run::Budgeted;
         let all = [
             Budgeted::Breaches,
@@ -838,7 +840,12 @@ mod tests {
                 of,
                 Budgeted::Sabotage | Budgeted::Bombs | Budgeted::Doors | Budgeted::Chief
             );
-            assert_eq!(w.percent(of), if lighter { 90 } else { 100 }, "{of:?}");
+            let want = match of {
+                Budgeted::Breaches => 80,
+                _ if lighter => 90,
+                _ => 100,
+            };
+            assert_eq!(w.percent(of), want, "{of:?}");
         }
         // Rounded to the per cent, and never negative.
         let mut odd = MissionWeights::DEFAULT;
