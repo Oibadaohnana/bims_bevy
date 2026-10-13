@@ -213,7 +213,12 @@ impl Default for Settings {
             auto_shoot: crate::dev::auto_shoot(),
             ascension: crate::profile::ascension_reached(),
             ascension_open: crate::profile::ascension_open(),
-            dev: Default::default(),
+            // `BIMS_MISSION` picks the Dev tab's mission too, so a lobby
+            // run with nobody at the keyboard (`BIMS_AUTO`) opens in it.
+            dev: super::devtab::DevSetup {
+                mission: crate::dev::mission(),
+                ..Default::default()
+            },
         }
     }
 }

@@ -1363,6 +1363,8 @@ pub fn escape() -> bool {
 /// The mission every station fight is (October 2026, the missions the map
 /// shapes): `BIMS_MISSION=breaches` makes every station's defence Seal the
 /// breaches, `BIMS_MISSION=plain` none. Unset is the game's own roll.
+/// In the `game` run it is the setup's Dev tab mission picked, so a
+/// lobby with nobody at the keyboard (`BIMS_AUTO`) opens straight into it.
 pub fn mission() -> Option<world::run::Mission> {
     match std::env::var("BIMS_MISSION").ok()?.trim() {
         "breaches" => Some(world::run::Mission::Breaches),
