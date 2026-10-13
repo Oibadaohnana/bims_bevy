@@ -124,7 +124,7 @@ impl World {
     /// Saved, not hashed.
     pub fn set_mission_for_probe(&mut self, mission: Option<Mission>) {
         self.mission_forced = mission;
-        // The site's room opened again, for an Evacuation's refugees.
+        // The site's room opened again, for an Evacuation's people.
         if let Some(id) = self.ship.state.alongside() {
             self.reopen_residents(id);
         }

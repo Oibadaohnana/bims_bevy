@@ -432,10 +432,14 @@ pub const SABOTAGE_ESCAPE_STEPS: u64 = 4_500;
 pub const SABOTAGE_WAVE_STEPS: u64 = 900;
 pub const DISARM_STEPS: u32 = 480;
 pub const DISARM_REACH_TILES: f32 = 1.5;
-/// **Evacuation** (October 2026): how many refugees a site has past its
-/// own people; a wave every so many steps (25 s) until they are aboard,
-/// the last down or not; how near the flag a Bim picks it up, in tiles.
-pub const EVACUEES: u32 = 6;
+/// **Evacuation** (October 2026): how many people a site has to bring
+/// out — its people while it lasts, whatever its bunks would hold (the
+/// player's: "make the hostages 5 ppl max"; it was every person its
+/// bunks took and six refugees besides, 35 at a big station, and every
+/// one of them walked again whenever the flag moved — a 50 ms step); a
+/// wave every so many steps (25 s) until they are aboard, the last down
+/// or not; how near the flag a Bim picks it up, in tiles.
+pub const EVACUEES: u32 = 5;
 /// **A nest hunt** (October 2026): how many nests a site has for one
 /// player and how many more a player past it, at most; what each takes
 /// by the area the fight is in — area 0, tiers one to three (October

@@ -1,10 +1,10 @@
 //! **Evacuation** (October 2026, a mission the map shapes): a defence
 //! whose fight is getting the site's people to the crew's ship.
 //!
-//! - **Who**: the site's own people and [`data::EVACUEES`] refugees beside
-//!   them (`Residents::open`'s `evacuees`, past the bunks) — every body of
-//!   the site's room that is not a defender, a grave or one of the
-//!   Manufacturers'. They take no arms: the room keeps them sheltering, and
+//! - **Who**: the site's people, [`data::EVACUEES`] of them whatever its
+//!   bunks hold (`Residents::open`'s `evacuees`, in place of its own) —
+//!   every body of the site's room that is not a defender, a grave or one
+//!   of the Manufacturers'. They take no arms: the room keeps them sheltering, and
 //!   the world posts them by **the flag** instead of a bunk.
 //! - **The flag**: one, standing where the site's first person stands when
 //!   the defence begins. `Command::Flag` (the Use key, V) takes it up from

@@ -127,10 +127,10 @@ pub enum Mission {
     /// while the machines make to disarm it — disarmed, the run is lost —
     /// then get out by another airlock before it blows.
     Sabotage,
-    /// **Evacuation** (a defence): the site's people and its refugees
-    /// follow the flag a player carries — or stay by it where it is
-    /// dropped — to the crew's ship; held once every one alive is
-    /// aboard, the reward the share of them saved.
+    /// **Evacuation** (a defence): the site's people (five) follow the
+    /// flag a player carries — or stay by it where it is dropped — to the
+    /// crew's ship; held once every one alive is aboard, the reward the
+    /// share of them saved.
     Evacuation,
     /// **A nest hunt** (an attack): nests grown into the
     /// site's walls build a machine each on a clock until every one is

@@ -8743,11 +8743,14 @@ Flag is dropped they stay near the flag". `evacuation.rs` (a child of
 
 - **Which**: `mission_at`'s roll makes a station defence Seal the breaches
   on 0, Evacuation on 1 (of `BREACHES_ODDS`, 3), plain on 2.
-- **Who**: `Residents::open` takes `evacuees` — `data::EVACUEES` (6)
-  refugees past the bunks, the site's own people all the same
+- **Who**: `Residents::open` takes `evacuees` — `data::EVACUEES` (5)
+  people in place of the site's own, whatever its bunks hold
   (`World::evacuees_of`, while the defence is to come or under way;
   `reopen_residents` counts them, and `set_mission_for_probe` reopens the
-  site's room so they are there). The evacuees are every own body of the
+  site's room so they are there). It was the site's own people cut to
+  its bunks and six refugees besides — 35 at a big station, all of them
+  re-routed on one step whenever the carried flag moved 1.5 tiles (a
+  50 ms step): the player's "make the hostages 5 ppl max". The evacuees are every own body of the
   site's room, alive, not a Manufacturer.
 - **`Defense::evacuation: Option<defense::Evacuation { total, aboard,
   holder, at }>`** (saved, hashed where `Some`), laid as the defence

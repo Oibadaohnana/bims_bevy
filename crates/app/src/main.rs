@@ -299,7 +299,7 @@ const COMMANDS: [(&str, &str); 35] = [
     ),
     (
         "evacuation",
-        "Evacuation: the combat crew at the spawn's arena under attack; take up the flag (V) and lead the site's people and its refugees aboard the ship, put it down to make them hold",
+        "Evacuation: the combat crew at the spawn's arena under attack; take up the flag (V) and lead the site's five people aboard the ship, put it down to make them hold",
     ),
     (
         "nests",

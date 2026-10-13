@@ -2436,8 +2436,8 @@ impl World {
     /// The comparison is against the room's **Bims** — `crew_count`, not
     /// `Aboard::count`, which counts the machines too — since what is
     /// being reopened is the people.
-    /// An Evacuation's refugees at `station` (October 2026), while it is
-    /// to come or under way; none anywhere else.
+    /// An Evacuation's people at `station` (October 2026), in place of
+    /// its own, while it is to come or under way; none anywhere else.
     fn evacuees_of(&self, station: u32) -> u32 {
         let under_way =
             self.site_threatened(station) || self.defense(station).is_some_and(|d| !d.over());
@@ -2455,10 +2455,14 @@ impl World {
             .filter(|r| r.station == station)
             .and_then(|r| {
                 let s = self.station(station)?;
-                let count = self.people_of(s);
+                // An Evacuation's people in place of the site's own.
+                let count = match self.evacuees_of(station) {
+                    0 => self.people_of(s),
+                    evacuees => evacuees,
+                };
                 // And the defenders (task 111), who are Bims of the room
                 // as much as the people are.
-                let defenders = self.defenders_of(station) + self.evacuees_of(station);
+                let defenders = self.defenders_of(station);
                 (count + defenders != r.aboard.room.crew_count())
                     .then(|| (s.design.clone(), s.map_seed))
             });
@@ -3616,8 +3620,8 @@ impl World {
         seed: u64,
     ) -> Residents {
         let defenders = self.defender_tiers(self.defenders_of(station));
-        // An Evacuation's refugees (October 2026), while it is to come or
-        // under way.
+        // An Evacuation's people (October 2026), in place of its own,
+        // while it is to come or under way.
         let evacuees = self.evacuees_of(station);
         let mut residents = Residents::open(
             station,

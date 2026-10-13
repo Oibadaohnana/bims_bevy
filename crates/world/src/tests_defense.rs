@@ -1512,16 +1512,13 @@ fn flag_on_deck(world: &World) -> bims::math::Vec2 {
     bims::math::vec2(p.x as f32, p.y as f32)
 }
 
-/// The site's people and its refugees follow the flag a player carries to
+/// The site's people — five of them — follow the flag a player carries to
 /// the ship, and the defence is held with every one of them aboard.
 #[test]
 fn an_evacuation_follows_the_flag_to_the_ship_and_is_held() {
     let (mut world, id) = evacuation(100_000);
     let look = world.evacuation_look().unwrap();
-    assert!(
-        look.total >= data::EVACUEES,
-        "the refugees and the site's own"
-    );
+    assert_eq!(look.total, data::EVACUEES, "five, whatever the bunks hold");
     assert!(!look.carried);
     // Taken up from beside it.
     let flag = flag_on_deck(&world);

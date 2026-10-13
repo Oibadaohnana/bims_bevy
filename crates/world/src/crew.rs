@@ -794,10 +794,14 @@ impl Residents {
         graves: &[Grave],
     ) -> Residents {
         let bunks = design.count(shipdesign::PartKind::Bunk).max(1);
-        // The site's own people, cut to its bunks — and an Evacuation's
-        // refugees beside them (October 2026), past the bunks: they are
-        // the site's own all the same.
-        let count = count.min(bunks) + evacuees;
+        // The site's own people, cut to its bunks — or, at an
+        // Evacuation, its people to bring out instead (October 2026),
+        // however many the bunks hold.
+        let count = if evacuees > 0 {
+            evacuees
+        } else {
+            count.min(bunks)
+        };
         let living = count + defenders.len() as u32;
         // And the dead this station has already (feature 85), on the end:
         // bodies, not people, so the bunks have nothing to say about how
