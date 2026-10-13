@@ -2128,12 +2128,14 @@ fn candidate(
     // goes where nothing blocks it.
     let trial_floor = floor_of(&sketch, &roles, &[], &[port], array, &[], &combat);
     let trial = furnish_placer(side, trial_floor, map_seed);
-    // No way in opens into the commander's room: the waves come in far
-    // from him.
+    // No way in opens into the commander's room, nor into a vault — its
+    // antechamber or its core (the player's: "after the first 2 doors
+    // there is no airlock allowed"): the waves come in far from him and
+    // through the doors held.
     let keep_out: Vec<Block> = rooms
         .iter()
         .zip(&roles)
-        .filter(|(_, r)| **r == Role::Command)
+        .filter(|(_, r)| matches!(**r, Role::Command | Role::Vault))
         .map(|(b, _)| *b)
         .collect();
     let locks = airlocks(kind, &raster, &sketch, &trial, array, &keep_out, rng);

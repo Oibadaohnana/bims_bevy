@@ -688,16 +688,20 @@ fn a_station_is_built_for_its_mission_s_rooms() {
                         fitted.doors.len(),
                         if feature == Feature::Vault { 3 } else { 0 }
                     );
-                    // No way in opens into the commander's room.
-                    if feature == Feature::Command {
-                        let r = fitted.rooms[0];
+                    // No way in opens into the commander's room, nor
+                    // into a vault's antechamber or its core.
+                    for &r in fitted
+                        .rooms
+                        .iter()
+                        .filter(|_| matches!(feature, Feature::Command | Feature::Vault))
+                    {
                         for port in crate::droid::airlocks(&g.placer.design) {
                             let (x, y) = crate::droid::inside_of(&port, 1.0);
                             let t = shipdesign::TILE as f64;
                             let (tx, ty) = ((x / t).floor() as u32, (y / t).floor() as u32);
                             assert!(
                                 !(tx >= r[0] && tx <= r[2] && ty >= r[1] && ty <= r[3]),
-                                "{kind:?}: an airlock into the commander's room"
+                                "{kind:?} {feature:?}: an airlock into the commander's room"
                             );
                         }
                     }
